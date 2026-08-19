@@ -68,19 +68,6 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		return &chatcommands.Result{Reply: runtimecontrol.StopFeedback(false)}, nil
 	})
 
-	reg.Register("/memory", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		handleMemory(writer, sess.memOrchestrator, sess.subjectID)
-		return &chatcommands.Result{}, nil
-	})
-
-	reg.Register("/remember", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		if args == "" {
-			return &chatcommands.Result{Reply: "Usage: /remember <content>"}, nil
-		}
-		handleRemember(writer, "/remember "+args, sess.memManager, sess.subjectID)
-		return &chatcommands.Result{}, nil
-	})
-
 	reg.Register("/init", func(ctx context.Context, args string) (*chatcommands.Result, error) {
 		projectDir := sess.projectDir()
 		agentsPath := filepath.Join(projectDir, "AGENTS.md")
@@ -254,9 +241,7 @@ func chatBuiltinCommandsBlock() string {
 		"The user can type these special commands at any time:\n" +
 		"- `/exit` or `/quit` — exit the chat session\n" +
 		"- `/stop` — stop the current running turn\n" +
-		"- `/reset` — reset the current conversation (clear history, keep memory)\n" +
-		"- `/memory` — display the current project memory\n" +
-		"- `/remember <content>` — add a long-term memory item for the current project\n" +
+		"- `/reset` — reset the current conversation\n" +
 		"- `/think <task>` — run one task through the think route with xhigh reasoning effort\n" +
 		"- `/skills` — show loaded and not loaded skills\n" +
 		"- `/models` — inspect or change the current model selection for this session\n" +

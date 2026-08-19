@@ -17,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -96,24 +97,20 @@ func buildAwarenessRuntime(
 	awarenessDeps.RuntimeToolsConfig = runtimeToolsConfig
 	awarenessDeps.RuntimePaths = paths
 	awarenessOpts := awarenessruntime.RunOptions{
-		Interval:                hbCfg.Interval,
-		TaskTimeout:             taskTimeout,
-		RequestTimeout:          slackCfg.RequestTimeout,
-		AgentLimits:             slackCfg.AgentLimits,
-		EngineToolsConfig:       slackCfg.EngineToolsConfig,
-		Source:                  "slack",
-		ChecklistPath:           paths.HeartbeatPath,
-		DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
-		MemoryEnabled:           slackCfg.MemoryEnabled,
-		MemoryShortTermDays:     slackCfg.MemoryShortTermDays,
-		MemoryInjectionEnabled:  slackCfg.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: slackCfg.MemoryInjectionMaxItems,
-		InspectPrompt:           inspectPrompt,
-		InspectRequest:          inspectRequest,
-		Notifier:                newSlackAwarenessNotifier(botToken, baseURL, allowedChannelIDs),
-		CronEnabled:             cronCfg.Enabled,
-		CronPath:                paths.CronPath,
-		ChatInfoRefresher:       chatInfoRefresher,
+		Interval:          hbCfg.Interval,
+		TaskTimeout:       taskTimeout,
+		RequestTimeout:    slackCfg.RequestTimeout,
+		AgentLimits:       slackCfg.AgentLimits,
+		EngineToolsConfig: slackCfg.EngineToolsConfig,
+		Source:            "slack",
+		ChecklistPath:     paths.HeartbeatPath,
+		DisableHeartbeat:  !hbCfg.Enabled || hbCfg.Interval <= 0,
+		InspectPrompt:     inspectPrompt,
+		InspectRequest:    inspectRequest,
+		Notifier:          newSlackAwarenessNotifier(botToken, baseURL, allowedChannelIDs),
+		CronEnabled:       cronCfg.Enabled,
+		CronPath:          paths.CronPath,
+		ChatInfoRefresher: chatInfoRefresher,
 	}
 	return awarenessDeps, awarenessOpts
 }
@@ -140,6 +137,18 @@ func runSlackWithOptionalAwareness(
 ) error {
 	if !awarenessEnabled {
 		return slackruntime.Run(ctx, slackDeps, slackOpts)
+	}
+	if slackOpts.TaskStore == nil {
+		taskStore, err := daemonruntime.NewTaskViewForTarget("slack", slackOpts.Server.MaxQueue, daemonruntime.TaskViewConfig{
+			PersistenceTargets: slackDeps.TaskPersistenceTargets,
+			TasksDir:           slackDeps.RuntimePaths.TasksDir,
+			JournalDir:         slackDeps.RuntimePaths.JournalDir,
+			RotateMaxBytes:     slackDeps.TaskRotateMaxBytes,
+		})
+		if err != nil {
+			return err
+		}
+		slackOpts.TaskStore = taskStore
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -168,6 +177,7 @@ func attachSlackAwarenessTriggers(slackOpts *slackruntime.RunOptions, awarenessO
 	if slackOpts == nil || awarenessOpts == nil {
 		return
 	}
+	awarenessOpts.TaskStore = slackOpts.TaskStore
 	pokeRequests := make(chan awarenessruntime.PokeRequest)
 	awarenessOpts.PokeRequests = pokeRequests
 	slackOpts.Server.Poke = func(ctx context.Context, input awarenessdomain.PokeInput) error {

@@ -307,42 +307,6 @@ func (routes *routeRegistration) registerStateRoutes() {
 		handlePersonaAvatar(w, r, paths.avatarPath)
 	})
 
-	mux.HandleFunc("/memory/files", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := statePaths
-		items, err := listMemoryFiles(paths.memoryDir)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"default_id": "index.md",
-			"items":      items,
-		})
-	})
-	mux.HandleFunc("/memory/files/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := statePaths
-		rawID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/memory/files/"))
-		spec, ok := resolveMemoryFileSpec(paths.memoryDir, rawID)
-		if !ok {
-			http.Error(w, "invalid file id", http.StatusBadRequest)
-			return
-		}
-		handleMemoryFileDetail(w, r, spec)
-	})
-
 	mux.HandleFunc("/audit/files", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

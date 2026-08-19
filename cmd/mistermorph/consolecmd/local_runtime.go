@@ -27,7 +27,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
-	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
@@ -39,7 +38,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
@@ -57,7 +55,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/internal/xaiauth"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/viper"
 )
@@ -117,7 +114,6 @@ type consoleLocalRuntimeGeneration struct {
 	logger      *slog.Logger
 	commonDeps  depsutil.CommonDependencies
 	bundle      *consoleLocalRuntimeBundle
-	memRuntime  runtimecore.MemoryRuntime
 	contactsSvc *contacts.Service
 	paths       runtimepaths.Paths
 
@@ -188,9 +184,10 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	slog.SetDefault(gen.logger)
 	persistTasks := consoleTaskPersistenceEnabledFromReader(gen.reader)
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir:    gen.paths.TaskTargetDir("console"),
-		Persist:    persistTasks,
-		JournalDir: gen.paths.JournalDir,
+		RootDir:        gen.paths.TaskTargetDir("console"),
+		Persist:        persistTasks,
+		JournalDir:     gen.paths.JournalDir,
+		RotateMaxBytes: gen.reader.GetInt64("tasks.rotate_max_bytes"),
 	})
 	if err != nil {
 		_ = inspectors.Close()
@@ -509,9 +506,6 @@ func (g *consoleLocalRuntimeGeneration) cleanupResources() {
 	if g == nil {
 		return
 	}
-	if g.memRuntime.Cleanup != nil {
-		g.memRuntime.Cleanup()
-	}
 	if g.bundle != nil && g.bundle.taskRuntime != nil {
 		if err := g.bundle.taskRuntime.Close(); err != nil && g.logger != nil {
 			g.logger.Warn("console_task_runtime_close_failed", "error", err.Error())
@@ -546,19 +540,6 @@ func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLo
 	if err != nil {
 		return nil, err
 	}
-	memRuntime, err := runtimecore.NewMemoryRuntime(commonDeps, runtimecore.MemoryRuntimeOptions{
-		Enabled:       snapshot.reader.GetBool("memory.enabled"),
-		ShortTermDays: snapshot.reader.GetInt("memory.short_term_days"),
-		MemoryDir:     snapshot.paths.MemoryDir,
-		JournalDir:    snapshot.paths.JournalDir,
-		Logger:        logger,
-	})
-	if err != nil {
-		if bundle.mcpHost != nil {
-			_ = bundle.mcpHost.Close()
-		}
-		return nil, err
-	}
 	r.generationMu.Lock()
 	r.nextGeneration++
 	nextGeneration := r.nextGeneration
@@ -571,7 +552,6 @@ func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLo
 		logger:     logger,
 		commonDeps: commonDeps,
 		bundle:     bundle,
-		memRuntime: memRuntime,
 		contactsSvc: contacts.NewServiceWithOptions(contactsStore, contacts.ServiceOptions{
 			FailureCooldown: consoleContactsFailureCooldownFromReader(snapshot.reader),
 		}),
@@ -699,9 +679,6 @@ func (r *consoleLocalRuntime) applyPreparedGenerationLocked(generation *consoleL
 	r.authToken = authToken
 	r.handler = consoleGenerationHandler(generation, daemonruntime.NewHandler(r.routesOptions(strings.TrimSpace(authToken))))
 	r.handlerMu.Unlock()
-	if generation != nil && generation.memRuntime.ProjectionWorker != nil && r.workersCtx != nil {
-		generation.memRuntime.ProjectionWorker.Start(r.workersCtx)
-	}
 	slog.SetDefault(r.currentLogger())
 	r.reloadAwarenessLoop()
 	if prevGeneration != nil {
@@ -2424,31 +2401,6 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if len(historyMsgs) > 0 {
 		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
-	memSubjectID := buildConsoleMemorySubjectID(conversationKey)
-	memoryHooks := taskruntime.MemoryHooks{
-		Source:    "console",
-		SubjectID: memSubjectID,
-	}
-	reader := generation.reader
-	if reader.GetBool("memory.enabled") && generation.memRuntime.Orchestrator != nil && memSubjectID != "" {
-		memoryHooks.InjectionEnabled = reader.GetBool("memory.injection.enabled")
-		memoryHooks.InjectionMaxItems = reader.GetInt("memory.injection.max_items")
-		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
-			return generation.memRuntime.Orchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-				SubjectID:      memSubjectID,
-				RequestContext: memory.ContextPrivate,
-				MaxItems:       maxItems,
-			})
-		}
-		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
-			return generation.memRuntime.Orchestrator.Record(buildConsoleMemoryRecordRequest(job, memSubjectID, finalOutput))
-		}
-		memoryHooks.NotifyRecorded = func() {
-			if generation.memRuntime.ProjectionWorker != nil {
-				generation.memRuntime.ProjectionWorker.NotifyRecordAppended()
-			}
-		}
-	}
 	traceID := strings.TrimSpace(job.Trigger.TraceID)
 	if traceID == "" {
 		traceID = job.TaskID
@@ -2519,7 +2471,6 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		Meta:                    meta,
 		PromptAugment:           promptAugment,
 		PlanStepUpdate:          planStepUpdate,
-		Memory:                  memoryHooks,
 		ImageToolScope:          imageToolScope,
 		ImageToolRetention:      toolsutil.ImageToolRetentionSticky,
 		ContextCheckpointStore:  checkpointHistory.Store,
@@ -2808,17 +2759,6 @@ func sanitizeConsoleTopicTitle(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
-func buildConsoleMemorySubjectID(conversationKey string) string {
-	key := strings.TrimSpace(conversationKey)
-	if key == "" {
-		return buildConsoleConversationKey(daemonruntime.ConsoleDefaultTopicID)
-	}
-	if strings.HasPrefix(strings.ToLower(key), "console:") {
-		return key
-	}
-	return buildConsoleConversationKey(key)
-}
-
 func normalizeConsoleTrigger(in *daemonruntime.TaskTrigger, fallback daemonruntime.TaskTrigger) daemonruntime.TaskTrigger {
 	if in == nil {
 		return fallback
@@ -2914,23 +2854,19 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 			r.awarenessMu.Unlock()
 		}()
 		if err := awarenessloop.Run(hbCtx, generation.commonDeps, awarenessloop.RunOptions{
-			Interval:                hbCfg.Interval,
-			TaskTimeout:             consoleDefaultTimeoutFromReader(reader),
-			AgentLimits:             consoleAgentLimitsFromReader(reader),
-			EngineToolsConfig:       consoleEngineToolsConfigFromReader(reader),
-			Source:                  "console",
-			ChecklistPath:           generation.paths.HeartbeatPath,
-			DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
-			MemoryEnabled:           reader.GetBool("memory.enabled"),
-			MemoryShortTermDays:     reader.GetInt("memory.short_term_days"),
-			MemoryInjectionEnabled:  reader.GetBool("memory.injection.enabled"),
-			MemoryInjectionMaxItems: reader.GetInt("memory.injection.max_items"),
-			PokeRequests:            pokeRequests,
-			CronRequests:            cronRequests,
-			CronEnabled:             cronCfg.Enabled,
-			CronPath:                generation.paths.CronPath,
-			ChatInfoRefresher:       chatinfo.NewFetcher(chatinfo.FetcherOptionsFromReader(reader)),
-			TaskStore:               r.store,
+			Interval:          hbCfg.Interval,
+			TaskTimeout:       consoleDefaultTimeoutFromReader(reader),
+			AgentLimits:       consoleAgentLimitsFromReader(reader),
+			EngineToolsConfig: consoleEngineToolsConfigFromReader(reader),
+			Source:            "console",
+			ChecklistPath:     generation.paths.HeartbeatPath,
+			DisableHeartbeat:  !hbCfg.Enabled || hbCfg.Interval <= 0,
+			PokeRequests:      pokeRequests,
+			CronRequests:      cronRequests,
+			CronEnabled:       cronCfg.Enabled,
+			CronPath:          generation.paths.CronPath,
+			ChatInfoRefresher: chatinfo.NewFetcher(chatinfo.FetcherOptionsFromReader(reader)),
+			TaskStore:         r.store,
 			CronNotify: func(_ context.Context, notification awarenessloop.CronNotification) error {
 				r.notificationHub.Publish(notification)
 				return nil
@@ -2958,55 +2894,5 @@ func (r *consoleLocalRuntime) stopAwarenessLoop() {
 	}
 	if done != nil {
 		<-done
-	}
-}
-
-func buildConsoleMemoryRecordRequest(job consoleLocalTaskJob, subjectID, output string) memoryruntime.RecordRequest {
-	subjectID = strings.TrimSpace(subjectID)
-	if subjectID == "" {
-		subjectID = buildConsoleConversationKey(daemonruntime.ConsoleDefaultTopicID)
-	}
-	now := time.Now().UTC()
-	inbound := newConsoleInboundHistoryItem(job)
-	inbound.ChatID = subjectID
-	outbound := chathistory.ChatHistoryItem{
-		Channel:          consoleHistoryChannel,
-		Kind:             chathistory.KindOutboundAgent,
-		ChatID:           subjectID,
-		ChatType:         "private",
-		ReplyToMessageID: job.TaskID,
-		SentAt:           now,
-		Sender: chathistory.ChatHistorySender{
-			UserID:     consoleAgentUserID,
-			Username:   consoleAgentUsername,
-			Nickname:   consoleAgentNickname,
-			IsBot:      true,
-			DisplayRef: consoleAgentUsername,
-		},
-		Text: strings.TrimSpace(output),
-	}
-	return memoryruntime.RecordRequest{
-		TaskRunID:   strings.TrimSpace(job.TaskID),
-		SessionID:   subjectID,
-		SubjectID:   subjectID,
-		Channel:     "console",
-		TaskText:    strings.TrimSpace(job.Task),
-		FinalOutput: strings.TrimSpace(output),
-		Participants: []memory.MemoryParticipant{
-			{ID: "console:user", Nickname: "Console User", Protocol: "console"},
-			{ID: 0, Nickname: "MisterMorph", Protocol: ""},
-		},
-		SourceHistory: []chathistory.ChatHistoryItem{
-			inbound,
-			outbound,
-		},
-		SessionContext: memory.SessionContext{
-			ConversationID:     subjectID,
-			ConversationType:   "private",
-			CounterpartyID:     "console:user",
-			CounterpartyName:   "Console User",
-			CounterpartyHandle: "console",
-			CounterpartyLabel:  "[Console User](console:user)",
-		},
 	}
 }

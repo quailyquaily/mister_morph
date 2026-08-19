@@ -844,7 +844,6 @@ func TestRunTreatsCtxCompactAsControlTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore() error = %v", err)
 	}
-	memoryRecords := 0
 	result, err := rt.Run(context.Background(), RunRequest{
 		Task:                   "/ctx compact",
 		Scene:                  "test.loop",
@@ -852,13 +851,6 @@ func TestRunTreatsCtxCompactAsControlTask(t *testing.T) {
 		HistoryBoundaries:      []string{"old-1", "old-2"},
 		CurrentMessageBoundary: "manual-command",
 		ContextCheckpointStore: store,
-		Memory: MemoryHooks{
-			SubjectID: "test",
-			Record: func(*agent.Final, string) error {
-				memoryRecords++
-				return nil
-			},
-		},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -868,9 +860,6 @@ func TestRunTreatsCtxCompactAsControlTask(t *testing.T) {
 	}
 	if len(client.requests) != 1 || client.requests[0].Scene != "test.context_compact" {
 		t.Fatalf("requests = %#v", client.requests)
-	}
-	if memoryRecords != 0 {
-		t.Fatalf("memory records = %d, want 0", memoryRecords)
 	}
 	checkpoint, found, err := store.Load(context.Background())
 	if err != nil || !found {
@@ -1413,7 +1402,7 @@ func TestBootstrapReusesMainClientForSamePlanProfile(t *testing.T) {
 	}
 }
 
-func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
+func TestRunAppliesPromptAugments(t *testing.T) {
 	client := &stubTaskRuntimeClient{}
 	route := llmutil.ResolvedRoute{
 		ClientConfig: llmconfig.ClientConfig{
@@ -1450,11 +1439,6 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
 
-	var (
-		prepareCalls int
-		recordCalls  int
-		notifyCalls  int
-	)
 	result, err := rt.Run(context.Background(), RunRequest{
 		Task:  "ping",
 		Model: "gpt-5.4",
@@ -1462,47 +1446,12 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 		PromptAugment: func(spec *agent.PromptSpec, _ *tools.Registry) {
 			spec.Blocks = append(spec.Blocks, agent.PromptBlock{Content: "channel block"})
 		},
-		Memory: MemoryHooks{
-			Source:            "test",
-			SubjectID:         "test:main",
-			InjectionEnabled:  true,
-			InjectionMaxItems: 3,
-			PrepareInjection: func(maxItems int) (string, error) {
-				prepareCalls++
-				if maxItems != 3 {
-					t.Fatalf("PrepareInjection maxItems = %d, want 3", maxItems)
-				}
-				return "memory snapshot", nil
-			},
-			ShouldRecord: func(*agent.Final) bool {
-				return true
-			},
-			Record: func(_ *agent.Final, finalOutput string) error {
-				recordCalls++
-				if strings.TrimSpace(finalOutput) != "ok" {
-					t.Fatalf("finalOutput = %q, want ok", finalOutput)
-				}
-				return nil
-			},
-			NotifyRecorded: func() {
-				notifyCalls++
-			},
-		},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if result.Final == nil {
 		t.Fatal("Run() final is nil")
-	}
-	if prepareCalls != 1 {
-		t.Fatalf("PrepareInjection calls = %d, want 1", prepareCalls)
-	}
-	if recordCalls != 1 {
-		t.Fatalf("Record calls = %d, want 1", recordCalls)
-	}
-	if notifyCalls != 1 {
-		t.Fatalf("NotifyRecorded calls = %d, want 1", notifyCalls)
 	}
 	if len(client.requests) != 1 {
 		t.Fatalf("client requests = %d, want 1", len(client.requests))
@@ -1514,15 +1463,12 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 		t.Fatalf("request scene = %q, want test.loop", client.requests[0].Scene)
 	}
 	msgs := client.requests[0].Messages
-	if len(msgs) != 4 {
-		t.Fatalf("messages len = %d, want 4", len(msgs))
+	if len(msgs) != 3 {
+		t.Fatalf("messages len = %d, want 3", len(msgs))
 	}
 	systemPrompt := msgs[0].Content
 	if !strings.Contains(systemPrompt, "channel block") {
 		t.Fatalf("system prompt missing prompt augment block: %q", systemPrompt)
-	}
-	if strings.Contains(systemPrompt, "memory snapshot") {
-		t.Fatalf("system prompt should not contain memory snapshot: %q", systemPrompt)
 	}
 	if !strings.Contains(systemPrompt, "integration block") {
 		t.Fatalf("system prompt missing common prompt augment block: %q", systemPrompt)
@@ -1530,14 +1476,8 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 	if !strings.Contains(msgs[1].Content, "mister_morph_meta") {
 		t.Fatalf("messages[1] = %q, want injected meta", msgs[1].Content)
 	}
-	if msgs[2].Role != "user" || !strings.Contains(msgs[2].Content, "[[ Runtime Memory ]]") {
-		t.Fatalf("messages[2] = %#v, want runtime memory message", msgs[2])
-	}
-	if !strings.Contains(msgs[2].Content, "memory snapshot") {
-		t.Fatalf("messages[2] = %q, want memory snapshot", msgs[2].Content)
-	}
-	if msgs[3].Content != "ping" {
-		t.Fatalf("messages[3] = %q, want task", msgs[3].Content)
+	if msgs[2].Content != "ping" {
+		t.Fatalf("messages[2] = %q, want task", msgs[2].Content)
 	}
 }
 

@@ -46,7 +46,7 @@ ENDIF
 - It always starts with `[ChatID]`.
 
 ### Reference Format Usage Guide
-- Only use the reference in internal storage or files, like memory, cron, HEARTBEAT files, etc.
+- Only use the reference in internal storage or files, such as task, cron, and HEARTBEAT files.
 - `protocol` is extensible; not a fixed protocol list.
 - By default, only use the `name` or `id` in daily conversation expression.
 

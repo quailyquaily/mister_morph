@@ -66,8 +66,6 @@ task の実行中に通常の non-command message を送ると、新しい task 
 | `/exit` | chat session を終了します。 |
 | `/quit` | chat session を終了します。 |
 | `/reset` | 現在の conversation history を消します。 |
-| `/memory` | 現在の project memory を表示します。 |
-| `/remember <content>` | 現在の project に long-term memory を追加します。 |
 | `/init` | 現在の project に `AGENTS.md` を生成します。 |
 | `/update` | `AGENTS.md` を再生成し、既存ファイルを上書きします。 |
 

@@ -8,8 +8,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 )
 
 func TestConsoleRuntimeRejectsPreparedGenerationAfterClose(t *testing.T) {
@@ -65,14 +63,7 @@ func TestRetiredConsoleGenerationHandlerRejectsLateRequest(t *testing.T) {
 }
 
 func TestConsoleGenerationMarkRetiredSeparatesAdmissionFromCleanup(t *testing.T) {
-	var cleanupCalls int
-	generation := &consoleLocalRuntimeGeneration{
-		memRuntime: runtimecore.MemoryRuntime{
-			Cleanup: func() {
-				cleanupCalls++
-			},
-		},
-	}
+	generation := &consoleLocalRuntimeGeneration{}
 
 	shouldCleanup := generation.markRetired()
 	if !shouldCleanup {
@@ -81,14 +72,7 @@ func TestConsoleGenerationMarkRetiredSeparatesAdmissionFromCleanup(t *testing.T)
 	if generation.tryAcquire() {
 		t.Fatal("tryAcquire() succeeded after markRetired()")
 	}
-	if cleanupCalls != 0 {
-		t.Fatalf("cleanup calls before explicit cleanup = %d, want 0", cleanupCalls)
-	}
-
 	generation.cleanupResources()
-	if cleanupCalls != 1 {
-		t.Fatalf("cleanup calls after explicit cleanup = %d, want 1", cleanupCalls)
-	}
 }
 
 func TestConsoleGenerationCleanupWaitsForStartedHandler(t *testing.T) {

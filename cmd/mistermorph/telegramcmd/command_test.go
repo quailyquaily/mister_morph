@@ -12,6 +12,7 @@ import (
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -85,7 +86,8 @@ func assertDependencyCapabilities(t *testing.T, got depsutil.CommonDependencies)
 }
 
 func TestAttachTelegramAwarenessTriggersProvidesCronRunner(t *testing.T) {
-	var telegramOpts telegramruntime.RunOptions
+	store := daemonruntime.NewMemoryStore(4)
+	telegramOpts := telegramruntime.RunOptions{TaskStore: store}
 	awarenessOpts := awarenessruntime.RunOptions{CronEnabled: true}
 	attachTelegramAwarenessTriggers(&telegramOpts, &awarenessOpts)
 
@@ -100,6 +102,9 @@ func TestAttachTelegramAwarenessTriggersProvidesCronRunner(t *testing.T) {
 	}
 	if awarenessOpts.CronRequests == nil {
 		t.Fatal("awareness CronRequests = nil, want non-nil")
+	}
+	if awarenessOpts.TaskStore != store {
+		t.Fatal("awareness TaskStore does not share the Telegram task store")
 	}
 
 	errCh := make(chan error, 1)

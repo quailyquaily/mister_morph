@@ -10,7 +10,6 @@ import (
 func testRuntimePaths(stateDir string) runtimepaths.Paths {
 	cacheDir := filepath.Join(stateDir, "cache")
 	journalDir := filepath.Join(stateDir, "journal")
-	memoryDir := filepath.Join(stateDir, "memory")
 	contactsDir := filepath.Join(stateDir, "contacts")
 	tasksDir := filepath.Join(stateDir, "tasks")
 	personaDir := filepath.Join(stateDir, statepaths.PersonaDirName)
@@ -19,7 +18,6 @@ func testRuntimePaths(stateDir string) runtimepaths.Paths {
 		StateDir:                 stateDir,
 		CacheDir:                 cacheDir,
 		JournalDir:               journalDir,
-		MemoryDir:                memoryDir,
 		ContactsDir:              contactsDir,
 		TasksDir:                 tasksDir,
 		WorkspaceAttachmentsPath: filepath.Join(stateDir, "workspace_attachments.json"),

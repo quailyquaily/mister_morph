@@ -6,7 +6,7 @@ The short version:
 
 - adapter layer decides whether a message should become a task
 - `runtimecore` decides when and where that task runs, and drives task status transitions
-- `daemonruntime.TaskView` holds the task metadata view in memory or file-backed storage
+- `daemonruntime.TaskView` holds the current task metadata view
 - `taskruntime` decides how that accepted task is executed
 
 ## Three Layers
@@ -23,7 +23,7 @@ It includes:
 - image download
 - reply strategy
 - reaction policy
-- channel-specific memory identity mapping
+- task source mapping (conversation and participants)
 
 The key question at this layer is:
 
@@ -62,7 +62,6 @@ It includes:
 - shared prompt blocks
 - guard wiring
 - `agent.Engine` construction
-- optional memory injection / record hooks
 
 The key question at this layer is:
 
@@ -102,7 +101,7 @@ runtimecore
 channel run*Task wrapper
     - build channel-specific registry additions
     - build channel-specific current message
-    - build memory identity / callbacks
+    - attach task source context
            |
            v
 taskruntime.Run(...)
@@ -111,7 +110,6 @@ taskruntime.Run(...)
     - apply shared prompt blocks
     - apply optional channel prompt block
     - run agent.Engine
-    - apply memory hooks
            |
            v
 result
@@ -149,7 +147,7 @@ Without the split, each channel runtime had to duplicate two different categorie
 Those two categories change for different reasons:
 
 - worker/lifecycle changes are about concurrency, ordering, reset semantics, and daemon task state
-- task execution changes are about prompt/tool/LLM/guard/memory wiring
+- task execution changes are about prompt/tool/LLM/guard wiring
 - task view/storage changes are about query semantics, persistence, replay, and admin API reads
 
 So they should not live in the same abstraction.

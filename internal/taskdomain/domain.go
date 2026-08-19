@@ -23,6 +23,17 @@ type FileReference struct {
 	Path    string `json:"path"`
 }
 
+type TaskConversation struct {
+	ConversationID   string            `json:"conversation_id,omitempty"`
+	ConversationType string            `json:"conversation_type,omitempty"`
+	Participants     []TaskParticipant `json:"participants,omitempty"`
+}
+
+type TaskParticipant struct {
+	ID       string `json:"id"`
+	Nickname string `json:"nickname,omitempty"`
+}
+
 func EndedByCancellation(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
@@ -38,23 +49,24 @@ func EndedByCancellation(ctx context.Context, err error) bool {
 }
 
 type TaskInfo struct {
-	ID                string          `json:"id"`
-	Status            TaskStatus      `json:"status"`
-	Task              string          `json:"task"`
-	Model             string          `json:"model"`
-	LLMProfile        string          `json:"llm_profile,omitempty"`
-	Timeout           string          `json:"timeout"`
-	CreatedAt         time.Time       `json:"created_at"`
-	StartedAt         *time.Time      `json:"started_at,omitempty"`
-	PendingAt         *time.Time      `json:"pending_at,omitempty"`
-	ResumedAt         *time.Time      `json:"resumed_at,omitempty"`
-	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
-	ApprovalRequestID string          `json:"approval_request_id,omitempty"`
-	Error             string          `json:"error,omitempty"`
-	Result            any             `json:"result,omitempty"`
-	TopicID           string          `json:"topic_id,omitempty"`
-	SteerTargetTaskID string          `json:"steer_target_task_id,omitempty"`
-	FileReferences    []FileReference `json:"file_references,omitempty"`
+	ID                string            `json:"id"`
+	Status            TaskStatus        `json:"status"`
+	Task              string            `json:"task"`
+	Model             string            `json:"model"`
+	LLMProfile        string            `json:"llm_profile,omitempty"`
+	Timeout           string            `json:"timeout"`
+	CreatedAt         time.Time         `json:"created_at"`
+	StartedAt         *time.Time        `json:"started_at,omitempty"`
+	PendingAt         *time.Time        `json:"pending_at,omitempty"`
+	ResumedAt         *time.Time        `json:"resumed_at,omitempty"`
+	FinishedAt        *time.Time        `json:"finished_at,omitempty"`
+	ApprovalRequestID string            `json:"approval_request_id,omitempty"`
+	Error             string            `json:"error,omitempty"`
+	Result            any               `json:"result,omitempty"`
+	TopicID           string            `json:"topic_id,omitempty"`
+	SteerTargetTaskID string            `json:"steer_target_task_id,omitempty"`
+	FileReferences    []FileReference   `json:"file_references,omitempty"`
+	Conversation      *TaskConversation `json:"conversation,omitempty"`
 }
 
 type TaskTrigger struct {
@@ -108,4 +120,28 @@ func HasTaskTrigger(trigger TaskTrigger) bool {
 		strings.TrimSpace(trigger.Event) != "" ||
 		strings.TrimSpace(trigger.Ref) != "" ||
 		strings.TrimSpace(trigger.TraceID) != ""
+}
+
+func NormalizeTaskConversation(conversation *TaskConversation) *TaskConversation {
+	if conversation == nil {
+		return nil
+	}
+	normalized := &TaskConversation{
+		ConversationID:   strings.TrimSpace(conversation.ConversationID),
+		ConversationType: strings.ToLower(strings.TrimSpace(conversation.ConversationType)),
+	}
+	seen := make(map[string]bool, len(conversation.Participants))
+	for _, participant := range conversation.Participants {
+		participant.ID = strings.TrimSpace(participant.ID)
+		participant.Nickname = strings.TrimSpace(participant.Nickname)
+		if participant.ID == "" || seen[participant.ID] {
+			continue
+		}
+		seen[participant.ID] = true
+		normalized.Participants = append(normalized.Participants, participant)
+	}
+	if normalized.ConversationID == "" && normalized.ConversationType == "" && len(normalized.Participants) == 0 {
+		return nil
+	}
+	return normalized
 }

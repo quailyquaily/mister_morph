@@ -60,12 +60,8 @@ func TestNormalizeRunOptionsPreservesFields(t *testing.T) {
 			ParseRetries:    4,
 			ToolRepeatLimit: 5,
 		},
-		MemoryEnabled:           true,
-		MemoryShortTermDays:     9,
-		MemoryInjectionEnabled:  true,
-		MemoryInjectionMaxItems: 11,
-		InspectPrompt:           true,
-		InspectRequest:          true,
+		InspectPrompt:  true,
+		InspectRequest: true,
 	})
 	if opts.AppID != "app" || opts.AppSecret != "secret" {
 		t.Fatalf("credentials were not normalized: %#v", opts)
@@ -79,7 +75,7 @@ func TestNormalizeRunOptionsPreservesFields(t *testing.T) {
 	if opts.AgentLimits.MaxSteps != 22 || opts.AgentLimits.ParseRetries != 4 || opts.AgentLimits.ToolRepeatLimit != 5 {
 		t.Fatalf("agent limits were not preserved: %#v", opts.AgentLimits)
 	}
-	if !opts.MemoryEnabled || !opts.MemoryInjectionEnabled || !opts.InspectPrompt || !opts.InspectRequest {
+	if !opts.InspectPrompt || !opts.InspectRequest {
 		t.Fatalf("boolean options were not preserved: %#v", opts)
 	}
 }

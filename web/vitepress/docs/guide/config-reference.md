@@ -43,7 +43,7 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.image.options.cloudflare`
 - `llm.profiles.<profile>.*` (named profile overrides, including `inference_provider`)
 - `llm.profiles.<profile>.headers.<name>` (optional profile-scoped headers)
-- `llm.routes.<purpose>` (`main_loop|addressing|awareness|heartbeat|think|plan_create|memory_draft`)
+- `llm.routes.<purpose>` (`main_loop|addressing|awareness|heartbeat|think|plan_create`)
 - `llm.routes.<purpose>.profile`
 - `llm.routes.<purpose>.candidates[].profile`
 - `llm.routes.<purpose>.candidates[].weight`
@@ -147,14 +147,6 @@ Shell defaults are platform-specific:
 - `mcp.servers[].headers`
 - `mcp.servers[].allowed_tools`
 
-## Memory
-
-- `memory.enabled`
-- `memory.dir_name`
-- `memory.short_term_days`
-- `memory.injection.enabled`
-- `memory.injection.max_items`
-
 ## Bus, Contacts, Tasks, Skills
 
 - `bus.max_inflight`
@@ -168,6 +160,8 @@ Shell defaults are platform-specific:
 - `skills.dir_name`
 - `skills.enabled`
 - `skills.load`
+
+`tasks.persistence_targets` only controls which runtime task projections are saved and restored across process restarts. Accepted task and topic changes from every runtime are still written to the unified journal.
 
 ## Server and Console
 

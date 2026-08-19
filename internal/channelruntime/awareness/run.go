@@ -15,7 +15,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
-	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
@@ -25,7 +24,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -33,38 +31,37 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
 type RunOptions struct {
-	Interval                time.Duration
-	TaskTimeout             time.Duration
-	RequestTimeout          time.Duration
-	AgentLimits             agent.Limits
-	EngineToolsConfig       agent.EngineToolsConfig
-	Source                  string
-	ChecklistPath           string
-	DisableHeartbeat        bool
-	MemoryEnabled           bool
-	MemoryShortTermDays     int
-	MemoryInjectionEnabled  bool
-	MemoryInjectionMaxItems int
-	InspectPrompt           bool
-	InspectRequest          bool
-	Notifier                Notifier
-	CronNotify              CronNotifyFunc
-	PokeRequests            <-chan PokeRequest
-	CronRequests            <-chan CronRequest
-	CronEnabled             bool
-	CronPath                string
-	ChatInfoContactsDir     string
-	ChatInfoStore           *chatinfo.Store
-	ChatInfoRefresher       chatinfo.Refresher
-	TaskStore               daemonruntime.TaskView
+	Interval            time.Duration
+	TaskTimeout         time.Duration
+	RequestTimeout      time.Duration
+	AgentLimits         agent.Limits
+	EngineToolsConfig   agent.EngineToolsConfig
+	Source              string
+	ChecklistPath       string
+	DisableHeartbeat    bool
+	InspectPrompt       bool
+	InspectRequest      bool
+	Notifier            Notifier
+	CronNotify          CronNotifyFunc
+	PokeRequests        <-chan PokeRequest
+	CronRequests        <-chan CronRequest
+	CronEnabled         bool
+	CronPath            string
+	ChatInfoContactsDir string
+	ChatInfoStore       *chatinfo.Store
+	ChatInfoRefresher   chatinfo.Refresher
+	TaskStore           daemonruntime.TaskView
 }
 
 type Dependencies = depsutil.CommonDependencies
+
+func awarenessTaskRunID(behavior awarenessutil.Behavior, now time.Time) string {
+	return fmt.Sprintf("%s:%s", behavior, now.UTC().Format("20060102T150405.000000000Z07:00"))
+}
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if err := d.Validate(); err != nil {
@@ -161,21 +158,6 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts RunOptions) (run
 	}
 	cfg := opts.AgentLimits.ToConfig()
 
-	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
-		Enabled:       opts.MemoryEnabled,
-		ShortTermDays: opts.MemoryShortTermDays,
-		Decorate:      inspectors.Wrap,
-	})
-	if err != nil {
-		return err
-	}
-	defer memRuntime.Cleanup()
-	orchestrator := memRuntime.Orchestrator
-	projectionWorker := memRuntime.ProjectionWorker
-	if projectionWorker != nil {
-		projectionWorker.Start(ctx)
-	}
-
 	state := &awarenessutil.State{}
 	var wg sync.WaitGroup
 	chatInfoStore, chatInfoRefresher := resolveChatInfoRuntime(opts)
@@ -202,10 +184,6 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts RunOptions) (run
 			TaskTimeout:              opts.TaskTimeout,
 			SystemPromptCacheControl: systemPromptCacheControl,
 			ClientDecorator:          inspectors.Wrap,
-			MemoryOrchestrator:       orchestrator,
-			MemoryProjectionWorker:   projectionWorker,
-			MemoryInjectionEnabled:   opts.MemoryInjectionEnabled,
-			MemoryInjectionMaxItems:  opts.MemoryInjectionMaxItems,
 			ImageClient:              nil,
 			TaskStore:                opts.TaskStore,
 			BashEnv:                  bashEnv,
@@ -387,10 +365,6 @@ type awarenessTaskOptions struct {
 	TaskTimeout              time.Duration
 	SystemPromptCacheControl *llm.CacheControl
 	ClientDecorator          func(llm.Client, llmutil.ResolvedRoute) llm.Client
-	MemoryOrchestrator       *memoryruntime.Orchestrator
-	MemoryProjectionWorker   *memoryruntime.ProjectionWorker
-	MemoryInjectionEnabled   bool
-	MemoryInjectionMaxItems  int
 	ImageClient              llm.ImageClient
 	TaskStore                daemonruntime.TaskView
 	BashEnv                  []cronstore.BashEnvRef
@@ -600,21 +574,6 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	})
 	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger, d.RuntimePaths.PersonaDir)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	memoryContext := ""
-	if opts.MemoryOrchestrator != nil && opts.MemoryInjectionEnabled {
-		snap, memErr := opts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-			SubjectID:      awarenessMemorySubjectID,
-			RequestContext: memory.ContextPrivate,
-			MaxItems:       opts.MemoryInjectionMaxItems,
-		})
-		if memErr != nil {
-			if opts.Logger != nil {
-				opts.Logger.Warn("memory_injection_error", "source", "awareness", "error", memErr.Error())
-			}
-		} else if strings.TrimSpace(snap) != "" {
-			memoryContext = snap
-		}
-	}
 	if d.PromptAugment != nil {
 		d.PromptAugment(&promptSpec, reg)
 	}
@@ -647,7 +606,6 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 			TaskID:  opts.TaskRunID,
 			TraceID: opts.TaskRunID,
 		}),
-		MemoryContext:            memoryContext,
 		DisableContextCompaction: true,
 	})
 	if err != nil {
@@ -659,25 +617,6 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	if err := recordAwarenessTaskFinish(recordOpts, summary, nil, time.Now().UTC()); err != nil {
 		return "", fmt.Errorf("record awareness task finish: %w", err)
 	}
-	if opts.MemoryOrchestrator != nil {
-		if memErr := opts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-			TaskRunID:    opts.TaskRunID,
-			SessionID:    awarenessMemorySessionID,
-			SubjectID:    awarenessMemorySubjectID,
-			Channel:      "awareness",
-			Participants: awarenessMemoryParticipants(),
-			TaskText:     task,
-			FinalOutput:  summary,
-			SessionContext: memory.SessionContext{
-				ConversationID: awarenessMemorySubjectID,
-			},
-		}); memErr != nil && opts.Logger != nil {
-			opts.Logger.Warn("memory_record_error", "source", "awareness", "error", memErr.Error())
-		} else if opts.MemoryProjectionWorker != nil {
-			opts.MemoryProjectionWorker.NotifyRecordAppended()
-		}
-	}
-
 	return summary, nil
 }
 

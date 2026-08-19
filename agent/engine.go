@@ -310,10 +310,6 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		)
 	}
 
-	if memoryMsg, ok := buildInjectedMemoryMessage(opts.MemoryContext); ok {
-		messages = append(messages, llm.Message{Role: "user", Content: memoryMsg})
-		log.Debug("run_memory_injected", "memory_bytes", len(memoryMsg))
-	}
 	fixedMessageCount := len(messages)
 	checkpointStore := opts.ContextCheckpointStore
 	if checkpointStore == nil {

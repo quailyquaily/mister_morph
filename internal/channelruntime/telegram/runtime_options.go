@@ -42,12 +42,6 @@ func normalizeRunOptions(opts RunOptions) RunOptions {
 	if opts.FileCacheMaxTotalBytes <= 0 {
 		opts.FileCacheMaxTotalBytes = configdefaults.DefaultFileCacheMaxTotalBytes
 	}
-	if opts.MemoryShortTermDays <= 0 {
-		opts.MemoryShortTermDays = configdefaults.DefaultMemoryShortTermDays
-	}
-	if opts.MemoryInjectionMaxItems <= 0 {
-		opts.MemoryInjectionMaxItems = configdefaults.DefaultMemoryInjectionMaxItems
-	}
 	if opts.FileCacheDir == "" {
 		opts.FileCacheDir = configdefaults.DefaultFileCacheDir
 	}

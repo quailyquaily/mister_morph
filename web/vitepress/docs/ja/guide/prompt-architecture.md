@@ -7,7 +7,7 @@ description: Agent の Prompt の仕組みを説明します。
 
 Mister Morph の主 Loop では、Prompt の唯一の目的は Agent にとって妥当な状態を組み立てることです。
 
-> skill、identity、soul、todo、memory は別々の仕組みに見えますが、本質的にはどれもその状態を維持するためのものです。多くは同じものに対する syntax sugar です。
+> Prompt の状態は、明示的なファイル、ポリシー、実行時 metadata、会話履歴から組み立てます。独立した長期・短期 memory は注入しません。
 
 Mister Morph では、これらは `agent/prompts/system.md` を骨格として組み立てられます。
 
@@ -46,7 +46,6 @@ Mister Morph では、これらは `agent/prompts/system.md` を骨格として�
 - `persona/identity.yaml` や `persona/soul.md` などのローカル persona ファイル
 - その run で有効になっている skill のメタ情報
 - 追加のポリシーブロック
-- memory summary
 
 この層は現在の task、現在の channel、現在のローカル状態によって変わります。CLI、Telegram、Slack で使われる最終 prompt は完全に同じとは限りません。
 
@@ -76,7 +75,6 @@ Mister Morph には、主 Agent の完全な system prompt を先に組み立て
 
 - グループチャットにどう介入するかの判断
 - タスク計画
-- Memory 整理
 - 一部の狭い意味判定や意味マッチング
 
 ### 主 Loop との関係

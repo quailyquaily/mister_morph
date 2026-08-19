@@ -21,12 +21,6 @@ func normalizeRunOptions(opts RunOptions, paths runtimepaths.Paths) RunOptions {
 	if opts.RequestTimeout <= 0 {
 		opts.RequestTimeout = configdefaults.DefaultLLMRequestTimeout
 	}
-	if opts.MemoryShortTermDays <= 0 {
-		opts.MemoryShortTermDays = configdefaults.DefaultMemoryShortTermDays
-	}
-	if opts.MemoryInjectionMaxItems <= 0 {
-		opts.MemoryInjectionMaxItems = configdefaults.DefaultMemoryInjectionMaxItems
-	}
 	opts.AgentLimits = opts.AgentLimits.NormalizeForRuntime()
 	if opts.Source == "" {
 		opts.Source = "awareness"

@@ -19,7 +19,7 @@ Mistermorph では、ファイルシステム上のディレクトリを 3 種�
 |---|---|---|---|
 | `workspace_dir` | Agent が「今作業している対象」として扱うプロジェクトツリー。ランタイム文脈で渡されるもので、グローバル設定キーではありません。 | ソースコード、ドキュメント、設定ファイル、プロジェクトメモ | 通常はユーザー管理 |
 | `file_cache_dir` | 実行中に作られるが、消しても再生成できるファイル | ダウンロード物、一時変換結果、取得アーティファクト、生成メディア | 削除してよい |
-| `file_state_dir` | 再起動後も残すべき実行状態 | memory、tasks、skills、guard state、workspace attachment | 永続化推奨 |
+| `file_state_dir` | 再起動後も残すべき実行状態 | tasks、contacts、skills、guard state、workspace attachment | 永続化推奨 |
 
 デフォルトは次の通りです。
 
@@ -81,7 +81,7 @@ prompt、スクリプト、ツール引数で曖昧さを避けたいときは�
 
 - Agent にプロジェクト本体として扱わせたいコードツリーは `workspace_dir` に置く
 - ダウンロード物や一時ファイル、捨ててよい生成結果は `file_cache_dir` に置く
-- memory、インストール済み skills、task state など長く残すものは `file_state_dir` に置く
+- contacts、インストール済み skills、task state など長く残すものは `file_state_dir` に置く
 
 ## 関連ページ
 

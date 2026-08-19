@@ -9,30 +9,28 @@ import (
 )
 
 const (
-	DefaultHeartbeatInterval       = 30 * time.Minute
-	DefaultLLMRequestTimeout       = 90 * time.Second
-	DefaultMaxSteps                = agent.DefaultMaxSteps
-	DefaultParseRetries            = agent.DefaultParseRetries
-	DefaultMaxTokenBudget          = 0
-	DefaultToolRepeatLimit         = agent.DefaultToolRepeatLimit
-	DefaultTaskTimeout             = 10 * time.Minute
-	DefaultFileCacheDir            = "~/.cache/morph"
-	DefaultFileCacheMaxAge         = 7 * 24 * time.Hour
-	DefaultFileCacheMaxFiles       = 1000
-	DefaultFileCacheMaxTotalBytes  = int64(512 * 1024 * 1024)
-	DefaultChannelMaxConcurrency   = 3
-	DefaultBusMaxInFlight          = 1024
-	DefaultServerMaxQueue          = 100
-	DefaultGroupTriggerMode        = "smart"
-	DefaultAddressingThreshold     = 0.6
-	DefaultMemoryShortTermDays     = 7
-	DefaultMemoryInjectionMaxItems = 50
-	DefaultTelegramPollTimeout     = 30 * time.Second
-	DefaultSlackBaseURL            = "https://slack.com/api"
-	DefaultLineBaseURL             = "https://api.line.me"
-	DefaultLineWebhookListen       = "127.0.0.1:18080"
-	DefaultLineWebhookPath         = "/line/webhook"
-	DefaultLarkBaseURL             = "https://open.feishu.cn/open-apis"
+	DefaultHeartbeatInterval      = 30 * time.Minute
+	DefaultLLMRequestTimeout      = 90 * time.Second
+	DefaultMaxSteps               = agent.DefaultMaxSteps
+	DefaultParseRetries           = agent.DefaultParseRetries
+	DefaultMaxTokenBudget         = 0
+	DefaultToolRepeatLimit        = agent.DefaultToolRepeatLimit
+	DefaultTaskTimeout            = 10 * time.Minute
+	DefaultFileCacheDir           = "~/.cache/morph"
+	DefaultFileCacheMaxAge        = 7 * 24 * time.Hour
+	DefaultFileCacheMaxFiles      = 1000
+	DefaultFileCacheMaxTotalBytes = int64(512 * 1024 * 1024)
+	DefaultChannelMaxConcurrency  = 3
+	DefaultBusMaxInFlight         = 1024
+	DefaultServerMaxQueue         = 100
+	DefaultGroupTriggerMode       = "smart"
+	DefaultAddressingThreshold    = 0.6
+	DefaultTelegramPollTimeout    = 30 * time.Second
+	DefaultSlackBaseURL           = "https://slack.com/api"
+	DefaultLineBaseURL            = "https://api.line.me"
+	DefaultLineWebhookListen      = "127.0.0.1:18080"
+	DefaultLineWebhookPath        = "/line/webhook"
+	DefaultLarkBaseURL            = "https://open.feishu.cn/open-apis"
 )
 
 // Apply sets all shared defaults used by CLI and desktop console mode.
@@ -166,12 +164,6 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("heartbeat.enabled", true)
 	v.SetDefault("heartbeat.interval", DefaultHeartbeatInterval)
 	v.SetDefault("cron.enabled", true)
-
-	v.SetDefault("memory.enabled", true)
-	v.SetDefault("memory.dir_name", "memory")
-	v.SetDefault("memory.short_term_days", DefaultMemoryShortTermDays)
-	v.SetDefault("memory.injection.enabled", true)
-	v.SetDefault("memory.injection.max_items", DefaultMemoryInjectionMaxItems)
 
 	v.SetDefault("secrets.allow_profiles", []string{})
 	v.SetDefault("auth_profiles", map[string]any{})

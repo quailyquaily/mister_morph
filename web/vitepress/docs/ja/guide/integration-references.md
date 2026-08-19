@@ -191,7 +191,7 @@ description: integration パッケージの公開関数、メソッド、構造�
 | --- | --- |
 | 引数 | `ctx context.Context`：実行 context。`task string`：task テキスト。`opts integration.RunTaskOptions`：one-shot 実行と永続化のオプション |
 | 戻り値 | `integration.RunTaskResult`、`error` |
-| 説明 | 明示的な実行 id と任意の task journal 永続化を持つ one-shot API。`task_id` / `run_id` を注入し、`trace_id` と `topic_id` は指定された場合だけ使います。memory journal には書き込みません。 |
+| 説明 | 明示的な実行 id と任意の task journal 永続化を持つ one-shot API。`task_id` / `run_id` を注入し、`trace_id` と `topic_id` は指定された場合だけ使います。 |
 
 ### `(*Runtime).GetLLMProfileSelection() (LLMProfileSelection, error)`
 

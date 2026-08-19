@@ -9,21 +9,17 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
-	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/spf13/viper"
 )
 
@@ -41,7 +37,6 @@ func TestIntegrationRuntimePathsStayIsolatedFromGlobalViper(t *testing.T) {
 	viper.Set("file_state_dir", t.TempDir())
 	viper.Set("file_cache_dir", t.TempDir())
 	viper.Set("journal.dir_name", "global-journal")
-	viper.Set("memory.dir_name", "global-memory")
 	viper.Set("contacts.dir_name", "global-contacts")
 	viper.Set("tasks.dir_name", "global-tasks")
 
@@ -243,7 +238,6 @@ func TestIntegrationRuntimeStateStoresStayIsolatedFromGlobalViper(t *testing.T) 
 	viper.Set("file_state_dir", globalState)
 	viper.Set("file_cache_dir", t.TempDir())
 	viper.Set("journal.dir_name", "global-journal")
-	viper.Set("memory.dir_name", "global-memory")
 	viper.Set("contacts.dir_name", "global-contacts")
 	viper.Set("tasks.dir_name", "global-tasks")
 
@@ -312,34 +306,6 @@ func TestIntegrationRuntimeStateStoresStayIsolatedFromGlobalViper(t *testing.T) 
 		t.Fatalf("runtimeB workspace = %#v, exists=%v, error=%v", got, ok, err)
 	}
 
-	now := time.Now().UTC()
-	writeIntegrationMemory(t, commonA.RuntimePaths.MemoryDir, now, "alpha-memory")
-	writeIntegrationMemory(t, commonB.RuntimePaths.MemoryDir, now, "beta-memory")
-	memoryA, err := runtimecore.NewMemoryRuntime(commonA, runtimecore.MemoryRuntimeOptions{Enabled: true, ShortTermDays: 7})
-	if err != nil {
-		t.Fatalf("runtimeA memory error = %v", err)
-	}
-	defer memoryA.Cleanup()
-	memoryB, err := runtimecore.NewMemoryRuntime(commonB, runtimecore.MemoryRuntimeOptions{Enabled: true, ShortTermDays: 7})
-	if err != nil {
-		t.Fatalf("runtimeB memory error = %v", err)
-	}
-	defer memoryB.Cleanup()
-	injectionA, err := memoryA.Orchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{SubjectID: "shared", RequestContext: memory.ContextPrivate, MaxItems: 10})
-	if err != nil {
-		t.Fatalf("runtimeA memory injection error = %v", err)
-	}
-	injectionB, err := memoryB.Orchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{SubjectID: "shared", RequestContext: memory.ContextPrivate, MaxItems: 10})
-	if err != nil {
-		t.Fatalf("runtimeB memory injection error = %v", err)
-	}
-	if !strings.Contains(injectionA, "alpha-memory") || strings.Contains(injectionA, "beta-memory") {
-		t.Fatalf("runtimeA memory is not isolated: %q", injectionA)
-	}
-	if !strings.Contains(injectionB, "beta-memory") || strings.Contains(injectionB, "alpha-memory") {
-		t.Fatalf("runtimeB memory is not isolated: %q", injectionB)
-	}
-
 	if _, err := os.Stat(filepath.Join(globalState, "global-tasks")); !os.IsNotExist(err) {
 		t.Fatalf("global task path was used: %v", err)
 	}
@@ -348,14 +314,6 @@ func TestIntegrationRuntimeStateStoresStayIsolatedFromGlobalViper(t *testing.T) 
 	}
 	if _, err := os.Stat(filepath.Join(globalState, "workspace_attachments.json")); !os.IsNotExist(err) {
 		t.Fatalf("global workspace path was used: %v", err)
-	}
-}
-
-func writeIntegrationMemory(t *testing.T, dir string, now time.Time, content string) {
-	t.Helper()
-	manager := memory.NewManager(dir, 7)
-	if _, err := manager.UpdateShortTerm(now, memory.SessionDraft{SummaryItems: []string{content}}, memory.WriteMeta{SessionID: "shared"}); err != nil {
-		t.Fatalf("write memory %q: %v", content, err)
 	}
 }
 

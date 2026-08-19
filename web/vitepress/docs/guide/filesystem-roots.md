@@ -19,7 +19,7 @@ Keep them separate. The model behaves better when the project tree, temporary fi
 |---|---|---|---|
 | `workspace_dir` | The active project tree the agent should treat as "the thing I am working on". This is runtime-scoped, not a global config key. | source code, docs, config files, project notes | usually user-managed |
 | `file_cache_dir` | Rebuildable files created while the system runs | downloads, temporary conversions, fetched artifacts, generated media | safe to prune |
-| `file_state_dir` | Files that should survive restarts and preserve agent state | memory, tasks, skills, guard state, workspace attachments | keep persistent |
+| `file_state_dir` | Files that should survive restarts and preserve agent state | tasks, contacts, skills, guard state, workspace attachments | keep persistent |
 
 By default:
 
@@ -81,7 +81,7 @@ This is why `workspace_dir` matters even when you are not explicitly calling `re
 
 - Put the repo or project you want the agent to edit in `workspace_dir`.
 - Put temporary downloads and throwaway generated files in `file_cache_dir`.
-- Put memory, installed skills, task state, and other durable runtime files in `file_state_dir`.
+- Put contacts, installed skills, task state, and other durable runtime files in `file_state_dir`.
 
 ## Related Pages
 

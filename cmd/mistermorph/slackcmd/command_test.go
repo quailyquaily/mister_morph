@@ -16,6 +16,7 @@ import (
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/testhttp"
@@ -91,7 +92,8 @@ func assertDependencyCapabilities(t *testing.T, got depsutil.CommonDependencies)
 }
 
 func TestAttachSlackAwarenessTriggersProvidesCronRunner(t *testing.T) {
-	var slackOpts slackruntime.RunOptions
+	store := daemonruntime.NewMemoryStore(4)
+	slackOpts := slackruntime.RunOptions{TaskStore: store}
 	awarenessOpts := awarenessruntime.RunOptions{CronEnabled: true}
 	attachSlackAwarenessTriggers(&slackOpts, &awarenessOpts)
 
@@ -106,6 +108,9 @@ func TestAttachSlackAwarenessTriggersProvidesCronRunner(t *testing.T) {
 	}
 	if awarenessOpts.CronRequests == nil {
 		t.Fatal("awareness CronRequests = nil, want non-nil")
+	}
+	if awarenessOpts.TaskStore != store {
+		t.Fatal("awareness TaskStore does not share the Slack task store")
 	}
 
 	errCh := make(chan error, 1)

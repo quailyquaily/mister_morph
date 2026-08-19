@@ -56,7 +56,6 @@ llm:
 - `heartbeat`: `awareness` の旧 alias。
 - `think`: `/think <task>` コマンド prefix にのみ使う。この task だけ `reasoning_effort=xhigh` も適用します。
 - `plan_create`: `plan_create` ツール内部の計画リクエストにのみ使う。
-- `memory_draft`: memory 草稿整理にのみ使う。
 
 下の例では、計画作成と `/think` では reasoning profile、つまり `claude-opus-4-6` を使い、グループチャットの addressing 判定では安い `gpt-4o-mini` を使います:
 

@@ -13,7 +13,6 @@ description: より詳細な設計・実装文書への入口。
 - Runtime
   - [Runtime モード](/ja/guide/runtime-modes)
   - [Prompt 設計](/ja/guide/prompt-architecture)
-  - [Memory](/ja/guide/memory)
   - [TODO と Heartbeat](/ja/guide/todo-and-heartbeat)
   - [Skills](/ja/guide/skills)
   - [組み込みツール](/ja/guide/built-in-tools)
@@ -54,5 +53,4 @@ description: より詳細な設計・実装文書への入口。
 - [`docs/security.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/security.md)
 - [`docs/tools.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/tools.md)
 - [`docs/skills.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/skills.md)
-- [`docs/memory.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/memory.md)
 - [`docs/bus.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/bus.md)

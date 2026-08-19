@@ -32,7 +32,7 @@ hero:
     <article class="morph-home-route">
       <div class="morph-home-route-head">
         <h3 class="morph-home-route-title">长期运行与通道</h3>
-        <p class="morph-home-route-copy">当你要把它作为 Console、Telegram、Slack 这类长期运行入口来用，先看运行模式，再补 memory 和 guard。</p>
+        <p class="morph-home-route-copy">当你要把它作为 Console、Telegram、Slack 这类长期运行入口来用，先看运行模式，再配置 guard。</p>
       </div>
       <div class="morph-home-route-actions">
         <a class="morph-home-route-primary" href="/zh/guide/runtime-modes">Runtime 模式</a>

@@ -2,6 +2,8 @@ package chatcmd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,7 +24,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/processsignal"
@@ -33,7 +34,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
 	"github.com/spf13/cobra"
@@ -48,11 +48,7 @@ type chatSession struct {
 	imageScopeKey          string
 	mainCfg                llmconfig.ClientConfig
 	runtimeToolsCfg        toolsutil.RuntimeToolsRegisterConfig
-	memManager             *memory.Manager
-	memOrchestrator        *memoryruntime.Orchestrator
-	memWorker              *memoryruntime.ProjectionWorker
-	memCleanup             func()
-	subjectID              string
+	projectID              string
 	compactMode            bool
 	userName               string
 	launchDir              string
@@ -106,21 +102,26 @@ func (s *chatSession) refreshProjectScope() {
 	if s == nil {
 		return
 	}
-	s.subjectID = cliMemorySubjectID(s.projectDir())
+	s.projectID = cliProjectID(s.projectDir())
 }
 
 func (s *chatSession) conversationKey() string {
 	if s == nil {
 		return ""
 	}
-	subjectID := strings.TrimSpace(s.subjectID)
-	if subjectID == "" {
-		subjectID = cliMemorySubjectID(s.projectDir())
+	projectID := strings.TrimSpace(s.projectID)
+	if projectID == "" {
+		projectID = cliProjectID(s.projectDir())
 	}
-	if subjectID == "" {
+	if projectID == "" {
 		return ""
 	}
-	return "chat:" + subjectID
+	return "chat:" + projectID
+}
+
+func cliProjectID(dir string) string {
+	hash := sha256.Sum256([]byte(dir))
+	return "cli_" + hex.EncodeToString(hash[:])[:16]
 }
 
 func (s *chatSession) contextCheckpointRoot() string {
@@ -397,33 +398,9 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 	rootContext := processsignal.InteractiveParent(cmd.Context())
 
-	// Use a long-lived context for the memory projection worker so it survives
-	// beyond buildChatSession(). The worker is stopped when the REPL exits via
-	// sess.cleanup() which cancels this context.
-	workerCtx, workerCancel := context.WithCancel(rootContext)
-	var memCleanup func()
-	workerOwnedBySession := false
-	defer func() {
-		if workerOwnedBySession {
-			return
-		}
-		workerCancel()
-		if memCleanup != nil {
-			memCleanup()
-		}
-	}()
-
 	projectDir := strings.TrimSpace(workspaceDir)
 	if projectDir == "" {
 		projectDir = launchDir
-	}
-	subjectID := cliMemorySubjectID(projectDir)
-	memManager, memOrchestrator, memWorker, memCleanup, err := initChatMemoryRuntime(projectDir, logger)
-	if err != nil {
-		logger.Warn("chat_memory_init_failed", "error", err.Error())
-	}
-	if memWorker != nil {
-		memWorker.Start(workerCtx)
 	}
 	compactMode := configutil.FlagOrViperBool(cmd, "compact-mode", "chat.compact_mode")
 	userName := buildUserName()
@@ -434,10 +411,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		logger:                 logger,
 		imageScopeKey:          "chat:" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		runtimeToolsCfg:        runtimeToolsCfg,
-		memManager:             memManager,
-		memOrchestrator:        memOrchestrator,
-		memWorker:              memWorker,
-		subjectID:              subjectID,
+		projectID:              cliProjectID(projectDir),
 		compactMode:            compactMode,
 		userName:               userName,
 		launchDir:              launchDir,
@@ -452,13 +426,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		timeout:                timeout,
 		fileSnapshots:          make(map[string]string),
 	}
-	sess.memCleanup = func() {
-		workerCancel()
-		if memCleanup != nil {
-			memCleanup()
-		}
-	}
-
 	// Add tool start callback to show what tools are being used
 	sess.onToolStart = func(runCtx *agent.Context, toolName string) {
 		if sess == nil {
@@ -678,7 +645,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		return nil, err
 	}
 
-	workerOwnedBySession = true
 	return sess, nil
 }
 
@@ -691,9 +657,5 @@ func (s *chatSession) cleanup() {
 			s.logger.Warn("chat_runtime_close_failed", "error", err.Error())
 		}
 		s.taskRuntime = nil
-	}
-	if s.memCleanup != nil {
-		s.memCleanup()
-		s.memCleanup = nil
 	}
 }

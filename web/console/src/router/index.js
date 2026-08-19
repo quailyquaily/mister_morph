@@ -41,7 +41,6 @@ const ROUTE_VIEW_LOADERS = {
   desktopWindow: () => import("../views/DesktopWindowView"),
   login: () => import("../views/LoginView"),
   logs: () => import("../views/LogsView"),
-  memory: () => import("../views/MemoryView"),
   overview: () => import("../views/OverviewView"),
   repair: () => import("../views/RepairView"),
   setup: () => import("../views/SetupView"),
@@ -59,7 +58,6 @@ const ContactsView = ROUTE_VIEW_LOADERS.contacts;
 const DesktopWindowView = ROUTE_VIEW_LOADERS.desktopWindow;
 const LoginView = ROUTE_VIEW_LOADERS.login;
 const LogsView = ROUTE_VIEW_LOADERS.logs;
-const MemoryView = ROUTE_VIEW_LOADERS.memory;
 const OverviewView = ROUTE_VIEW_LOADERS.overview;
 const RepairView = ROUTE_VIEW_LOADERS.repair;
 const SetupView = ROUTE_VIEW_LOADERS.setup;
@@ -100,8 +98,6 @@ function preloadKeyForPath(path) {
       return "contacts";
     case "/logs":
       return "logs";
-    case "/memory":
-      return "memory";
     case "/overview":
       return "overview";
     case "/runtime":
@@ -215,7 +211,6 @@ const routes = [
   { path: `${ENDPOINT_SCOPE_PATH}/stats`, component: StatsView, meta: { endpointScoped: true } },
   { path: `${ENDPOINT_SCOPE_PATH}/audit`, component: AuditView, meta: { endpointScoped: true } },
   { path: `${ENDPOINT_SCOPE_PATH}/logs`, component: LogsView, meta: { endpointScoped: true } },
-  { path: `${ENDPOINT_SCOPE_PATH}/memory`, component: MemoryView, meta: { endpointScoped: true } },
   { path: `${ENDPOINT_SCOPE_PATH}/todo`, component: TodoView, meta: { endpointScoped: true } },
   {
     path: `${ENDPOINT_SCOPE_PATH}/contacts`,
@@ -245,7 +240,6 @@ const routes = [
   { path: "/stats", redirect: legacyEndpointRedirect("/stats") },
   { path: "/audit", redirect: legacyEndpointRedirect("/audit") },
   { path: "/logs", redirect: legacyEndpointRedirect("/logs") },
-  { path: "/memory", redirect: legacyEndpointRedirect("/memory") },
   { path: "/todo", redirect: legacyEndpointRedirect("/todo") },
   { path: "/files", redirect: legacyEndpointRedirect("/todo") },
   { path: "/contacts", redirect: legacyEndpointRedirect("/contacts") },
@@ -264,7 +258,6 @@ const router = createRouter({
 const NAV_ITEMS_META = [
   { id: "/chat", titleKey: "nav_chat", icon: "QIconMessageChatSquare" },
   { id: "/contacts", titleKey: "nav_contacts", icon: "QIconUsers" },
-  { id: "/memory", titleKey: "nav_memory", icon: "QIconEcosystem" },
   { id: "/todo", titleKey: "nav_todo", icon: "QIconInbox" },
   { id: "__sep_primary", separator: true },
   { id: "/stats", titleKey: "nav_stats", icon: "QIconBarChart" },

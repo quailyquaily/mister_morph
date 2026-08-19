@@ -15,13 +15,12 @@ Stack:
 ## Runtime Notes
 
 - Console APIs are served under `<console.base_path>/api` (default: `/api`).
-- Runtime views (`Chat`, `Runtime`, `Tasks`, `Stats`, `Audit`, `Memory`, `Files`, `Contacts`) read from the endpoint selected in the top bar.
+- Runtime views (`Chat`, `Runtime`, `Tasks`, `Stats`, `Audit`, `Files`, `Contacts`) read from the endpoint selected in the top bar.
 - `console serve` always exposes one built-in local runtime endpoint (`Console Local`).
   - It runs tasks in its own runtime loop via shared runtime core.
-  - Memory subject/session id for this endpoint uses topic-aware `console:<topic_id>` keys.
   - Its runtime API uses the shared `daemonruntime` handler. With an explicit `server.auth_token`, the same handler is available at `<console.base_path>/runtime`; no extra TCP listener is started.
   - If `server.auth_token` is unset, the local runtime generates an internal in-process token and does not expose `<console.base_path>/runtime`.
-  - When `tasks.persistence_targets` contains `console`, it uses `ConsoleFileStore`; task/topic facts are written to stable segments under `<file_state_dir>/journal/`.
+  - Task/topic changes are written to stable segments under `<file_state_dir>/<journal.dir_name>/`. When `tasks.persistence_targets` contains `console`, its task projection is also saved and restored across process restarts.
   - The local runtime currently provides topic-aware APIs (`GET /topics`, `DELETE /topics/{topic_id}`) and runs awareness through the shared direct awareness runtime. Periodic heartbeat is optional; `/poke` remains available when heartbeat is disabled.
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`. Each `url` is the complete runtime API base URL; new built-in runtime servers use `/runtime`.
 - Remote runtime endpoints still use the shared runtime API contract, but topic APIs are only available when that runtime injects `TopicReader` / `TopicDeleter`.
@@ -55,7 +54,7 @@ Stack:
  +-------+--------------------------------------+--------+
  | daemonruntime handlers                                |
  | /health /overview /tasks /tasks/{id} /topics?        |
- | /state/* /memory/* /audit/* /contacts/*              |
+ | /state/* /audit/* /contacts/*                        |
  +-------+--------------------------------------+--------+
          |                                      |
          |                                      +--> remote TaskView
@@ -64,7 +63,7 @@ Stack:
  +-------+-----------------------------------------------+
  | consoleLocalRuntime                                   |
  | per-topic ConversationRunner + direct awareness loop  |
- | + memory runtime + submit/topic orchestration         |
+ | + submit/topic orchestration                          |
  +-------+-------------------------------+---------------+
          |                               |
          v                               v
@@ -105,8 +104,6 @@ Stack:
   - dedicated sidebar entry
   - structured list rendering from `ACTIVE.md` + `INACTIVE.md`
   - status filter (`all|active|inactive`)
-- Memory:
-  - browse and edit memory files (`index.md`, recent short-term session files)
 - Audit:
   - browse Guard audit files
   - cursor-based reads for large JSONL logs (`limit` + opaque `cursor`)
@@ -187,10 +184,6 @@ Runtime routes used through `/proxy`:
   - `DELETE /persona/avatar`
 - Contacts:
   - `GET /contacts/list?status=all|active|inactive`
-- Memory:
-  - `GET /memory/files`
-  - `GET /memory/files/{id}` (`index.md` or `YYYY-MM-DD/<session>.md`)
-  - `PUT /memory/files/{id}`
 - Audit:
   - `GET /audit/files`
   - `GET /audit/logs?file=<name>&limit=<n>[&cursor=<opaque>]`

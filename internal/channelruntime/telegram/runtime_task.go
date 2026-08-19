@@ -23,7 +23,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
@@ -37,12 +36,7 @@ import (
 )
 
 type runtimeTaskOptions struct {
-	MemoryEnabled           bool
-	MemoryInjectionEnabled  bool
-	MemoryInjectionMaxItems int
-	FileCacheDir            string
-	MemoryOrchestrator      *memoryruntime.Orchestrator
-	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
+	FileCacheDir string
 }
 
 const (
@@ -52,7 +46,7 @@ const (
 
 var encodeImageToWebP = defaultEncodeImageToWebP
 
-func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegramAPI, fileCacheDir string, filesMaxBytes int64, allowedIDs map[int64]bool, job telegramJob, botUsername string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, steerSource agent.SteerSource, sendTelegramText func(context.Context, int64, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
+func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegramAPI, fileCacheDir string, filesMaxBytes int64, allowedIDs map[int64]bool, job telegramJob, botUsername string, history []chathistory.ChatHistoryItem, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, steerSource agent.SteerSource, sendTelegramText func(context.Context, int64, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
 	if rt == nil {
 		return nil, nil, nil, nil, fmt.Errorf("telegram task runtime is nil")
 	}
@@ -133,35 +127,6 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		}
 	}
 
-	memSubjectID := telegramMemorySessionID(job)
-	memoryHooks := taskruntime.MemoryHooks{
-		Source:    "telegram",
-		SubjectID: memSubjectID,
-		LogFields: map[string]any{"chat_id": job.ChatID, "message_thread_id": job.MessageThreadID},
-	}
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
-		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
-		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
-		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
-			return runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-				SubjectID:      memSubjectID,
-				RequestContext: telegramMemoryRequestContext(job.ChatType),
-				MaxItems:       maxItems,
-			})
-		}
-		memoryHooks.ShouldRecord = func(final *agent.Final) bool {
-			return shouldPublishTelegramText(final)
-		}
-		memoryHooks.Record = func(final *agent.Final, _ string) error {
-			return recordMemoryFromJob(logger, runtimeOpts.MemoryOrchestrator, job, history, historyCap, final)
-		}
-		memoryHooks.NotifyRecorded = func() {
-			if runtimeOpts.MemoryProjectionWorker != nil {
-				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
-			}
-		}
-	}
-
 	planUpdateHook := func(runCtx *agent.Context, update agent.PlanStepUpdate) {
 		if runCtx == nil || runCtx.Plan == nil {
 			return
@@ -224,7 +189,6 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		},
 		PlanStepUpdate:         planUpdateHook,
 		SteerSource:            steerSource,
-		Memory:                 memoryHooks,
 		ImageToolScope:         strings.TrimSpace(job.ConversationKey),
 		ImageToolRetention:     toolsutil.ImageToolRetentionCountdown,
 		ContextCheckpointStore: checkpointHistory.Store,

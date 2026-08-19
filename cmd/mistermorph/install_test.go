@@ -47,9 +47,6 @@ func TestInstallWritesIdentityAndSoulUnderStateDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stateDir, "SCRIPTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("SCRIPTS.md should not be created during install, err=%v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "memory", "index.md")); !os.IsNotExist(err) {
-		t.Fatalf("memory/index.md should not be created during install, err=%v", err)
-	}
 }
 
 func TestInstallUsesConfiguredStateDirWhenArgMissing(t *testing.T) {
@@ -99,9 +96,6 @@ func TestInstallUsesConfiguredStateDirWhenArgMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "SCRIPTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("SCRIPTS.md should not be created during install, err=%v", err)
-	}
-	if _, err := os.Stat(filepath.Join(stateDir, "memory", "index.md")); !os.IsNotExist(err) {
-		t.Fatalf("memory/index.md should not be created during install, err=%v", err)
 	}
 }
 

@@ -19,7 +19,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
@@ -33,14 +32,9 @@ import (
 )
 
 type runtimeTaskOptions struct {
-	MemoryEnabled           bool
-	MemoryInjectionEnabled  bool
-	MemoryInjectionMaxItems int
-	FileCacheDir            string
-	ToolAPI                 larktools.API
-	ToolFileMaxBytes        int64
-	MemoryOrchestrator      *memoryruntime.Orchestrator
-	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
+	FileCacheDir     string
+	ToolAPI          larktools.API
+	ToolFileMaxBytes int64
 }
 
 type larkJob struct {
@@ -144,43 +138,6 @@ func runLarkTask(
 		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
 
-	memSubjectID := larkMemorySubjectID(job)
-	memoryHooks := taskruntime.MemoryHooks{
-		Source:    "lark",
-		SubjectID: memSubjectID,
-		LogFields: map[string]any{"chat_id": job.ChatID},
-	}
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
-		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
-		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
-		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
-			return runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-				SubjectID:      memSubjectID,
-				RequestContext: larkMemoryRequestContext(job.ChatType),
-				MaxItems:       maxItems,
-			})
-		}
-		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
-			recordedAt := time.Now().UTC()
-			return runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-				TaskRunID:      strings.TrimSpace(job.TaskID),
-				SessionID:      larkMemorySessionID(job),
-				SubjectID:      memSubjectID,
-				Channel:        "lark",
-				Participants:   larkMemoryParticipants(job),
-				TaskText:       task,
-				FinalOutput:    strings.TrimSpace(finalOutput),
-				SourceHistory:  buildLarkMemoryHistory(history, job, finalOutput, recordedAt),
-				SessionContext: larkMemorySessionContext(job),
-			})
-		}
-		memoryHooks.NotifyRecorded = func() {
-			if runtimeOpts.MemoryProjectionWorker != nil {
-				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
-			}
-		}
-	}
-
 	reg := buildLarkRegistry(rt.BaseRegistry, job.ChatType)
 	reactTool, err := registerLarkChannelTools(reg, runtimeOpts.ToolAPI, job.ChatID, job.MessageID, runtimeOpts.FileCacheDir, runtimeOpts.ToolFileMaxBytes)
 	if err != nil {
@@ -221,7 +178,6 @@ func runLarkTask(
 			promptprofile.AppendLarkRuntimeBlocks(spec, isLarkGroupChat(job.ChatType), strings.Join(larktools.StandardReactionEmojiTypes(), ","))
 		},
 		SteerSource:            steerSource,
-		Memory:                 memoryHooks,
 		ImageToolScope:         strings.TrimSpace(job.ConversationKey),
 		ImageToolRetention:     toolsutil.ImageToolRetentionCountdown,
 		ContextCheckpointStore: checkpointHistory.Store,

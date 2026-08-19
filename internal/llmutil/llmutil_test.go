@@ -1080,33 +1080,13 @@ func TestResolveRoute_NamedProfileDoesNotInheritTopLevelLLMFields(t *testing.T) 
 	}
 }
 
-func TestResolveRoute_MemoryDraftPurpose(t *testing.T) {
+func TestResolveRoute_RejectsRemovedMemoryDraftPurpose(t *testing.T) {
 	values := RuntimeValues{
-		Provider:          "openai",
-		Endpoint:          "https://api.openai.com",
-		APIKey:            "base-key",
-		Model:             "gpt-5.2",
-		RequestTimeoutRaw: "90s",
-		Profiles: map[string]ProfileConfig{
-			"memory": {
-				Model: "gpt-4.1-mini",
-			},
-		},
-		Routes: RoutesConfig{
-			PurposeRoutes: PurposeRoutes{
-				MemoryDraft: RoutePolicyConfig{Profile: "memory"},
-			},
-		},
+		Provider: "openai",
+		Model:    "gpt-5.2",
 	}
-	resolved, err := ResolveRoute(values, RoutePurposeMemoryDraft)
-	if err != nil {
-		t.Fatalf("ResolveRoute() error = %v", err)
-	}
-	if resolved.Profile != "memory" {
-		t.Fatalf("profile = %q, want memory", resolved.Profile)
-	}
-	if resolved.ClientConfig.Model != "gpt-4.1-mini" {
-		t.Fatalf("model = %q, want gpt-4.1-mini", resolved.ClientConfig.Model)
+	if _, err := ResolveRoute(values, "memory_draft"); err == nil {
+		t.Fatal("ResolveRoute(memory_draft) error = nil, want unsupported purpose")
 	}
 }
 
@@ -1390,11 +1370,10 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 			},
 			"fallback_profiles": []string{"reasoning"},
 		},
-		"addressing":   "cheap",
-		"awareness":    "reasoning",
-		"think":        "reasoning",
-		"plan_create":  "reasoning",
-		"memory_draft": map[string]any{"profile": "cheap"},
+		"addressing":  "cheap",
+		"awareness":   "reasoning",
+		"think":       "reasoning",
+		"plan_create": "reasoning",
 	})
 
 	values := requireRuntimeValues(t, v)
@@ -1443,9 +1422,6 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	}
 	if values.Routes.MainLoop.FallbackProfiles[0] != "reasoning" {
 		t.Fatalf("main loop fallback = %#v, want [reasoning]", values.Routes.MainLoop.FallbackProfiles)
-	}
-	if values.Routes.MemoryDraft.Profile != "cheap" {
-		t.Fatalf("memory draft route profile = %q, want cheap", values.Routes.MemoryDraft.Profile)
 	}
 }
 

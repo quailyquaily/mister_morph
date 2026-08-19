@@ -71,10 +71,6 @@ type TelegramConfig struct {
 	FileCacheMaxAge                      time.Duration
 	FileCacheMaxFiles                    int
 	FileCacheMaxTotalBytes               int64
-	MemoryEnabled                        bool
-	MemoryShortTermDays                  int
-	MemoryInjectionEnabled               bool
-	MemoryInjectionMaxItems              int
 }
 
 type TelegramInput struct {
@@ -117,10 +113,6 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		FileCacheMaxAge:                      r.GetDuration("file_cache.max_age"),
 		FileCacheMaxFiles:                    r.GetInt("file_cache.max_files"),
 		FileCacheMaxTotalBytes:               r.GetInt64("file_cache.max_total_bytes"),
-		MemoryEnabled:                        r.GetBool("memory.enabled"),
-		MemoryShortTermDays:                  r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:               r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems:              r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -221,20 +213,16 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 			AuthToken: cfg.ServerAuthToken,
 			MaxQueue:  cfg.ServerMaxQueue,
 		},
-		BusMaxInFlight:          cfg.BusMaxInFlight,
-		RequestTimeout:          cfg.RequestTimeout,
-		AgentLimits:             cfg.AgentLimits,
-		EngineToolsConfig:       cfg.EngineToolsConfig,
-		FileCacheMaxAge:         cfg.FileCacheMaxAge,
-		FileCacheMaxFiles:       cfg.FileCacheMaxFiles,
-		FileCacheMaxTotalBytes:  cfg.FileCacheMaxTotalBytes,
-		MemoryEnabled:           cfg.MemoryEnabled,
-		MemoryShortTermDays:     cfg.MemoryShortTermDays,
-		MemoryInjectionEnabled:  cfg.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: cfg.MemoryInjectionMaxItems,
-		Hooks:                   in.Hooks,
-		InspectPrompt:           in.InspectPrompt,
-		InspectRequest:          in.InspectRequest,
+		BusMaxInFlight:         cfg.BusMaxInFlight,
+		RequestTimeout:         cfg.RequestTimeout,
+		AgentLimits:            cfg.AgentLimits,
+		EngineToolsConfig:      cfg.EngineToolsConfig,
+		FileCacheMaxAge:        cfg.FileCacheMaxAge,
+		FileCacheMaxFiles:      cfg.FileCacheMaxFiles,
+		FileCacheMaxTotalBytes: cfg.FileCacheMaxTotalBytes,
+		Hooks:                  in.Hooks,
+		InspectPrompt:          in.InspectPrompt,
+		InspectRequest:         in.InspectRequest,
 	}, nil
 }
 
@@ -287,10 +275,6 @@ type SlackConfig struct {
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
 	EngineToolsConfig                    agent.EngineToolsConfig
-	MemoryEnabled                        bool
-	MemoryShortTermDays                  int
-	MemoryInjectionEnabled               bool
-	MemoryInjectionMaxItems              int
 }
 
 type SlackInput struct {
@@ -332,10 +316,6 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
 		AgentLimits:                          agentLimitsFromReader(r),
 		EngineToolsConfig:                    engineToolsConfigFromReader(r),
-		MemoryEnabled:                        r.GetBool("memory.enabled"),
-		MemoryShortTermDays:                  r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:               r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems:              r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -400,18 +380,14 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 			AuthToken: cfg.ServerAuthToken,
 			MaxQueue:  cfg.ServerMaxQueue,
 		},
-		BaseURL:                 baseURL,
-		BusMaxInFlight:          cfg.BusMaxInFlight,
-		RequestTimeout:          cfg.RequestTimeout,
-		AgentLimits:             cfg.AgentLimits,
-		EngineToolsConfig:       cfg.EngineToolsConfig,
-		MemoryEnabled:           cfg.MemoryEnabled,
-		MemoryShortTermDays:     cfg.MemoryShortTermDays,
-		MemoryInjectionEnabled:  cfg.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: cfg.MemoryInjectionMaxItems,
-		Hooks:                   in.Hooks,
-		InspectPrompt:           in.InspectPrompt,
-		InspectRequest:          in.InspectRequest,
+		BaseURL:           baseURL,
+		BusMaxInFlight:    cfg.BusMaxInFlight,
+		RequestTimeout:    cfg.RequestTimeout,
+		AgentLimits:       cfg.AgentLimits,
+		EngineToolsConfig: cfg.EngineToolsConfig,
+		Hooks:             in.Hooks,
+		InspectPrompt:     in.InspectPrompt,
+		InspectRequest:    in.InspectRequest,
 	}
 }
 
@@ -435,10 +411,6 @@ type LineConfig struct {
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
 	EngineToolsConfig                    agent.EngineToolsConfig
-	MemoryEnabled                        bool
-	MemoryShortTermDays                  int
-	MemoryInjectionEnabled               bool
-	MemoryInjectionMaxItems              int
 }
 
 type LineInput struct {
@@ -475,10 +447,6 @@ type LarkConfig struct {
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
 	EngineToolsConfig                    agent.EngineToolsConfig
-	MemoryEnabled                        bool
-	MemoryShortTermDays                  int
-	MemoryInjectionEnabled               bool
-	MemoryInjectionMaxItems              int
 }
 
 type LarkInput struct {
@@ -519,10 +487,6 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
 		AgentLimits:                          agentLimitsFromReader(r),
 		EngineToolsConfig:                    engineToolsConfigFromReader(r),
-		MemoryEnabled:                        r.GetBool("memory.enabled"),
-		MemoryShortTermDays:                  r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:               r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems:              r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -552,10 +516,6 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
 		AgentLimits:                          agentLimitsFromReader(r),
 		EngineToolsConfig:                    engineToolsConfigFromReader(r),
-		MemoryEnabled:                        r.GetBool("memory.enabled"),
-		MemoryShortTermDays:                  r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:               r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems:              r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -628,10 +588,6 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 		RequestTimeout:                cfg.RequestTimeout,
 		AgentLimits:                   cfg.AgentLimits,
 		EngineToolsConfig:             cfg.EngineToolsConfig,
-		MemoryEnabled:                 cfg.MemoryEnabled,
-		MemoryShortTermDays:           cfg.MemoryShortTermDays,
-		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,
 	}
@@ -692,10 +648,6 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 		RequestTimeout:                cfg.RequestTimeout,
 		AgentLimits:                   cfg.AgentLimits,
 		EngineToolsConfig:             cfg.EngineToolsConfig,
-		MemoryEnabled:                 cfg.MemoryEnabled,
-		MemoryShortTermDays:           cfg.MemoryShortTermDays,
-		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,
 	}

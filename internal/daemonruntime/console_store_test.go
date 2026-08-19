@@ -100,6 +100,75 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 	}
 }
 
+func TestConsoleFileStoreJournalsWithoutPersistingProjection(t *testing.T) {
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    filepath.Join(root, "tasks"),
+		Persist:    false,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	topic, err := store.CreateTopic("Journal only")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+	createdAt := mustParseTime(t, "2026-08-19T10:00:00Z")
+	if err := store.UpsertWithTrigger(TaskInfo{
+		ID:        "task_journal_only",
+		Status:    TaskRunning,
+		Task:      "record without projection",
+		CreatedAt: createdAt,
+		TopicID:   topic.ID,
+	}, TaskTrigger{Source: "ui", Event: "chat_submit"}, topic.Title); err != nil {
+		t.Fatalf("UpsertWithTrigger() error = %v", err)
+	}
+	if err := store.Update("task_journal_only", func(info *TaskInfo) {
+		info.Status = TaskDone
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	var eventTypes []string
+	if err := domainjournal.ReplayDir(journalDir, func(rec domainjournal.Record) error {
+		if rec.Event.Domain == taskdomain.JournalDomain && rec.Event.Trace.Target == "console" {
+			eventTypes = append(eventTypes, rec.Event.Type)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("ReplayDir() error = %v", err)
+	}
+	wantTypes := []string{
+		taskdomain.JournalTypeTopicUpsert,
+		taskdomain.JournalTypeTaskUpsert,
+		taskdomain.JournalTypeTaskUpdate,
+	}
+	if strings.Join(eventTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Fatalf("event types = %#v, want %#v", eventTypes, wantTypes)
+	}
+	if _, err := os.Stat(filepath.Join(root, "tasks", taskProjectionSnapshotFilename)); !os.IsNotExist(err) {
+		t.Fatalf("projection stat error = %v, want not exist", err)
+	}
+
+	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    filepath.Join(root, "tasks"),
+		Persist:    false,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
+	}
+	if got := reloaded.List(TaskListOptions{Limit: 10}); len(got) != 0 {
+		t.Fatalf("reloaded tasks = %#v, want no replay", got)
+	}
+	if got := reloaded.ListTopicsPage(TopicListOptions{Limit: 10}); len(got) != 0 {
+		t.Fatalf("reloaded topics = %#v, want no replay", got)
+	}
+}
+
 func TestConsoleFileStoreSnapshotAdvancesPastForeignDomainEvents(t *testing.T) {
 	root := t.TempDir()
 	journalDir := filepath.Join(root, "journal")

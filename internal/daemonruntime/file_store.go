@@ -24,6 +24,7 @@ type FileTaskStoreOptions struct {
 	RootDir        string
 	Target         string
 	Persist        bool
+	MaxItems       int
 	RotateMaxBytes int64
 	Journal        *domainjournal.Journal
 	JournalDir     string
@@ -35,6 +36,7 @@ type FileTaskStore struct {
 	rootDir          string
 	target           string
 	persist          bool
+	maxItems         int
 	rotateMaxBytes   int64
 	journal          *domainjournal.Journal
 	projectionCursor domainjournal.Cursor
@@ -60,19 +62,26 @@ func taskPersistenceEnabled(target string, targets []string) bool {
 
 func NewTaskViewForTarget(target string, maxItems int, cfg TaskViewConfig) (TaskView, error) {
 	target = strings.TrimSpace(target)
-	if !taskPersistenceEnabled(target, cfg.PersistenceTargets) {
-		return NewMemoryStore(maxItems), nil
-	}
+	persist := taskPersistenceEnabled(target, cfg.PersistenceTargets)
 	tasksDir := strings.TrimSpace(cfg.TasksDir)
-	if tasksDir == "" {
+	if persist && tasksDir == "" {
 		return nil, fmt.Errorf("task store tasks dir is required")
 	}
+	journalDir := strings.TrimSpace(cfg.JournalDir)
+	if journalDir == "" {
+		return nil, fmt.Errorf("task store journal dir is required")
+	}
+	rootDir := ""
+	if tasksDir != "" {
+		rootDir = filepath.Join(tasksDir, target)
+	}
 	return NewFileTaskStore(FileTaskStoreOptions{
-		RootDir:        filepath.Join(tasksDir, target),
+		RootDir:        rootDir,
 		Target:         target,
-		Persist:        true,
+		Persist:        persist,
+		MaxItems:       maxItems,
 		RotateMaxBytes: cfg.RotateMaxBytes,
-		JournalDir:     cfg.JournalDir,
+		JournalDir:     journalDir,
 	})
 }
 
@@ -89,18 +98,27 @@ func NewFileTaskStore(opts FileTaskStoreOptions) (*FileTaskStore, error) {
 		rootDir:        filepath.Clean(rootDir),
 		target:         target,
 		persist:        opts.Persist,
+		maxItems:       opts.MaxItems,
 		rotateMaxBytes: opts.RotateMaxBytes,
 		journal:        opts.Journal,
 		items:          map[string]TaskInfo{},
 		triggers:       map[string]TaskTrigger{},
 	}
-	if s.persist && s.journal == nil {
+	if s.maxItems <= 0 {
+		s.maxItems = defaultMaxItems
+	}
+	if s.journal == nil {
 		journalDir := strings.TrimSpace(opts.JournalDir)
-		journal, err := taskdomain.NewJournal(journalDir, opts.RotateMaxBytes)
-		if err != nil {
-			return nil, err
+		if journalDir == "" && s.persist {
+			return nil, fmt.Errorf("task store journal dir is required")
 		}
-		s.journal = journal
+		if journalDir != "" {
+			journal, err := taskdomain.NewJournal(journalDir, opts.RotateMaxBytes)
+			if err != nil {
+				return nil, err
+			}
+			s.journal = journal
+		}
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -138,6 +156,7 @@ func (s *FileTaskStore) RecordTaskUpsert(info TaskInfo, trigger TaskTrigger) err
 	if taskdomain.HasTaskTrigger(trigger) {
 		s.triggers[info.ID] = taskdomain.NormalizeTaskTrigger(trigger)
 	}
+	s.pruneLiveViewLocked()
 	s.projectionCursor = cursor
 	return nil
 }
@@ -179,6 +198,7 @@ func (s *FileTaskStore) RecordTaskUpdate(id string, trigger TaskTrigger, fn func
 	if taskOrderChanged(previous, item) {
 		s.orderedIDs = upsertOrderedTaskID(s.orderedIDs, s.items, id)
 	}
+	s.pruneLiveViewLocked()
 	s.projectionCursor = cursor
 	return nil
 }
@@ -365,7 +385,7 @@ func (s *FileTaskStore) recoverNonTerminalTasksLocked(now time.Time) error {
 }
 
 func (s *FileTaskStore) appendTaskEventLocked(info TaskInfo, now time.Time, trigger TaskTrigger, defaultType string) (domainjournal.Cursor, error) {
-	if !s.persist {
+	if s.journal == nil {
 		return domainjournal.Cursor{}, nil
 	}
 	return taskdomain.AppendJournalEvent(s.journal, s.target, defaultType, now, trigger, &info, nil)
@@ -403,6 +423,7 @@ func normalizeFileTaskInfo(info TaskInfo) TaskInfo {
 	info.Timeout = strings.TrimSpace(info.Timeout)
 	info.Error = strings.TrimSpace(info.Error)
 	info.TopicID = strings.TrimSpace(info.TopicID)
+	info.Conversation = taskdomain.NormalizeTaskConversation(info.Conversation)
 	if info.CreatedAt.IsZero() {
 		info.CreatedAt = time.Now().UTC()
 	} else {
@@ -420,4 +441,29 @@ func (s *FileTaskStore) triggerForTaskLocked(taskID string, trigger TaskTrigger)
 		return saved
 	}
 	return TaskTrigger{}
+}
+
+func (s *FileTaskStore) pruneLiveViewLocked() {
+	if s.persist {
+		return
+	}
+	terminalCount := 0
+	kept := s.orderedIDs[:0]
+	for _, id := range s.orderedIDs {
+		item, ok := s.items[id]
+		if !ok {
+			continue
+		}
+		switch item.Status {
+		case TaskDone, TaskFailed, TaskCanceled:
+			terminalCount++
+			if terminalCount > s.maxItems {
+				delete(s.items, id)
+				delete(s.triggers, id)
+				continue
+			}
+		}
+		kept = append(kept, id)
+	}
+	s.orderedIDs = kept
 }

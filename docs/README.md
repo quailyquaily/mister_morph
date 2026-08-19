@@ -24,7 +24,6 @@
 - [Architecture](./arch.md)
 - [Runtime Layers](./runtime_layers.md)
 - [Prompt System](./prompt.md)
-- [Memory](./memory.md)
 - [Bus](./bus.md)
 
 ## Channels

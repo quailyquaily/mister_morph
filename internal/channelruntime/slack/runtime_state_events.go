@@ -200,13 +200,14 @@ func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.B
 		}
 		topicID, topicTitle := slackManagedTopicInfo(inbound.TeamID, inbound.ChannelID, inbound.ThreadTS, inbound.MessageTS)
 		if err := recordSlackQueuedTask(s.taskStore, daemonruntime.TaskInfo{
-			ID:        jobTaskID,
-			Status:    daemonruntime.TaskQueued,
-			Task:      textutil.TruncateRunes(text, 2000),
-			Model:     strings.TrimSpace(taskRoute.ClientConfig.Model),
-			Timeout:   s.taskTimeout.String(),
-			CreatedAt: createdAt,
-			TopicID:   topicID,
+			ID:           jobTaskID,
+			Status:       daemonruntime.TaskQueued,
+			Task:         textutil.TruncateRunes(text, 2000),
+			Model:        strings.TrimSpace(taskRoute.ClientConfig.Model),
+			Timeout:      s.taskTimeout.String(),
+			CreatedAt:    createdAt,
+			TopicID:      topicID,
+			Conversation: slackTaskConversation(buildJob(0), s.botUserID),
 			Result: map[string]any{
 				"source":            "slack",
 				"slack_team_id":     inbound.TeamID,

@@ -64,14 +64,6 @@ const sidebarSpec: SidebarSpec = [
         }
       },
       {
-        slug: 'memory',
-        text: {
-          en: 'Memory',
-          zh: '记忆',
-          ja: 'Memory'
-        }
-      },
-      {
         slug: 'todo-and-heartbeat',
         text: {
           en: 'TODO and Heartbeat',

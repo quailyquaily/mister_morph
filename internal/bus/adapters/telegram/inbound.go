@@ -20,22 +20,23 @@ type InboundAdapterOptions struct {
 }
 
 type InboundMessage struct {
-	ChatID           int64
-	MessageThreadID  int64
-	MessageID        int64
-	ReplyToMessageID int64
-	SentAt           time.Time
-	ChatType         string
-	FromUserID       int64
-	FromUsername     string
-	FromFirstName    string
-	FromLastName     string
-	FromDisplayName  string
-	FromIsAgent      bool
-	Text             string
-	MentionUsers     []string
-	ImagePaths       []string
-	ImageAttachments []busruntime.ImageAttachment
+	ChatID              int64
+	MessageThreadID     int64
+	MessageID           int64
+	ReplyToMessageID    int64
+	SentAt              time.Time
+	ChatType            string
+	FromUserID          int64
+	FromUsername        string
+	FromFirstName       string
+	FromLastName        string
+	FromDisplayName     string
+	FromIsAgent         bool
+	Text                string
+	MentionUsers        []string
+	MentionParticipants []busruntime.MessageParticipant
+	ImagePaths          []string
+	ImageAttachments    []busruntime.ImageAttachment
 }
 
 type InboundAdapter struct {
@@ -133,6 +134,10 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
+	mentionParticipants, err := normalizeMentionParticipants(msg.MentionParticipants)
+	if err != nil {
+		return false, err
+	}
 	imageAttachments, imagePaths, err := baseadapters.NormalizeImageInputs(msg.ImageAttachments, msg.ImagePaths)
 	if err != nil {
 		return false, err
@@ -150,20 +155,21 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 		PayloadBase64:   payloadBase64,
 		CreatedAt:       sentAt,
 		Extensions: busruntime.MessageExtensions{
-			PlatformMessageID: fmt.Sprintf("%d:%d", chatID, messageID),
-			ReplyTo:           replyTo,
-			SessionID:         sessionID,
-			ChatType:          chatType,
-			MessageThreadID:   messageThreadID,
-			FromUserID:        msg.FromUserID,
-			FromUsername:      strings.TrimSpace(msg.FromUsername),
-			FromFirstName:     strings.TrimSpace(msg.FromFirstName),
-			FromLastName:      strings.TrimSpace(msg.FromLastName),
-			FromDisplayName:   strings.TrimSpace(msg.FromDisplayName),
-			FromIsAgent:       msg.FromIsAgent,
-			MentionUsers:      mentionUsers,
-			ImagePaths:        imagePaths,
-			ImageAttachments:  imageAttachments,
+			PlatformMessageID:   fmt.Sprintf("%d:%d", chatID, messageID),
+			ReplyTo:             replyTo,
+			SessionID:           sessionID,
+			ChatType:            chatType,
+			MessageThreadID:     messageThreadID,
+			FromUserID:          msg.FromUserID,
+			FromUsername:        strings.TrimSpace(msg.FromUsername),
+			FromFirstName:       strings.TrimSpace(msg.FromFirstName),
+			FromLastName:        strings.TrimSpace(msg.FromLastName),
+			FromDisplayName:     strings.TrimSpace(msg.FromDisplayName),
+			FromIsAgent:         msg.FromIsAgent,
+			MentionUsers:        mentionUsers,
+			MentionParticipants: mentionParticipants,
+			ImagePaths:          imagePaths,
+			ImageAttachments:    imageAttachments,
 		},
 	}
 	platformMessageID := fmt.Sprintf("%d:%d", chatID, messageID)
@@ -208,28 +214,33 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, err
 	}
+	mentionParticipants, err := normalizeMentionParticipants(msg.Extensions.MentionParticipants)
+	if err != nil {
+		return InboundMessage{}, err
+	}
 	imageAttachments, imagePaths, err := baseadapters.NormalizeImageInputs(msg.Extensions.ImageAttachments, msg.Extensions.ImagePaths)
 	if err != nil {
 		return InboundMessage{}, err
 	}
 
 	return InboundMessage{
-		ChatID:           chatID,
-		MessageThreadID:  messageThreadID,
-		MessageID:        messageID,
-		ReplyToMessageID: replyToMessageID,
-		SentAt:           sentAt.UTC(),
-		ChatType:         strings.TrimSpace(msg.Extensions.ChatType),
-		FromUserID:       msg.Extensions.FromUserID,
-		FromUsername:     strings.TrimSpace(msg.Extensions.FromUsername),
-		FromFirstName:    strings.TrimSpace(msg.Extensions.FromFirstName),
-		FromLastName:     strings.TrimSpace(msg.Extensions.FromLastName),
-		FromDisplayName:  strings.TrimSpace(msg.Extensions.FromDisplayName),
-		FromIsAgent:      msg.Extensions.FromIsAgent,
-		Text:             strings.TrimSpace(envelope.Text),
-		MentionUsers:     mentionUsers,
-		ImagePaths:       imagePaths,
-		ImageAttachments: imageAttachments,
+		ChatID:              chatID,
+		MessageThreadID:     messageThreadID,
+		MessageID:           messageID,
+		ReplyToMessageID:    replyToMessageID,
+		SentAt:              sentAt.UTC(),
+		ChatType:            strings.TrimSpace(msg.Extensions.ChatType),
+		FromUserID:          msg.Extensions.FromUserID,
+		FromUsername:        strings.TrimSpace(msg.Extensions.FromUsername),
+		FromFirstName:       strings.TrimSpace(msg.Extensions.FromFirstName),
+		FromLastName:        strings.TrimSpace(msg.Extensions.FromLastName),
+		FromDisplayName:     strings.TrimSpace(msg.Extensions.FromDisplayName),
+		FromIsAgent:         msg.Extensions.FromIsAgent,
+		Text:                strings.TrimSpace(envelope.Text),
+		MentionUsers:        mentionUsers,
+		MentionParticipants: mentionParticipants,
+		ImagePaths:          imagePaths,
+		ImageAttachments:    imageAttachments,
 	}, nil
 }
 
@@ -275,6 +286,22 @@ func normalizeMentionUsers(items []string) ([]string, error) {
 			return nil, fmt.Errorf("mention user is required")
 		}
 		out = append(out, item)
+	}
+	return out, nil
+}
+
+func normalizeMentionParticipants(items []busruntime.MessageParticipant) ([]busruntime.MessageParticipant, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([]busruntime.MessageParticipant, 0, len(items))
+	for _, participant := range items {
+		participant.ID = strings.TrimSpace(participant.ID)
+		participant.Nickname = strings.TrimSpace(participant.Nickname)
+		if participant.ID == "" {
+			return nil, fmt.Errorf("mention participant id is required")
+		}
+		out = append(out, participant)
 	}
 	return out, nil
 }

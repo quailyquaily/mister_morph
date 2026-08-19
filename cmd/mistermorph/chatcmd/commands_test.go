@@ -26,7 +26,7 @@ func TestChatTimeoutContextTreatsNonPositiveTimeoutAsUnlimited(t *testing.T) {
 
 func TestChatRuntimeRegistryIncludesSharedCommands(t *testing.T) {
 	sess := &chatSession{
-		subjectID:    "cli_test",
+		projectID:    "cli_test",
 		sessionStore: llmselect.NewStore(),
 	}
 	history := make([]llm.Message, 0)
@@ -51,7 +51,7 @@ func TestChatRuntimeRegistryIncludesSharedCommands(t *testing.T) {
 func TestChatResetDeletesHistoryAndCheckpoint(t *testing.T) {
 	root := t.TempDir()
 	sess := &chatSession{
-		subjectID:    "cli_reset",
+		projectID:    "cli_reset",
 		fileStateDir: root,
 		sessionStore: llmselect.NewStore(),
 	}
@@ -87,7 +87,7 @@ func TestChatResetDeletesHistoryAndCheckpoint(t *testing.T) {
 }
 
 func TestChatSessionConversationKeyUsesCurrentProjectScope(t *testing.T) {
-	sess := &chatSession{subjectID: "cli_1234"}
+	sess := &chatSession{projectID: "cli_1234"}
 	if got := sess.conversationKey(); got != "chat:cli_1234" {
 		t.Fatalf("conversationKey() = %q, want %q", got, "chat:cli_1234")
 	}

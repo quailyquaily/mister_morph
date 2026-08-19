@@ -31,12 +31,6 @@ func TestNormalizeRunOptionsDefaults(t *testing.T) {
 	if got.RequestTimeout != 90*time.Second {
 		t.Fatalf("request timeout = %v, want 90s", got.RequestTimeout)
 	}
-	if got.MemoryShortTermDays != 7 {
-		t.Fatalf("memory short term days = %d, want 7", got.MemoryShortTermDays)
-	}
-	if got.MemoryInjectionMaxItems != 50 {
-		t.Fatalf("memory injection max items = %d, want 50", got.MemoryInjectionMaxItems)
-	}
 	if got.Server.Listen != "127.0.0.1:8788" {
 		t.Fatalf("server listen = %q, want 127.0.0.1:8788", got.Server.Listen)
 	}
@@ -85,13 +79,9 @@ func TestNormalizeRunOptionsPreservesFields(t *testing.T) {
 			Listen:  " 127.0.0.1:8080 ",
 			CronRun: func(context.Context, cronstore.Task) error { return nil },
 		},
-		BaseURL:                 " https://example.com/api ",
-		BusMaxInFlight:          4096,
-		RequestTimeout:          30 * time.Second,
-		MemoryEnabled:           true,
-		MemoryShortTermDays:     9,
-		MemoryInjectionEnabled:  true,
-		MemoryInjectionMaxItems: 12,
+		BaseURL:        " https://example.com/api ",
+		BusMaxInFlight: 4096,
+		RequestTimeout: 30 * time.Second,
 		AgentLimits: agent.Limits{
 			MaxSteps:        20,
 			ParseRetries:    5,
@@ -121,9 +111,6 @@ func TestNormalizeRunOptionsPreservesFields(t *testing.T) {
 	}
 	if got.Server.CronRun == nil {
 		t.Fatal("server CronRun = nil, want non-nil")
-	}
-	if !got.MemoryEnabled || got.MemoryShortTermDays != 9 || !got.MemoryInjectionEnabled || got.MemoryInjectionMaxItems != 12 {
-		t.Fatalf("memory options mismatch: %#v", got)
 	}
 	if !got.InspectPrompt || !got.InspectRequest {
 		t.Fatalf("inspect options should be preserved: %#v", got)

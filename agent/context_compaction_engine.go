@@ -29,7 +29,7 @@ Return only one JSON object with exactly these fields:
   "progress": {"completed": ["string"], "in_progress": ["string"], "pending": ["string"]},
   "intermediate_results": ["string"]
 }
-Preserve user goals, explicit constraints, preferences, relevant file/directory/URL references, progress, decisions, errors, and intermediate results. Every field is required. Use empty arrays when needed. Never include secrets, API keys, headers, system prompts, runtime metadata, or memory source text. Do not add markdown.`
+Preserve user goals, explicit constraints, preferences, relevant file/directory/URL references, progress, decisions, errors, and intermediate results. Every field is required. Use empty arrays when needed. Never include secrets, API keys, headers, system prompts, or runtime metadata. Do not add markdown.`
 
 type contextCompactionDecision struct {
 	ShouldCompact     bool

@@ -22,6 +22,16 @@ func TestJournalCodecRoundTrip(t *testing.T) {
 		Model:     " gpt-test ",
 		CreatedAt: now,
 		TopicID:   " topic_1 ",
+		Conversation: &TaskConversation{
+			ConversationID:   " tg:42 ",
+			ConversationType: " SUPERGROUP ",
+			Participants: []TaskParticipant{
+				{ID: " @alice ", Nickname: " Alice "},
+				{ID: "", Nickname: "drop"},
+				{ID: "@alice", Nickname: "duplicate"},
+				{ID: " @bob "},
+			},
+		},
 	}
 	topic := TopicInfo{ID: "topic_1", Title: "Topic", CreatedAt: now, UpdatedAt: now}
 	if _, err := AppendJournalEvent(journal, "integration", JournalTypeTaskUpsert, now, trigger, &task, &topic); err != nil {
@@ -57,6 +67,25 @@ func TestJournalCodecRoundTrip(t *testing.T) {
 	}
 	if payload.Task.Task != "ping" || payload.Task.Model != "gpt-test" || payload.Task.TopicID != "topic_1" {
 		t.Fatalf("normalized task = %+v", payload.Task)
+	}
+	conversation := payload.Task.Conversation
+	if conversation == nil {
+		t.Fatal("normalized conversation is nil")
+	}
+	if conversation.ConversationID != "tg:42" || conversation.ConversationType != "supergroup" {
+		t.Fatalf("normalized conversation = %+v", conversation)
+	}
+	wantParticipants := []TaskParticipant{
+		{ID: "@alice", Nickname: "Alice"},
+		{ID: "@bob"},
+	}
+	if len(conversation.Participants) != len(wantParticipants) {
+		t.Fatalf("participants = %+v, want %+v", conversation.Participants, wantParticipants)
+	}
+	for i, want := range wantParticipants {
+		if got := conversation.Participants[i]; got != want {
+			t.Fatalf("participants[%d] = %+v, want %+v", i, got, want)
+		}
 	}
 	if payload.Trigger == nil || *payload.Trigger != trigger {
 		t.Fatalf("payload trigger = %+v, want %+v", payload.Trigger, trigger)

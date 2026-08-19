@@ -97,14 +97,12 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 	}
 
 	runtimeGenerations, err = runtimecore.BootstrapRuntimeGenerationManager(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
-		Mode:                "telegram",
-		InspectRequest:      opts.InspectRequest,
-		InspectPrompt:       opts.InspectPrompt,
-		AgentConfig:         opts.AgentLimits.ToConfig(),
-		EngineToolsConfig:   &opts.EngineToolsConfig,
-		MemoryEnabled:       opts.MemoryEnabled,
-		MemoryShortTermDays: opts.MemoryShortTermDays,
-		Logger:              logger,
+		Mode:              "telegram",
+		InspectRequest:    opts.InspectRequest,
+		InspectPrompt:     opts.InspectPrompt,
+		AgentConfig:       opts.AgentLimits.ToConfig(),
+		EngineToolsConfig: &opts.EngineToolsConfig,
+		Logger:            logger,
 	})
 	if err != nil {
 		return nil, err
@@ -342,14 +340,8 @@ func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey
 		correlationID := fmt.Sprintf("telegram:context-compaction:%s:%d", job.TaskID, event.Step)
 		return s.publishText(notifyCtx, chatID, job.MessageThreadID, text, correlationID)
 	})
-	memoryRuntime := runtimeBundle.Memory
 	runtimeOpts := runtimeTaskOptions{
-		MemoryEnabled:           s.options.MemoryEnabled,
-		MemoryInjectionEnabled:  s.options.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: s.options.MemoryInjectionMaxItems,
-		FileCacheDir:            s.options.FileCacheDir,
-		MemoryOrchestrator:      memoryRuntime.Orchestrator,
-		MemoryProjectionWorker:  memoryRuntime.ProjectionWorker,
+		FileCacheDir: s.options.FileCacheDir,
 	}
 	final, _, loadedSkills, reaction, runErr := runTelegramTask(
 		runCtx,
@@ -361,7 +353,6 @@ func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey
 		job,
 		s.botUser,
 		history,
-		s.historyCap,
 		stickySkills,
 		s.options.RequestTimeout,
 		runtimeOpts,
@@ -600,13 +591,14 @@ func (s *telegramRuntimeState) enqueueInbound(ctx context.Context, message busru
 		}
 		topicID, topicTitle := telegramManagedTopicInfo(inbound.ChatID, inbound.MessageThreadID, inbound.ChatType, inbound.FromDisplayName, inbound.FromUsername)
 		if err := recordTelegramQueuedTask(s.taskStore, daemonruntime.TaskInfo{
-			ID:        jobTaskID,
-			Status:    daemonruntime.TaskQueued,
-			Task:      textutil.TruncateRunes(text, 2000),
-			Model:     strings.TrimSpace(taskRoute.ClientConfig.Model),
-			Timeout:   s.options.TaskTimeout.String(),
-			CreatedAt: createdAt,
-			TopicID:   topicID,
+			ID:           jobTaskID,
+			Status:       daemonruntime.TaskQueued,
+			Task:         textutil.TruncateRunes(text, 2000),
+			Model:        strings.TrimSpace(taskRoute.ClientConfig.Model),
+			Timeout:      s.options.TaskTimeout.String(),
+			CreatedAt:    createdAt,
+			TopicID:      topicID,
+			Conversation: telegramTaskConversation(message.ConversationKey, inbound, s.botUser, s.botID),
 			Result: map[string]any{
 				"source":                "telegram",
 				"telegram_chat_id":      inbound.ChatID,
@@ -834,6 +826,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 			s.stateMu.Unlock()
 		}
 	}
+	mentionParticipants := collectTelegramTaskParticipants(message, s.botUser, s.botID)
 	appendIgnoredInboundHistory := func(ignoredText string) {
 		ignoredText = strings.TrimSpace(ignoredText)
 		if ignoredText == "" && messageHasDownloadableFile(message) {
@@ -1187,21 +1180,22 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		}
 	}
 	accepted, publishErr := s.inboundAdapter.HandleInboundMessage(context.Background(), telegrambus.InboundMessage{
-		ChatID:           chatID,
-		MessageThreadID:  messageThreadID,
-		MessageID:        message.MessageID,
-		ReplyToMessageID: replyToMessageID,
-		SentAt:           messageSentAt,
-		ChatType:         chatType,
-		FromUserID:       fromUserID,
-		FromUsername:     fromUsername,
-		FromFirstName:    fromFirst,
-		FromLastName:     fromLast,
-		FromDisplayName:  fromDisplay,
-		FromIsAgent:      fromIsAgent,
-		Text:             text,
-		MentionUsers:     mentionUsers,
-		ImageAttachments: imageAttachments,
+		ChatID:              chatID,
+		MessageThreadID:     messageThreadID,
+		MessageID:           message.MessageID,
+		ReplyToMessageID:    replyToMessageID,
+		SentAt:              messageSentAt,
+		ChatType:            chatType,
+		FromUserID:          fromUserID,
+		FromUsername:        fromUsername,
+		FromFirstName:       fromFirst,
+		FromLastName:        fromLast,
+		FromDisplayName:     fromDisplay,
+		FromIsAgent:         fromIsAgent,
+		Text:                text,
+		MentionUsers:        mentionUsers,
+		MentionParticipants: mentionParticipants,
+		ImageAttachments:    imageAttachments,
 	})
 	if publishErr != nil {
 		s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", message.MessageID, "bus_error_code", string(busruntime.ErrorCodeOf(publishErr)), "error", publishErr.Error())

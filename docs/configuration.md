@@ -113,9 +113,13 @@ lark:
   record_untriggered: false
 ```
 
-The switches are independent and default to `false`. When enabled, the channel writes a compact `conversation/untriggered_inbound` event to the shared journal. It does not create a task, write memory, or call another LLM. Messages rejected before trigger admission, including commands, private messages, unauthorized messages, bot messages, and duplicates caught by existing ingress filtering, are not recorded. The feature adds no dedupe state. Stored text is limited to 2048 bytes; attachments are represented only by `has_attachment: true`.
+The switches are independent and default to `false`. When enabled, the channel writes a compact `conversation/untriggered_inbound` event to the shared journal. It does not create a task or call another LLM. Messages rejected before trigger admission, including commands, private messages, unauthorized messages, bot messages, and duplicates caught by existing ingress filtering, are not recorded. The feature adds no dedupe state. Stored text is limited to 2048 bytes; attachments are represented only by `has_attachment: true`.
 
 There is no global fallback or CLI flag for this setting.
+
+## Task Journal and Projections
+
+Accepted task and topic changes from every runtime are written to the unified journal under `<file_state_dir>/<journal.dir_name>/`. `tasks.persistence_targets` only selects the runtimes whose task projections are saved and restored across process restarts. Removing a runtime from this list does not disable its journal records.
 
 ## Console Update Path
 
@@ -317,7 +321,7 @@ Core LLM:
 - For GPT-5.6-family OpenAI and Responses-compatible requests, the runtime generates `prompt_cache_key` and marks the fixed system prompt as an explicit cache breakpoint when caching is enabled. It leaves `prompt_cache_options` unset so the provider's default implicit breakpoint remains active.
 - `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling.
 - `llm.profiles` defines independent named LLM configurations; blank fields do not fall back to top-level `llm` values.
-- `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `awareness`, `think`, `plan_create`, and `memory_draft`. `heartbeat` is still accepted as a legacy alias for `awareness`.
+- `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `awareness`, `think`, and `plan_create`. `heartbeat` is still accepted as a legacy alias for `awareness`.
 - Each route can be a simple profile name or an object with `profile`, `candidates`, and `fallback_profiles`.
 - `candidates` enables per-run weighted traffic split; one candidate is selected once for the current run and reused for all LLM calls in that run.
 - `fallback_profiles` is route-local and only applies after the chosen primary route candidate fails with a fallback-eligible error.

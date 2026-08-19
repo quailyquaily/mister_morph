@@ -35,7 +35,7 @@ User=morph
 Group=morph
 
 # systemd-managed writable dirs (kept minimal).
-# - StateDirectory: persistent data (memory files + guard approvals state)
+# - StateDirectory: persistent task, contact, and guard state
 # - CacheDirectory: ephemeral cache (file_cache_dir / telegram downloads / file-tool fallback)
 StateDirectory=morph
 StateDirectoryMode=0700

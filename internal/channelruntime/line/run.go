@@ -38,10 +38,6 @@ type RunOptions struct {
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
 	EngineToolsConfig             agent.EngineToolsConfig
-	MemoryEnabled                 bool
-	MemoryShortTermDays           int
-	MemoryInjectionEnabled        bool
-	MemoryInjectionMaxItems       int
 	InspectPrompt                 bool
 	InspectRequest                bool
 }

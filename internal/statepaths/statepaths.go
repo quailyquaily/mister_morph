@@ -20,14 +20,6 @@ func FileStateDir() string {
 	return pathutil.ResolveStateDir(viper.GetString("file_state_dir"))
 }
 
-func MemoryDir() string {
-	return pathutil.ResolveStateChildDir(
-		viper.GetString("file_state_dir"),
-		viper.GetString("memory.dir_name"),
-		"memory",
-	)
-}
-
 func SkillsDir() string {
 	return pathutil.ResolveStateChildDir(
 		viper.GetString("file_state_dir"),

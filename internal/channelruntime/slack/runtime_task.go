@@ -17,7 +17,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
@@ -32,12 +31,7 @@ import (
 )
 
 type runtimeTaskOptions struct {
-	MemoryEnabled           bool
-	MemoryInjectionEnabled  bool
-	MemoryInjectionMaxItems int
-	FileCacheDir            string
-	MemoryOrchestrator      *memoryruntime.Orchestrator
-	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
+	FileCacheDir string
 }
 
 func runSlackTask(
@@ -46,7 +40,6 @@ func runSlackTask(
 	api *slackAPI,
 	job slackJob,
 	history []chathistory.ChatHistoryItem,
-	historyCap int,
 	stickySkills []string,
 	allowedChannelIDs map[string]bool,
 	availableEmojiNames []string,
@@ -130,43 +123,6 @@ func runSlackTask(
 		}
 	}
 
-	memSubjectID := slackMemorySubjectID(job)
-	memoryHooks := taskruntime.MemoryHooks{
-		Source:    "slack",
-		SubjectID: memSubjectID,
-		LogFields: map[string]any{"channel_id": job.ChannelID},
-	}
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
-		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
-		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
-		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
-			return runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-				SubjectID:      memSubjectID,
-				RequestContext: slackMemoryRequestContext(job.ChatType),
-				MaxItems:       maxItems,
-			})
-		}
-		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
-			recordedAt := time.Now().UTC()
-			return runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-				TaskRunID:      strings.TrimSpace(job.TaskID),
-				SessionID:      slackMemorySessionID(job),
-				SubjectID:      memSubjectID,
-				Channel:        "slack",
-				Participants:   slackMemoryParticipants(job),
-				TaskText:       task,
-				FinalOutput:    strings.TrimSpace(finalOutput),
-				SourceHistory:  buildSlackMemoryHistory(history, job, finalOutput, recordedAt, historyCap),
-				SessionContext: slackMemorySessionContext(job),
-			})
-		}
-		memoryHooks.NotifyRecorded = func() {
-			if runtimeOpts.MemoryProjectionWorker != nil {
-				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
-			}
-		}
-	}
-
 	meta := map[string]any{
 		"trigger":            "slack",
 		"slack_team_id":      job.TeamID,
@@ -202,7 +158,6 @@ func runSlackTask(
 		},
 		PlanStepUpdate:         planStepUpdate,
 		SteerSource:            steerSource,
-		Memory:                 memoryHooks,
 		ImageToolScope:         slackHistoryScopeKeyForJob(job),
 		ImageToolRetention:     toolsutil.ImageToolRetentionCountdown,
 		ContextCheckpointStore: checkpointHistory.Store,

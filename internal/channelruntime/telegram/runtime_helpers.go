@@ -71,6 +71,43 @@ func collectMentionCandidates(msg *telegramMessage, botUser string) []string {
 	return out
 }
 
+func collectTelegramTaskParticipants(msg *telegramMessage, botUser string, botID int64) []busruntime.MessageParticipant {
+	if msg == nil {
+		return nil
+	}
+	botUser = normalizeTelegramMentionID(botUser)
+	out := make([]busruntime.MessageParticipant, 0, 1+len(msg.Entities)+len(msg.CaptionEntities))
+	add := func(user *telegramUser) {
+		if user == nil || user.ID == botID {
+			return
+		}
+		id := normalizeTelegramMentionID(user.Username)
+		if id == "" && user.ID > 0 {
+			id = strconv.FormatInt(user.ID, 10)
+		}
+		if id == "" || strings.EqualFold(id, botUser) {
+			return
+		}
+		out = append(out, busruntime.MessageParticipant{
+			ID:       id,
+			Nickname: telegramDisplayName(user),
+		})
+	}
+	if msg.ReplyTo != nil && !isTelegramForumTopicRootMessage(msg.ReplyTo) {
+		add(msg.ReplyTo.From)
+	}
+	addEntities := func(entities []telegramEntity) {
+		for _, entity := range entities {
+			if strings.EqualFold(strings.TrimSpace(entity.Type), "text_mention") {
+				add(entity.User)
+			}
+		}
+	}
+	addEntities(msg.Entities)
+	addEntities(msg.CaptionEntities)
+	return out
+}
+
 func telegramFirstBodyMentionTargetsSelf(msg *telegramMessage, botUser string, botID int64) (bool, bool) {
 	if msg == nil {
 		return false, false
@@ -216,15 +253,11 @@ func publishTelegramBusOutbound(ctx context.Context, inprocBus *busruntime.Inpro
 	return messageID, nil
 }
 
-func telegramMemoryContactID(username string, userID int64) string {
-	username = strings.TrimSpace(username)
-	username = strings.TrimPrefix(username, "@")
-	username = strings.TrimSpace(username)
-	if username != "" {
-		return "tg:@" + username
-	}
-	if userID > 0 {
-		return fmt.Sprintf("tg:%d", userID)
+func firstNonEmptyString(values ...string) string {
+	for _, raw := range values {
+		if value := strings.TrimSpace(raw); value != "" {
+			return value
+		}
 	}
 	return ""
 }

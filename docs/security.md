@@ -181,6 +181,11 @@ Audit:
 - Guard emits structured audit events to an append-only JSONL log.
 - Configure via `guard.audit.jsonl_path` (default: `<file_state_dir>/<guard.dir_name>/audit/guard_audit.jsonl`) and `guard.audit.rotate_max_bytes`.
 
+Task data retention:
+
+- Accepted task and topic changes are written to `<file_state_dir>/<journal.dir_name>/`, including task text and available conversation participant identifiers and nicknames.
+- `tasks.persistence_targets` controls task projection recovery. It does not disable journal records for targets omitted from the list.
+
 ## Systemd sandbox
 
 Because of those capabilities, long-lived runtime processes are a good candidate for a **deny-by-default** runtime profile:
@@ -199,7 +204,7 @@ The recommended unit assumes:
 - Binary: `/opt/morph/mistermorph`
 - Config: `/opt/morph/config.yaml`
 - Skills: `/opt/morph/skills` (set `file_state_dir: /opt/morph` and `skills.dir_name: skills`)
-- Persistent state (guard approvals, memory, contacts, etc.): `/var/lib/morph/`
+- Persistent state (guard approvals, tasks, contacts, etc.): `/var/lib/morph/`
 - Ephemeral cache (file_cache_dir, Telegram downloads): `/var/cache/morph/`
 - write_file tool output: `/var/cache/morph/` or `/var/lib/morph/` (file_cache_dir or file_state_dir)
 - Non-secret env/config: `/opt/morph/morph.env` (mode `0640`, owned by root or `morph`)

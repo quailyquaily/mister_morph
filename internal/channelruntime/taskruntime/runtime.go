@@ -20,7 +20,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -120,18 +119,6 @@ type Runtime struct {
 	imageRetention *toolsutil.ImageToolRetentionStore
 }
 
-type MemoryHooks struct {
-	Source            string
-	SubjectID         string
-	LogFields         map[string]any
-	InjectionEnabled  bool
-	InjectionMaxItems int
-	PrepareInjection  func(maxItems int) (string, error)
-	ShouldRecord      func(final *agent.Final) bool
-	Record            func(final *agent.Final, finalOutput string) error
-	NotifyRecorded    func()
-}
-
 type PromptAugmentFunc func(spec *agent.PromptSpec, reg *tools.Registry)
 
 type RunRequest struct {
@@ -159,7 +146,6 @@ type RunRequest struct {
 	ReasoningDetails         bool
 	OnStream                 llm.StreamHandler
 	SteerSource              agent.SteerSource
-	Memory                   MemoryHooks
 	EngineToolsConfig        *agent.EngineToolsConfig
 	ImageToolScope           string
 	ImageToolRetention       toolsutil.ImageToolRetentionMode
@@ -355,7 +341,6 @@ type preparedRuntimeRun struct {
 	model               string
 	route               llmutil.ResolvedRoute
 	scene               string
-	memoryContext       string
 	logger              *slog.Logger
 	engine              *agent.Engine
 	loadedSkills        []string
@@ -416,7 +401,6 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		Scene:                    prepared.scene,
 		History:                  append([]llm.Message(nil), req.History...),
 		Meta:                     cloneMeta(req.Meta),
-		MemoryContext:            prepared.memoryContext,
 		CurrentMessage:           req.CurrentMessage,
 		ReasoningDetails:         req.ReasoningDetails,
 		OnStream:                 req.OnStream,
@@ -430,9 +414,6 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	})
 	if err != nil {
 		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
-	}
-	if !contextCompactionOnly {
-		rt.recordMemory(prepared.logger, final, req.Memory)
 	}
 	return RunResult{
 		Final:        final,
@@ -461,7 +442,6 @@ func (rt *Runtime) Resume(ctx context.Context, approvalRequestID string, req Run
 	if err != nil {
 		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
 	}
-	rt.recordMemory(prepared.logger, final, req.Memory)
 	return RunResult{
 		Final:        final,
 		Context:      runCtx,
@@ -660,7 +640,6 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	if imageRetained {
 		rt.appendImageSessionBlock(ctx, logger, req.ImageToolScope, &promptSpec)
 	}
-	memoryContext := rt.prepareMemoryContext(logger, req.Memory)
 	if rt.commonDeps.PromptAugment != nil {
 		rt.commonDeps.PromptAugment(&promptSpec, reg)
 	}
@@ -715,7 +694,6 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 		model:               model,
 		route:               mainRoute,
 		scene:               scene,
-		memoryContext:       memoryContext,
 		logger:              logger,
 		engine:              engine,
 		loadedSkills:        loadedSkills,
@@ -968,44 +946,6 @@ func closeRuntimeResources(logger *slog.Logger, resources ...any) error {
 	return err
 }
 
-func (rt *Runtime) prepareMemoryContext(logger *slog.Logger, hooks MemoryHooks) string {
-	if hooks.PrepareInjection == nil || !hooks.InjectionEnabled || strings.TrimSpace(hooks.SubjectID) == "" {
-		return ""
-	}
-	snap, err := hooks.PrepareInjection(hooks.InjectionMaxItems)
-	if err != nil {
-		logger.Warn("memory_injection_error", memoryLogArgs(hooks, "error", err.Error())...)
-		return ""
-	}
-	if strings.TrimSpace(snap) == "" {
-		logger.Debug("memory_injection_skipped", memoryLogArgs(hooks, "reason", "empty_snapshot")...)
-		return ""
-	}
-	logger.Info("memory_injection_applied", memoryLogArgs(hooks, "snapshot_len", len(snap))...)
-	return snap
-}
-
-func (rt *Runtime) recordMemory(logger *slog.Logger, final *agent.Final, hooks MemoryHooks) {
-	if hooks.Record == nil || strings.TrimSpace(hooks.SubjectID) == "" {
-		return
-	}
-	if hooks.ShouldRecord != nil && !hooks.ShouldRecord(final) {
-		return
-	}
-	finalOutput := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
-	if finalOutput == "" {
-		return
-	}
-	if err := hooks.Record(final, finalOutput); err != nil {
-		logger.Warn("memory_record_error", memoryLogArgs(hooks, "error", err.Error())...)
-		return
-	}
-	logger.Debug("memory_record_ok", memoryLogArgs(hooks)...)
-	if hooks.NotifyRecorded != nil {
-		hooks.NotifyRecorded()
-	}
-}
-
 func cloneMeta(meta map[string]any) map[string]any {
 	if len(meta) == 0 {
 		return nil
@@ -1040,19 +980,4 @@ func imageToolRegistrationTask(task string, current *llm.Message) string {
 		}
 	}
 	return strings.Join(parts, "\n")
-}
-
-func memoryLogArgs(hooks MemoryHooks, extra ...any) []any {
-	args := make([]any, 0, 4+len(hooks.LogFields)*2+len(extra))
-	args = append(args, "source", strings.TrimSpace(hooks.Source))
-	args = append(args, "subject_id", strings.TrimSpace(hooks.SubjectID))
-	for k, v := range hooks.LogFields {
-		key := strings.TrimSpace(k)
-		if key == "" {
-			continue
-		}
-		args = append(args, key, v)
-	}
-	args = append(args, extra...)
-	return args
 }

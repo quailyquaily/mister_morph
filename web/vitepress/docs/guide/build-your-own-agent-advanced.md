@@ -236,7 +236,7 @@ fmt.Println(result.Final.Output)
 
 `LLMProfile` overrides the primary route for this call only. Leave it empty to follow the configured default route; it does not change the runtime-wide profile selection.
 
-`RunTaskWithOptions` writes task lifecycle records only when `PersistTask` is true. It does not write memory journal records.
+`RunTaskWithOptions` writes task lifecycle records only when `PersistTask` is true.
 
 ### Context Compaction
 
