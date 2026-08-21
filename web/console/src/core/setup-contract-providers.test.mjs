@@ -12,7 +12,7 @@ test("setup contract exposes Sakana AI as an inference provider", async () => {
   const source = await readSetupContract();
 
   assert.match(source, /const SETUP_PROVIDER_SAKANA = "sakana"/);
-  assert.match(source, /\{ title: "Sakana AI", value: SETUP_PROVIDER_SAKANA \}/);
+  assert.match(source, /\{ title: "Sakana AI", value: SETUP_PROVIDER_SAKANA, group: "api" \}/);
   assert.match(source, /\[SETUP_PROVIDER_SAKANA\]: \{ supportsModelLookup: true \}/);
   assert.match(source, /case SETUP_PROVIDER_SAKANA:\s+return SETUP_PROVIDER_SAKANA;/);
   assert.match(source, /\[SETUP_PROVIDER_SAKANA\]: \{\s+title: "Sakana AI",\s+url: "https:\/\/console\.sakana\.ai\/"/);
@@ -23,7 +23,7 @@ test("setup contract exposes Meta Model API as an inference provider", async () 
   const source = await readSetupContract();
 
   assert.match(source, /const SETUP_PROVIDER_META = "meta"/);
-  assert.match(source, /\{ title: "Meta", value: SETUP_PROVIDER_META \}/);
+  assert.match(source, /\{ title: "Meta", value: SETUP_PROVIDER_META, group: "api" \}/);
   assert.match(source, /\[SETUP_PROVIDER_META\]: \{\}/);
   assert.match(source, /case SETUP_PROVIDER_META:\s+return SETUP_PROVIDER_META;/);
   assert.match(source, /\[SETUP_PROVIDER_META\]: \{\s+title: "Meta Model API",\s+url: "https:\/\/developer\.meta\.com\/ai\/"/);

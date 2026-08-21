@@ -26,7 +26,7 @@ function fallbackLogoText(item) {
 function providerLogo(item) {
   const value = normalizeText(item?.value);
   if (value === "") {
-    return { src: "", className: "is-empty", badge: "" };
+    return { src: "", className: "is-empty" };
   }
   return inferenceProviderLogo(value);
 }
@@ -34,6 +34,13 @@ function providerLogo(item) {
 function providerLogoClass(item) {
   return providerLogo(item).className || "is-fallback";
 }
+
+const DEFAULT_PROVIDER_GROUP = "api";
+const PROVIDER_GROUPS = [
+  { id: "api", labelKey: "settings_inference_provider_group_api" },
+  { id: "account", labelKey: "settings_inference_provider_group_account" },
+  { id: "compatible", labelKey: "settings_inference_provider_group_compatible" },
+];
 
 const InferenceProviderPicker = {
   components: {
@@ -64,14 +71,19 @@ const InferenceProviderPicker = {
     const t = translate;
     const open = ref(false);
     const filter = ref("");
+    const activeGroup = ref(DEFAULT_PROVIDER_GROUP);
 
     const normalizedItems = computed(() =>
       (Array.isArray(props.items) ? props.items : [])
-        .map((item) => ({
-          title: normalizeText(item?.title),
-          value: normalizeText(item?.value),
-          note: normalizeText(item?.note),
-        }))
+        .map((item) => {
+          const group = normalizeText(item?.group);
+          return {
+            title: normalizeText(item?.title),
+            value: normalizeText(item?.value),
+            note: normalizeText(item?.note),
+            group: PROVIDER_GROUPS.some((candidate) => candidate.id === group) ? group : DEFAULT_PROVIDER_GROUP,
+          };
+        })
         .filter((item) => item.title !== "" || item.value !== ""),
     );
     const selectedItem = computed(
@@ -80,10 +92,17 @@ const InferenceProviderPicker = {
     const selectedTitle = computed(
       () => selectedItem.value?.title || normalizeText(props.placeholder) || t("settings_inference_provider_picker_placeholder"),
     );
+    const groupTabs = computed(() =>
+      PROVIDER_GROUPS.map((group) => ({ id: group.id, title: t(group.labelKey) })),
+    );
+    const selectedGroupTab = computed(
+      () => groupTabs.value.find((item) => item.id === activeGroup.value) || groupTabs.value[0] || null,
+    );
+    const isFiltering = computed(() => normalizeText(filter.value) !== "");
     const filteredItems = computed(() => {
       const query = normalizeText(filter.value).toLowerCase();
       if (!query) {
-        return normalizedItems.value;
+        return normalizedItems.value.filter((item) => item.group === activeGroup.value);
       }
       return normalizedItems.value.filter((item) =>
         [item.title, item.value, item.note].some((value) => normalizeText(value).toLowerCase().includes(query)),
@@ -95,6 +114,7 @@ const InferenceProviderPicker = {
         return;
       }
       filter.value = "";
+      activeGroup.value = selectedItem.value?.group || DEFAULT_PROVIDER_GROUP;
       open.value = true;
       console.info("[InferenceProviderPicker] dialog open requested", {
         provider: normalizeText(props.modelValue),
@@ -135,12 +155,22 @@ const InferenceProviderPicker = {
       filter.value = String(value || "");
     }
 
+    function changeGroup(detail) {
+      const nextGroup = normalizeText(detail?.tab?.id);
+      if (PROVIDER_GROUPS.some((group) => group.id === nextGroup)) {
+        activeGroup.value = nextGroup;
+      }
+    }
+
     return {
       t,
       open,
       filter,
       selectedItem,
       selectedTitle,
+      groupTabs,
+      selectedGroupTab,
+      isFiltering,
       filteredItems,
       fallbackLogoText,
       providerLogo,
@@ -151,6 +181,7 @@ const InferenceProviderPicker = {
       isSelected,
       selectItem,
       updateFilter,
+      changeGroup,
     };
   },
   template: `
@@ -178,9 +209,6 @@ const InferenceProviderPicker = {
           <span v-else class="inference-provider-logo-fallback">
             {{ selectedItem ? fallbackLogoText(selectedItem) : "LLM" }}
           </span>
-          <span v-if="selectedItem && providerLogo(selectedItem).badge" class="inference-provider-logo-badge">
-            {{ providerLogo(selectedItem).badge }}
-          </span>
         </span>
         <span class="inference-provider-trigger-copy">
           <span class="inference-provider-trigger-title">{{ selectedTitle }}</span>
@@ -204,6 +232,15 @@ const InferenceProviderPicker = {
             :placeholder="t('settings_inference_provider_filter_placeholder')"
             @update:modelValue="updateFilter"
           />
+          <QTabs
+            v-if="!isFiltering"
+            class="inference-provider-tabs"
+            :tabs="groupTabs"
+            :modelValue="selectedGroupTab"
+            variant="plain"
+            :aria-label="t('settings_inference_provider_group_label')"
+            @change="changeGroup"
+          />
           <div class="inference-provider-grid" role="listbox" :aria-label="t('settings_inference_provider_dialog_title')">
             <button
               v-for="item in filteredItems"
@@ -223,9 +260,6 @@ const InferenceProviderPicker = {
                   alt=""
                 />
                 <span v-else class="inference-provider-logo-fallback">{{ fallbackLogoText(item) }}</span>
-                <span v-if="providerLogo(item).badge" class="inference-provider-logo-badge">
-                  {{ providerLogo(item).badge }}
-                </span>
               </span>
               <span class="inference-provider-card-copy">
                 <span class="inference-provider-card-title">{{ item.title }}</span>

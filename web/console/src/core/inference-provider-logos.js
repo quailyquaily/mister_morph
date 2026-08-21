@@ -14,8 +14,8 @@ import misterMorphLogo from "../assets/images/app_logo_current.svg";
 
 const INFERENCE_PROVIDER_LOGOS = {
   openai: { src: openAILogo, className: "is-openai" },
-  openai_codex: { src: openAILogo, className: "is-openai is-codex", badge: "Codex" },
-  xai_oauth: { src: xAILogo, className: "is-xai", badge: "OAuth" },
+  openai_codex: { src: openAILogo, className: "is-openai" },
+  xai_oauth: { src: xAILogo, className: "is-xai" },
   gemini: { src: geminiLogo, className: "is-gemini" },
   anthropic: { src: claudeLogo, className: "is-claude" },
   bedrock: { src: bedrockLogo, className: "is-bedrock" },
@@ -28,14 +28,14 @@ const INFERENCE_PROVIDER_LOGOS = {
   openrouter: { src: openRouterLogo, className: "is-openrouter" },
   groq: { src: groqLogo, className: "is-groq" },
   sakana: { src: sakanaLogo, className: "is-sakana" },
-  openai_chat_compatible: { src: openAILogo, className: "is-openai is-compatible", badge: "Chat" },
-  openai_response_compatible: { src: openAILogo, className: "is-openai is-compatible", badge: "Resp" },
-  anthropic_compatible: { src: claudeLogo, className: "is-claude is-compatible", badge: "API" },
+  openai_chat_compatible: { src: openAILogo, className: "is-openai" },
+  openai_response_compatible: { src: openAILogo, className: "is-openai" },
+  anthropic_compatible: { src: claudeLogo, className: "is-claude" },
 };
 
 export function inferenceProviderLogo(value) {
   const provider = String(value || "")
     .trim()
     .toLowerCase();
-  return INFERENCE_PROVIDER_LOGOS[provider] || { src: "", className: "is-fallback", badge: "" };
+  return INFERENCE_PROVIDER_LOGOS[provider] || { src: "", className: "is-fallback" };
 }
