@@ -66,6 +66,24 @@ func TestChatToolFailureKeepsTargetAndError(t *testing.T) {
 	}
 }
 
+func TestChatToolFailureEscapesTerminalControlCharacters(t *testing.T) {
+	sess, output, _ := newPhase3CallbackSession()
+	call := agent.ToolCall{Name: "web_search", Params: map[string]any{"q": "status"}}
+
+	sess.onToolCallDone(nil, call, "", errors.New("remote error: \x1b[2Jclear\x1b]0;title\x07"))
+	got := output.String()
+	for _, unsafe := range []string{"\x1b[2J", "\x1b]0;title\x07"} {
+		if strings.Contains(got, unsafe) {
+			t.Fatalf("tool failure contains executable terminal control %q: %q", unsafe, got)
+		}
+	}
+	for _, visible := range []string{`\x1b[2Jclear`, `\x1b]0;title\x07`} {
+		if !strings.Contains(got, visible) {
+			t.Fatalf("tool failure missing visible control sequence %q: %q", visible, got)
+		}
+	}
+}
+
 func TestChatActivityNormalizationPreservesParameterSpacing(t *testing.T) {
 	t.Parallel()
 
@@ -119,5 +137,39 @@ func TestChatPlanCallbacksPrintPlanOnceAndUpdateActivity(t *testing.T) {
 	})
 	if got := strings.Count(ansi.Strip(output.String()), "✓ Plan complete · 2 steps"); got != 1 {
 		t.Fatalf("plan completion summary count = %d, output = %q", got, output.String())
+	}
+}
+
+func TestChatPlanCallbacksEscapeTerminalControlCharacters(t *testing.T) {
+	sess, output, messages := newPhase3CallbackSession()
+	plan := &agent.Plan{Steps: agent.PlanSteps{
+		{Step: "inspect \x1b[2J inputs"},
+	}}
+	runCtx := &agent.Context{Plan: plan}
+
+	sess.onPlanStepUpdate(runCtx, agent.PlanStepUpdate{
+		CompletedIndex: -1,
+		StartedIndex:   0,
+		StartedStep:    "inspect \x1b]0;title\x07 inputs",
+		Reason:         "plan_created",
+	})
+
+	if strings.Contains(output.String(), "\x1b[2J") {
+		t.Fatalf("plan transcript contains executable terminal control: %q", output.String())
+	}
+	if !strings.Contains(output.String(), `inspect \x1b[2J inputs`) {
+		t.Fatalf("plan transcript missing visible control sequence: %q", output.String())
+	}
+
+	last := (*messages)[len(*messages)-1]
+	activity, ok := last.(thinkingMsg)
+	if !ok {
+		t.Fatalf("plan activity message = %#v", last)
+	}
+	if strings.Contains(activity.message, "\x1b]0;title\x07") {
+		t.Fatalf("plan activity contains executable terminal control: %q", activity.message)
+	}
+	if !strings.Contains(activity.message, `\x1b]0;title\x07`) {
+		t.Fatalf("plan activity missing visible control sequence: %q", activity.message)
 	}
 }

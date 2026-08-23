@@ -60,7 +60,7 @@ func configureChatSessionCallbacks(sess *chatSession, logger *slog.Logger) {
 		activity := formatChatToolActivity(call)
 		writer := sess.currentWriter()
 		if callErr != nil {
-			_, _ = fmt.Fprintf(writer, "%s %s\n  %s\n", chatErrorStyle.Render("×"), activity, normalizeActivityText(callErr.Error()))
+			_, _ = fmt.Fprintf(writer, "%s %s\n  %s\n", chatErrorStyle.Render("×"), activity, escapeTerminalControls(normalizeActivityText(callErr.Error())))
 			sess.setActivity("waiting for model")
 			return
 		}
@@ -114,7 +114,7 @@ func formatChatPlanActivity(index, total int, step string) string {
 	if total > 0 {
 		prefix = fmt.Sprintf("plan %d/%d", index+1, total)
 	}
-	return prefix + " · " + normalizeActivityText(step)
+	return prefix + " · " + escapeTerminalControls(normalizeActivityText(step))
 }
 
 func formatChatPlan(plan *agent.Plan) string {
@@ -124,7 +124,7 @@ func formatChatPlan(plan *agent.Plan) string {
 	lines := make([]string, 1, len(plan.Steps)+1)
 	lines[0] = "Plan"
 	for i, step := range plan.Steps {
-		lines = append(lines, fmt.Sprintf("  %d. %s", i+1, strings.TrimSpace(step.Step)))
+		lines = append(lines, fmt.Sprintf("  %d. %s", i+1, escapeTerminalControls(strings.TrimSpace(step.Step))))
 	}
 	return strings.Join(lines, "\n")
 }

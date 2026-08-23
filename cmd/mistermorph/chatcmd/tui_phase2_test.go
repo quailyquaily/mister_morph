@@ -253,3 +253,27 @@ func TestChatModelCommandPickerLimitsNarrowTerminalToThreeItems(t *testing.T) {
 		t.Fatalf("narrow picker rendered more than three commands:\n%s", view)
 	}
 }
+
+func TestChatModelCommandPickerFitsRemainingTerminalHeight(t *testing.T) {
+	reg := chatcommands.NewRegistry()
+	for _, name := range []string{"/alpha", "/beta", "/charlie", "/delta"} {
+		reg.Register(name, "description for "+name, nil)
+	}
+	m := newChatModel(newPhase1TestSession(t))
+	m.commandRegistry = reg
+	m.textarea.SetValue("/")
+	m.Update(tea.WindowSizeMsg{Width: 40, Height: 5})
+
+	view := m.View()
+	if lines := strings.Count(view, "\n") + 1; lines > 5 {
+		t.Fatalf("command picker View() uses %d rows in a 5-row terminal:\n%s", lines, view)
+	}
+	for _, want := range []string{"› ", "/alpha", "description for /alpha", "select"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("short command picker missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "/beta") {
+		t.Fatalf("short command picker rendered more rows than available:\n%s", view)
+	}
+}
