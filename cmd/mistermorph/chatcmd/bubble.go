@@ -633,6 +633,21 @@ func (m *chatModel) renderCommandPicker() []string {
 	if m.width < 60 || (m.height > 0 && m.height <= shortTerminalHeight) {
 		limit = shortPickerItems
 	}
+	if m.height > 0 {
+		textareaRows := strings.Count(m.textarea.View(), "\n") + 1
+		reservedRows := 2 + textareaRows // separator and footer
+		if m.thinking {
+			reservedRows++
+		}
+		rowsPerItem := 1
+		if m.width < 60 {
+			rowsPerItem = 2
+		}
+		limit = min(limit, max(0, m.height-reservedRows)/rowsPerItem)
+	}
+	if limit == 0 {
+		return nil
+	}
 	start := 0
 	if m.pickerIndex >= limit {
 		start = m.pickerIndex - limit + 1
