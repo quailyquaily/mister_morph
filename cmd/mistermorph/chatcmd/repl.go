@@ -3,8 +3,6 @@ package chatcmd
 import (
 	"context"
 	"errors"
-	"os"
-	"os/signal"
 	"strings"
 	"sync"
 	"time"
@@ -78,8 +76,9 @@ type activeChatTurn struct {
 }
 
 type pendingChatApproval struct {
-	id   string
-	turn *activeChatTurn
+	id     string
+	record guard.ApprovalRecord
+	turn   *activeChatTurn
 }
 
 type chatTurnResult struct {
@@ -173,17 +172,6 @@ func startChatTurn(
 	resultCh chan<- chatTurnResult,
 	run func(context.Context) (*agent.Final, *agent.Context, error),
 ) {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
-	go func() {
-		defer signal.Stop(sigCh)
-		select {
-		case <-sigCh:
-			turn.cancel(runtimecontrol.ErrStoppedByUser)
-		case <-turnCtx.Done():
-		}
-	}()
-
 	go func() {
 		final, runCtx, err := run(turnCtx)
 		if _, waiting := runtimecore.PendingApprovalID(final); err != nil || !waiting {
@@ -211,7 +199,7 @@ func runREPL(sess *chatSession) error {
 	}
 	p := tea.NewProgram(model, tea.WithInput(sess.cmd.InOrStdin()), tea.WithOutput(sess.cmd.OutOrStdout()), tea.WithContext(rootCtx))
 
-	printChatSessionHeader(sess.cmd.OutOrStdout(), sess.compactMode, strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.fileCacheDir)
+	printChatSessionHeader(sess.cmd.OutOrStdout(), sess.compactMode, strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir)
 
 	sess.sendMsg = func(msg any) { safeSend(p, msg) }
 	sess.setWriter(&programWriter{p: p})
@@ -220,6 +208,7 @@ func runREPL(sess *chatSession) error {
 	historyBoundaries := make([]string, 0, 32)
 	reg := newChatRuntimeCommandRegistry(sess)
 	registerChatCommands(reg, sess, &history, &historyBoundaries)
+	model.commandRegistry = reg
 
 	ctx, cancel := context.WithCancel(rootCtx)
 	processorDone := make(chan struct{})
@@ -236,6 +225,7 @@ func runREPL(sess *chatSession) error {
 				return
 			}
 			cleanupPreparedChatTurn(sess, approval.turn)
+			safeSend(p, approvalClearedMsg{})
 			safeSend(p, agentResultMsg{output: output})
 			if approval.turn != nil && !approval.turn.contextCompactionOnly {
 				history = append(history,
@@ -278,6 +268,7 @@ func runREPL(sess *chatSession) error {
 					active = nil
 				}
 				safeSend(p, thinkingMsg{on: false})
+				safeSend(p, sessionStatusMsg{status: chatSessionStatusFromSession(sess)})
 				if result.turn != nil {
 					if result.turn.timeoutCancel != nil {
 						result.turn.timeoutCancel()
@@ -315,7 +306,7 @@ func runREPL(sess *chatSession) error {
 					if displayErr == "" {
 						displayErr = strings.TrimSpace(result.err.Error())
 					}
-					safeSend(p, agentResultMsg{output: displayErr})
+					safeSend(p, agentResultMsg{err: errors.New(displayErr)})
 					continue
 				}
 
@@ -326,8 +317,8 @@ func runREPL(sess *chatSession) error {
 						safeSend(p, agentResultMsg{err: approvalErr})
 						continue
 					}
-					pending = &pendingChatApproval{id: approvalID, turn: result.turn}
-					safeSend(p, agentResultMsg{output: formatChatApprovalRequest(record)})
+					pending = &pendingChatApproval{id: approvalID, record: record, turn: result.turn}
+					safeSend(p, approvalMsg{record: record})
 					continue
 				}
 
@@ -416,6 +407,7 @@ func runREPL(sess *chatSession) error {
 						if commitState != runtimecore.ApprovalCommitPending {
 							cleanupPreparedChatTurn(sess, pending.turn)
 							pending = nil
+							safeSend(p, approvalClearedMsg{})
 						}
 						safeSend(p, agentResultMsg{err: approvalErr})
 						continue
@@ -423,20 +415,21 @@ func runREPL(sess *chatSession) error {
 					if decision == chatApprovalExpired {
 						approval := pending
 						pending = nil
-						finishCanceledApproval(approval, "Approval expired. Task canceled.")
+						finishCanceledApproval(approval, formatChatApprovalOutcome("Approval expired", approval.record)+". Task canceled.")
 						continue
 					}
 
 					approval := pending
 					pending = nil
 					if decision == chatApprovalDeny {
-						finishCanceledApproval(approval, "Approval denied. Task canceled.")
+						finishCanceledApproval(approval, formatChatApprovalOutcome("Approval denied", approval.record)+". Task canceled.")
 						continue
 					}
 
 					currentTurn := approval.turn
 					if currentTurn == nil || currentTurn.prepared == nil || currentTurn.prepared.Engine == nil {
 						cleanupPreparedChatTurn(sess, currentTurn)
+						safeSend(p, approvalClearedMsg{})
 						safeSend(p, agentResultMsg{err: errors.New("approval resume state is unavailable")})
 						continue
 					}
@@ -459,8 +452,9 @@ func runREPL(sess *chatSession) error {
 					currentTurn.steerQueue = steerQueue
 					currentTurn.stopAcknowledged = false
 					active = currentTurn
+					safeSend(p, approvalClearedMsg{})
 					safeSend(p, thinkingMsg{on: true})
-					safeSend(p, agentResultMsg{output: "Approved. Resuming task.", keepThinking: true})
+					safeSend(p, agentResultMsg{output: formatChatApprovalOutcome("Approved", approval.record) + ". Resuming task.", keepThinking: true})
 
 					startChatTurn(sess, currentTurn, resumeCtx, resultCh, func(resumeCtx context.Context) (*agent.Final, *agent.Context, error) {
 						prepared := currentTurn.prepared
@@ -515,6 +509,7 @@ func runREPL(sess *chatSession) error {
 						if result != nil && result.Reply != "" {
 							safeSend(p, agentResultMsg{output: result.Reply})
 						}
+						safeSend(p, sessionStatusMsg{status: chatSessionStatusFromSession(sess)})
 						continue
 					}
 				}

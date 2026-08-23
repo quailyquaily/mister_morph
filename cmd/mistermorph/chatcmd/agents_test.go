@@ -20,6 +20,13 @@ func (c *canceledChatCommandClient) Chat(context.Context, llm.Request) (llm.Resu
 	return llm.Result{Text: `{"type":"final","output":"unexpected"}`}, nil
 }
 
+type delayedChatCommandClient struct{}
+
+func (c *delayedChatCommandClient) Chat(context.Context, llm.Request) (llm.Result, error) {
+	time.Sleep(120 * time.Millisecond)
+	return llm.Result{Text: `{"type":"final","output":"# Project"}`}, nil
+}
+
 func TestHandleAgentsGenerateUsesSessionContext(t *testing.T) {
 	client := &canceledChatCommandClient{}
 	engine := agent.New(client, tools.NewRegistry(), agent.Config{MaxSteps: 1, DefaultModel: "test"}, agent.DefaultPromptSpec())
@@ -32,5 +39,18 @@ func TestHandleAgentsGenerateUsesSessionContext(t *testing.T) {
 	}
 	if client.calls != 0 {
 		t.Fatalf("LLM calls = %d, want 0 after session cancellation", client.calls)
+	}
+}
+
+func TestHandleAgentsGenerateDoesNotWriteAnimatedFrames(t *testing.T) {
+	engine := agent.New(&delayedChatCommandClient{}, tools.NewRegistry(), agent.Config{MaxSteps: 1, DefaultModel: "test"}, agent.DefaultPromptSpec())
+	var output bytes.Buffer
+
+	_, ok := handleAgentsGenerate(context.Background(), &output, "/init", t.TempDir(), time.Second, engine, "test", nil)
+	if !ok {
+		t.Fatalf("handleAgentsGenerate() failed: %s", output.String())
+	}
+	if bytes.Contains(output.Bytes(), []byte("\r\033[2K")) {
+		t.Fatalf("output contains spinner redraw frames: %q", output.String())
 	}
 }

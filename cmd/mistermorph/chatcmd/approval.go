@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/quailyquaily/mistermorph/guard"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -19,6 +22,18 @@ const (
 	chatApprovalDeny
 	chatApprovalExpired
 )
+
+type chatApprovalViewData struct {
+	tool    string
+	action  string
+	params  []chatApprovalParam
+	reasons []string
+}
+
+type chatApprovalParam struct {
+	name  string
+	value string
+}
 
 func parseChatApprovalDecision(input string) chatApprovalDecision {
 	switch strings.ToLower(strings.TrimSpace(input)) {
@@ -68,31 +83,92 @@ func resolveChatApprovalInput(
 	return decision, state, err
 }
 
-func formatChatApprovalRequest(record guard.ApprovalRecord) string {
-	var lines []string
-	lines = append(lines, "Approval required")
-	if toolName := strings.TrimSpace(record.ToolName); toolName != "" {
-		lines = append(lines, "Tool: "+toolName)
+func chatApprovalData(record guard.ApprovalRecord) chatApprovalViewData {
+	data := chatApprovalViewData{tool: escapeTerminalControls(strings.TrimSpace(record.ToolName))}
+	params := runtimecore.ApprovalToolParams(record)
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
 	}
-
-	if params := runtimecore.ApprovalToolParams(record); len(params) > 0 {
-		if payload, err := json.MarshalIndent(params, "", "  "); err == nil {
-			lines = append(lines, "Parameters:\n"+string(payload))
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i] == "cmd" {
+			return keys[j] != "cmd"
 		}
+		if keys[j] == "cmd" {
+			return false
+		}
+		return keys[i] < keys[j]
+	})
+	data.params = make([]chatApprovalParam, 0, len(keys))
+	for _, key := range keys {
+		value, ok := params[key].(string)
+		if !ok {
+			payload, err := json.MarshalIndent(params[key], "", "  ")
+			if err != nil {
+				value = fmt.Sprint(params[key])
+			} else {
+				value = string(payload)
+			}
+		}
+		data.params = append(data.params, chatApprovalParam{
+			name:  escapeTerminalControls(key),
+			value: escapeTerminalControls(value),
+		})
+	}
+	if command, ok := params["cmd"].(string); ok && strings.TrimSpace(command) != "" {
+		prefix := "$ "
+		if strings.EqualFold(data.tool, "powershell") {
+			prefix = "PS> "
+		}
+		data.action = prefix + escapeTerminalControls(command)
 	} else if summary := strings.TrimSpace(record.ActionSummaryRedacted); summary != "" {
-		lines = append(lines, "Action: "+summary)
+		data.action = escapeTerminalControls(summary)
+	} else if len(params) > 0 {
+		if payload, err := json.Marshal(params); err == nil {
+			data.action = escapeTerminalControls(string(payload))
+		}
 	}
 
-	reasons := make([]string, 0, len(record.Reasons))
+	data.reasons = make([]string, 0, len(record.Reasons))
 	for _, reason := range record.Reasons {
 		if reason = strings.TrimSpace(reason); reason != "" {
-			reasons = append(reasons, "- "+reason)
+			data.reasons = append(data.reasons, escapeTerminalControls(reason))
 		}
 	}
-	if len(reasons) > 0 {
-		lines = append(lines, "Reasons:\n"+strings.Join(reasons, "\n"))
-	}
+	return data
+}
 
-	lines = append(lines, "Enter /approve or y to continue; /deny or n to cancel.")
-	return strings.Join(lines, "\n")
+func formatChatApprovalOutcome(status string, record guard.ApprovalRecord) string {
+	data := chatApprovalData(record)
+	parts := []string{escapeTerminalControls(strings.TrimSpace(status))}
+	if data.tool != "" {
+		parts = append(parts, data.tool)
+	}
+	if data.action != "" {
+		parts = append(parts, strings.TrimPrefix(strings.TrimPrefix(data.action, "$ "), "PS> "))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func escapeTerminalControls(text string) string {
+	var escaped strings.Builder
+	for _, char := range text {
+		if char == '\n' || !unicode.IsControl(char) {
+			escaped.WriteRune(char)
+			continue
+		}
+		switch char {
+		case '\t':
+			escaped.WriteString(`\t`)
+		case '\r':
+			escaped.WriteString(`\r`)
+		default:
+			if char <= 0xff {
+				_, _ = fmt.Fprintf(&escaped, `\x%02x`, char)
+			} else {
+				_, _ = fmt.Fprintf(&escaped, `\u%04x`, char)
+			}
+		}
+	}
+	return escaped.String()
 }

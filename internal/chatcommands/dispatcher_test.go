@@ -56,7 +56,7 @@ func TestRegistryRegisterAndDispatch(t *testing.T) {
 	r := NewRegistry()
 
 	called := false
-	r.Register("/ping", func(ctx context.Context, args string) (*Result, error) {
+	r.Register("/ping", "", func(ctx context.Context, args string) (*Result, error) {
 		called = true
 		return &Result{Reply: "pong: " + args}, nil
 	})
@@ -81,9 +81,26 @@ func TestRegistryRegisterAndDispatch(t *testing.T) {
 	}
 }
 
+func TestRegistryCommandsExposeDescriptions(t *testing.T) {
+	r := NewRegistry()
+	r.Register("/workspace", "show or change workspace", nil)
+	r.Register("/status", "show session details", nil)
+
+	commands := r.Commands()
+	if len(commands) != 2 {
+		t.Fatalf("Commands() = %#v, want 2 entries", commands)
+	}
+	if commands[0].Name != "/status" || commands[0].Description != "show session details" {
+		t.Fatalf("Commands()[0] = %#v", commands[0])
+	}
+	if commands[1].Name != "/workspace" || commands[1].Description != "show or change workspace" {
+		t.Fatalf("Commands()[1] = %#v", commands[1])
+	}
+}
+
 func TestRegistryDispatchWithBotSuffix(t *testing.T) {
 	r := NewRegistry()
-	r.Register("/help", func(ctx context.Context, args string) (*Result, error) {
+	r.Register("/help", "", func(ctx context.Context, args string) (*Result, error) {
 		return &Result{Reply: "help"}, nil
 	})
 
@@ -154,7 +171,7 @@ func TestContextCommandHandlerRequestsCompaction(t *testing.T) {
 
 func TestRegistryHandlerError(t *testing.T) {
 	r := NewRegistry()
-	r.Register("/fail", func(ctx context.Context, args string) (*Result, error) {
+	r.Register("/fail", "", func(ctx context.Context, args string) (*Result, error) {
 		return nil, errors.New("boom")
 	})
 
@@ -169,9 +186,9 @@ func TestRegistryHandlerError(t *testing.T) {
 
 func TestRegistryNames(t *testing.T) {
 	r := NewRegistry()
-	r.Register("/zebra", nil)
-	r.Register("/apple", nil)
-	r.Register("/mango", nil)
+	r.Register("/zebra", "", nil)
+	r.Register("/apple", "", nil)
+	r.Register("/mango", "", nil)
 
 	names := r.Names()
 	want := "/apple,/mango,/zebra"
@@ -183,8 +200,8 @@ func TestRegistryNames(t *testing.T) {
 
 func TestHelpHandler(t *testing.T) {
 	r := NewRegistry()
-	r.Register("/help", nil)
-	r.Register("/models", nil)
+	r.Register("/help", "", nil)
+	r.Register("/models", "", nil)
 
 	h := HelpHandler(r, "Commands:")
 	res, err := h(context.Background(), "")
@@ -205,7 +222,7 @@ func TestHelpHandler(t *testing.T) {
 
 func TestHelpHandlerPreservesHeaderNewline(t *testing.T) {
 	r := NewRegistry()
-	r.Register("/help", nil)
+	r.Register("/help", "", nil)
 
 	h := HelpHandler(r, "Commands:\n")
 	res, err := h(context.Background(), "")

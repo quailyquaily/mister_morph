@@ -17,7 +17,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
-	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
@@ -35,12 +34,12 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
-	"github.com/quailyquaily/mistermorph/tools/builtin"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 type chatSession struct {
+	version                string
 	cmd                    *cobra.Command
 	rootContext            context.Context
 	logger                 *slog.Logger
@@ -50,7 +49,6 @@ type chatSession struct {
 	runtimeToolsCfg        toolsutil.RuntimeToolsRegisterConfig
 	projectID              string
 	compactMode            bool
-	userName               string
 	launchDir              string
 	fileCacheDir           string
 	fileStateDir           string
@@ -61,7 +59,6 @@ type chatSession struct {
 	llmValues              llmutil.RuntimeValues
 	clientOverridesEnabled bool
 	loadedSkills           []string
-	onToolStart            func(*agent.Context, string)
 	onPlanStepUpdate       func(*agent.Context, agent.PlanStepUpdate)
 	onToolCallStart        func(*agent.Context, agent.ToolCall)
 	onToolCallDone         func(*agent.Context, agent.ToolCall, string, error)
@@ -69,8 +66,7 @@ type chatSession struct {
 	writer                 io.Writer
 	sendMsg                func(msg any) // set in bubbletea mode to send messages to the TUI
 	uiMu                   sync.Mutex
-	stopAnim               func()
-	setAnimMessage         func(string)
+	foregroundCancel       context.CancelFunc
 	fileSnapshots          map[string]string // path -> content before write_file
 }
 
@@ -257,7 +253,6 @@ func (s *chatSession) prepareRuntimeForTaskRoute(ctx context.Context, task strin
 			return llmutil.ImageClientFromValuesWithStats(imageValues, s.logger)
 		},
 		PlanStepUpdate:  s.onPlanStepUpdate,
-		OnToolStart:     s.onToolStart,
 		OnToolCallStart: s.onToolCallStart,
 		OnToolCallDone:  s.onToolCallDone,
 	})
@@ -293,52 +288,42 @@ func (s *chatSession) currentWriter() io.Writer {
 	return io.Discard
 }
 
-func (s *chatSession) startThinkingAnimation() {
-	if s == nil {
-		return
-	}
-	if s.sendMsg != nil {
-		s.sendMsg(thinkingMsg{on: true})
-		return
-	}
-	writer := s.currentWriter()
-	stopAnim, setAnimMessage := thinkingAnimation(writer)
+func (s *chatSession) beginForegroundCommand(parent context.Context) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(parent)
 	s.uiMu.Lock()
-	s.stopAnim = stopAnim
-	s.setAnimMessage = setAnimMessage
+	s.foregroundCancel = cancel
 	s.uiMu.Unlock()
+	return ctx, func() {
+		cancel()
+		s.uiMu.Lock()
+		s.foregroundCancel = nil
+		s.uiMu.Unlock()
+	}
 }
 
-func (s *chatSession) stopThinkingAnimation() {
+func (s *chatSession) cancelForegroundCommand() bool {
 	if s == nil {
-		return
+		return false
 	}
 	s.uiMu.Lock()
-	stopAnim := s.stopAnim
-	s.stopAnim = nil
-	s.setAnimMessage = nil
+	cancel := s.foregroundCancel
 	s.uiMu.Unlock()
-	if s.sendMsg != nil {
+	if cancel == nil {
+		return false
+	}
+	cancel()
+	return true
+}
+
+func (s *chatSession) clearActivity() {
+	if s != nil && s.sendMsg != nil {
 		s.sendMsg(thinkingMsg{on: false})
 	}
-	if stopAnim != nil {
-		stopAnim()
-	}
 }
 
-func (s *chatSession) setThinkingMessage(msg string) {
-	if s == nil {
-		return
-	}
-	if s.sendMsg != nil {
+func (s *chatSession) setActivity(msg string) {
+	if s != nil && s.sendMsg != nil {
 		s.sendMsg(thinkingMsg{on: true, message: msg})
-		return
-	}
-	s.uiMu.Lock()
-	setAnimMessage := s.setAnimMessage
-	s.uiMu.Unlock()
-	if setAnimMessage != nil {
-		setAnimMessage(msg)
 	}
 }
 
@@ -403,9 +388,8 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		projectDir = launchDir
 	}
 	compactMode := configutil.FlagOrViperBool(cmd, "compact-mode", "chat.compact_mode")
-	userName := buildUserName()
-
 	sess := &chatSession{
+		version:                strings.TrimSpace(deps.Version),
 		cmd:                    cmd,
 		rootContext:            rootContext,
 		logger:                 logger,
@@ -413,7 +397,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		runtimeToolsCfg:        runtimeToolsCfg,
 		projectID:              cliProjectID(projectDir),
 		compactMode:            compactMode,
-		userName:               userName,
 		launchDir:              launchDir,
 		fileCacheDir:           fileCacheDir,
 		fileStateDir:           fileStateDir,
@@ -426,115 +409,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		timeout:                timeout,
 		fileSnapshots:          make(map[string]string),
 	}
-	// Add tool start callback to show what tools are being used
-	sess.onToolStart = func(runCtx *agent.Context, toolName string) {
-		if sess == nil {
-			return
-		}
-		writer := sess.currentWriter()
-		msg := fmt.Sprintf("\x1b[38;5;245m  used %s\x1b[0m", toolName)
-		_, _ = fmt.Fprintf(writer, "\r\033[K%s\n", msg)
-	}
-	sess.onPlanStepUpdate = func(runCtx *agent.Context, update agent.PlanStepUpdate) {
-		if sess == nil {
-			return
-		}
-		logger.Debug("plan_step_update_callback", "completedIndex", update.CompletedIndex, "startedIndex", update.StartedIndex, "startedStep", update.StartedStep, "reason", update.Reason)
-		if update.StartedIndex >= 0 && update.StartedStep != "" {
-			// Step started: stop spinner, print plan text safely, then restart.
-			sess.stopThinkingAnimation()
-			writer := sess.currentWriter()
-			total := 0
-			if runCtx != nil && runCtx.Plan != nil {
-				total = len(runCtx.Plan.Steps)
-			}
-			_, _ = fmt.Fprintf(writer, "\033[38;5;245m → plan: %s", update.StartedStep)
-			if total > 0 {
-				_, _ = fmt.Fprintf(writer, " [%d/%d]", update.StartedIndex+1, total)
-			}
-			_, _ = fmt.Fprint(writer, "\033[0m\n")
-			sess.startThinkingAnimation()
-		} else if update.CompletedIndex >= 0 && update.CompletedStep != "" {
-			sess.stopThinkingAnimation()
-			writer := sess.currentWriter()
-			total := 0
-			if runCtx != nil && runCtx.Plan != nil {
-				total = len(runCtx.Plan.Steps)
-			}
-			_, _ = fmt.Fprintf(writer, "\033[38;5;245m → plan: ✓ %s", update.CompletedStep)
-			if total > 0 {
-				_, _ = fmt.Fprintf(writer, " [%d/%d]", update.CompletedIndex+1, total)
-			}
-			_, _ = fmt.Fprint(writer, "\033[0m\n")
-			sess.startThinkingAnimation()
-		} else {
-			sess.setThinkingMessage("assistant is thinking...")
-		}
-	}
-
-	// Capture old file content before write_file executes so we can render diffs.
-	sess.onToolCallStart = func(runCtx *agent.Context, tc agent.ToolCall) {
-		if sess == nil {
-			return
-		}
-		if tc.Name == "write_file" {
-			path, _ := tc.Params["path"].(string)
-			_, path, resolveErr := builtin.ResolveWritePath(pathroots.New(sess.workspaceDir, sess.fileCacheDir, sess.fileStateDir), path)
-			if resolveErr != nil {
-				return
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return // File doesn't exist yet (new file) – nothing to diff.
-			}
-			sess.fileSnapshots[path] = string(data)
-		}
-	}
-
-	// Render diff after write_file completes successfully.
-	sess.onToolCallDone = func(runCtx *agent.Context, tc agent.ToolCall, observation string, err error) {
-		if sess == nil || err != nil {
-			return
-		}
-		if tc.Name == "write_file" {
-			path, _ := tc.Params["path"].(string)
-			_, resolvedPath, resolveErr := builtin.ResolveWritePath(pathroots.New(sess.workspaceDir, sess.fileCacheDir, sess.fileStateDir), path)
-			if resolveErr != nil {
-				return
-			}
-			oldContent, hadOld := sess.fileSnapshots[resolvedPath]
-			delete(sess.fileSnapshots, resolvedPath)
-			writer := sess.currentWriter()
-			if !hadOld {
-				// New file — show the full content as a diff from empty.
-				newData, readErr := os.ReadFile(resolvedPath)
-				if readErr != nil {
-					return
-				}
-				diff := clifmt.RenderDiff(resolvedPath, "", string(newData))
-				if diff != "" {
-					sess.stopThinkingAnimation()
-					_, _ = fmt.Fprintln(writer, diff)
-					sess.startThinkingAnimation()
-				}
-				return
-			}
-			newData, readErr := os.ReadFile(resolvedPath)
-			if readErr != nil {
-				return
-			}
-			newContent := string(newData)
-			if oldContent == newContent {
-				return // No change.
-			}
-			diff := clifmt.RenderDiff(resolvedPath, oldContent, newContent)
-			if diff != "" {
-				sess.stopThinkingAnimation()
-				_, _ = fmt.Fprintln(writer, diff)
-				sess.startThinkingAnimation()
-			}
-		}
-	}
+	configureChatSessionCallbacks(sess, logger)
 
 	resolveRoute := func(purpose string) (llmutil.ResolvedRoute, error) {
 		purpose = strings.TrimSpace(purpose)

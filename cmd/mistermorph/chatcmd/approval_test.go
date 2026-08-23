@@ -64,7 +64,7 @@ func TestParseChatApprovalDecision(t *testing.T) {
 	}
 }
 
-func TestFormatChatApprovalRequestIncludesExactToolDetails(t *testing.T) {
+func TestChatApprovalDataIncludesExactToolDetails(t *testing.T) {
 	t.Parallel()
 
 	record := guard.ApprovalRecord{
@@ -85,32 +85,37 @@ func TestFormatChatApprovalRequestIncludesExactToolDetails(t *testing.T) {
 		}`),
 	}
 
-	got := formatChatApprovalRequest(record)
+	data := chatApprovalData(record)
+	parts := append([]string{data.tool, data.action}, data.reasons...)
+	for _, param := range data.params {
+		parts = append(parts, param.name, param.value)
+	}
+	got := strings.Join(parts, "\n")
 	for _, want := range []string{
-		"Approval required",
-		"Tool: bash",
-		`"cmd": "echo approval details"`,
-		`"timeout": 30`,
+		"bash",
+		"$ echo approval details",
+		"cmd",
+		"echo approval details",
+		"timeout",
+		"30",
 		"shell command execution",
 		"workspace write",
-		"/approve",
-		"/deny",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("formatChatApprovalRequest() = %q, want substring %q", got, want)
+			t.Fatalf("chatApprovalData() = %q, want substring %q", got, want)
 		}
 	}
 }
 
-func TestFormatChatApprovalRequestFallsBackToRedactedSummary(t *testing.T) {
+func TestChatApprovalDataFallsBackToRedactedSummary(t *testing.T) {
 	t.Parallel()
 
-	got := formatChatApprovalRequest(guard.ApprovalRecord{
+	got := chatApprovalData(guard.ApprovalRecord{
 		ToolName:              "powershell",
 		ActionSummaryRedacted: "PowerShell command",
 	})
-	if !strings.Contains(got, "PowerShell command") {
-		t.Fatalf("formatChatApprovalRequest() = %q, want redacted summary", got)
+	if got.action != "PowerShell command" {
+		t.Fatalf("chatApprovalData().action = %q, want redacted summary", got.action)
 	}
 }
 
