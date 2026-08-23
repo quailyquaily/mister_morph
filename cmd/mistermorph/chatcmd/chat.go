@@ -11,6 +11,7 @@ import (
 )
 
 type Dependencies struct {
+	Version                      string
 	RegistryFromViper            func() *tools.Registry
 	RegisterTriggeredStaticTools func(*tools.Registry, map[string]bool)
 	GuardFromViper               func(*slog.Logger) (*guard.Guard, error)

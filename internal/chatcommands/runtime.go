@@ -23,19 +23,19 @@ func NewRuntimeRegistry(opts RuntimeRegistryOptions) *Registry {
 	if header == "" {
 		header = "Available commands:"
 	}
-	reg.Register("/help", HelpHandler(reg, header))
-	reg.Register("/models", ModelCommandHandler(opts.ModelCommand))
-	reg.Register("/think", nil)
+	reg.Register("/help", "show available commands", HelpHandler(reg, header))
+	reg.Register("/models", "inspect or change the active model", ModelCommandHandler(opts.ModelCommand))
+	reg.Register("/think", "run a task with xhigh reasoning", nil)
 	if opts.SkillCommand != nil {
-		reg.Register("/skills", SkillCommandHandler(opts.SkillCommand))
+		reg.Register("/skills", "show loaded skills", SkillCommandHandler(opts.SkillCommand))
 	}
 	if opts.ContextCommand != nil {
-		reg.Register("/ctx", ContextCommandHandler(opts.ContextCommand))
+		reg.Register("/ctx", "show or compact context usage", ContextCommandHandler(opts.ContextCommand))
 	}
 	if opts.WorkspaceCommand != nil {
-		reg.Register("/workspace", WorkspaceCommandHandler(opts.WorkspaceCommand))
+		reg.Register("/workspace", "show or change workspace", WorkspaceCommandHandler(opts.WorkspaceCommand))
 	} else {
-		reg.Register("/workspace", WorkspaceHandler(opts.WorkspaceStore, opts.WorkspaceKey, opts.DefaultWorkspaceDir))
+		reg.Register("/workspace", "show or change workspace", WorkspaceHandler(opts.WorkspaceStore, opts.WorkspaceKey, opts.DefaultWorkspaceDir))
 	}
 	return reg
 }

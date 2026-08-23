@@ -25,30 +25,41 @@ type Result struct {
 // The returned *Result carries reply text and optional quit flag; an error signals a handler failure.
 type Handler func(ctx context.Context, args string) (*Result, error)
 
+// Command is the user-facing metadata for one registered command.
+type Command struct {
+	Name        string
+	Description string
+}
+
+type entry struct {
+	description string
+	handler     Handler
+}
+
 // Registry maps command names (e.g. "/help") to their handlers.
 type Registry struct {
-	mu       sync.RWMutex
-	handlers map[string]Handler
+	mu      sync.RWMutex
+	entries map[string]entry
 }
 
 // NewRegistry creates an empty Registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		handlers: make(map[string]Handler),
+		entries: make(map[string]entry),
 	}
 }
 
 // Register binds a command name to a handler. The name is normalised with
 // NormalizeCommand before storage, so callers may pass "/help" or "/help@Bot".
-// Registering the same name twice overwrites the previous handler.
-func (r *Registry) Register(name string, h Handler) {
+// Registering the same name twice overwrites the previous entry.
+func (r *Registry) Register(name, description string, h Handler) {
 	name = NormalizeCommand(name)
 	if name == "" {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.handlers[name] = h
+	r.entries[name] = entry{description: strings.TrimSpace(description), handler: h}
 }
 
 // Lookup returns the handler for a normalised command name, or nil.
@@ -59,7 +70,7 @@ func (r *Registry) Lookup(name string) Handler {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.handlers[name]
+	return r.entries[name].handler
 }
 
 // Dispatch parses text into a command word and arguments, looks up the
@@ -80,13 +91,23 @@ func (r *Registry) Dispatch(ctx context.Context, text string) (result *Result, h
 
 // Names returns a sorted snapshot of all registered command names.
 func (r *Registry) Names() []string {
+	commands := r.Commands()
+	out := make([]string, len(commands))
+	for i := range commands {
+		out[i] = commands[i].Name
+	}
+	return out
+}
+
+// Commands returns a sorted snapshot of command names and descriptions.
+func (r *Registry) Commands() []Command {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]string, 0, len(r.handlers))
-	for name := range r.handlers {
-		out = append(out, name)
+	out := make([]Command, 0, len(r.entries))
+	for name, entry := range r.entries {
+		out = append(out, Command{Name: name, Description: entry.description})
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

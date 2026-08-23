@@ -117,6 +117,7 @@ func newRootRuntime() *rootRuntime {
 		GuardFromViper:               guardResolver.Guard,
 	}))
 	cmd.AddCommand(chatcmd.New(chatcmd.Dependencies{
+		Version:                      version,
 		RegistryFromViper:            registryResolver.Registry,
 		RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
 		GuardFromViper:               guardResolver.Guard,

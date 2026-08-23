@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -46,19 +45,8 @@ func handleAgentsGenerate(
 	if isUpdate {
 		_, _ = fmt.Fprintln(writer, "\033[33m⚙️  Regenerating AGENTS.md...\033[0m")
 	}
-	stopInitAnim, _ := thinkingAnimation(writer)
 	initCtx, initCancel := chatTimeoutContext(parent, timeout)
 	initCtx = pathroots.WithWorkspaceDir(initCtx, projectDir)
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
-	go func() {
-		select {
-		case <-sigCh:
-			initCancel()
-		case <-initCtx.Done():
-		}
-		signal.Stop(sigCh)
-	}()
 	initPrompt := fmt.Sprintf(`Please analyze the project in directory %q and generate an AGENTS.md file.
 
 AGENTS.md is a project-level guide for AI coding assistants. It should contain:
@@ -78,7 +66,6 @@ IMPORTANT: Do NOT use the write_file tool. Instead, write the final AGENTS.md co
 		Scene:   "chat.init",
 		History: append([]llm.Message(nil), history...),
 	})
-	stopInitAnim()
 	initCancel()
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
