@@ -124,9 +124,10 @@ func TestPromptSpecWithSkills_LoadsTaskReferencedSkills(t *testing.T) {
 	}
 }
 
-func TestPromptSpecWithSkills_DisabledIgnoresTaskReferencedSkills(t *testing.T) {
+func TestPromptSpecWithSkills_DisabledLoadsOnlyTaskReferencedSkills(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "alpha")
+	writeSkill(t, root, "beta")
 
 	spec, loaded, err := PromptSpecWithSkills(
 		context.Background(),
@@ -136,18 +137,44 @@ func TestPromptSpecWithSkills_DisabledIgnoresTaskReferencedSkills(t *testing.T) 
 		nil,
 		"gpt-5.2",
 		SkillsConfig{
-			Roots:   []string{root},
-			Enabled: false,
+			Roots:     []string{root},
+			Enabled:   false,
+			Requested: []string{"beta"},
 		},
 	)
 	if err != nil {
 		t.Fatalf("PromptSpecWithSkills: %v", err)
 	}
-	if len(spec.Skills) != 0 {
-		t.Fatalf("expected 0 loaded skills, got %d", len(spec.Skills))
+	if len(spec.Skills) != 1 {
+		t.Fatalf("expected 1 explicitly referenced skill, got %d", len(spec.Skills))
 	}
-	if len(loaded) != 0 {
+	if len(loaded) != 1 || loaded[0] != "alpha" {
 		t.Fatalf("unexpected loaded skills: %#v", loaded)
+	}
+}
+
+func TestPromptSpecWithSkills_DisabledWithoutTaskReferenceLoadsNothing(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "alpha")
+
+	spec, loaded, err := PromptSpecWithSkills(
+		context.Background(),
+		nil,
+		agent.DefaultLogOptions(),
+		"plain task",
+		nil,
+		"gpt-5.2",
+		SkillsConfig{
+			Roots:     []string{root},
+			Enabled:   false,
+			Requested: []string{"alpha"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("PromptSpecWithSkills: %v", err)
+	}
+	if len(spec.Skills) != 0 || len(loaded) != 0 {
+		t.Fatalf("disabled skills without task reference loaded spec=%#v ids=%#v", spec.Skills, loaded)
 	}
 }
 
@@ -156,8 +183,8 @@ func TestResolveTaskSkillRefs(t *testing.T) {
 	writeSkill(t, root, "alpha")
 
 	disabled := ResolveTaskSkillRefs("use $alpha", SkillsConfig{Roots: []string{root}, Enabled: false})
-	if len(disabled) != 0 {
-		t.Fatalf("disabled refs = %#v, want none", disabled)
+	if len(disabled) != 1 || !disabled["alpha"] {
+		t.Fatalf("disabled refs = %#v, want alpha", disabled)
 	}
 
 	enabled := ResolveTaskSkillRefs("use $alpha and $missing", SkillsConfig{Roots: []string{root}, Enabled: true})

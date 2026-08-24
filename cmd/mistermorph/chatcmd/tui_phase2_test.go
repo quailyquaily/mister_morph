@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 )
 
 func phase2ApprovalRecord() guard.ApprovalRecord {
@@ -268,12 +269,112 @@ func TestChatModelCommandPickerFitsRemainingTerminalHeight(t *testing.T) {
 	if lines := strings.Count(view, "\n") + 1; lines > 5 {
 		t.Fatalf("command picker View() uses %d rows in a 5-row terminal:\n%s", lines, view)
 	}
-	for _, want := range []string{"› ", "/alpha", "description for /alpha", "select"} {
+	for _, want := range []string{"❯ ", "/alpha", "description for /alpha", "select"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("short command picker missing %q:\n%s", want, view)
 		}
 	}
 	if strings.Contains(view, "/beta") {
 		t.Fatalf("short command picker rendered more rows than available:\n%s", view)
+	}
+}
+
+func TestChatModelSkillPickerFiltersAndInsertsReference(t *testing.T) {
+	sess := newPhase1TestSession(t)
+	sess.skillItems = []skillsutil.SkillStatusItem{
+		{ID: "imagegen", Name: "Image Generator", Description: "Generate or edit images."},
+		{ID: "openai-docs", Name: "OpenAI Docs", Description: "Answer OpenAI product questions."},
+	}
+	m := newChatModel(sess)
+	m.textarea.SetValue("Use $ima")
+	m.textarea.CursorEnd()
+
+	view := m.View()
+	for _, want := range []string{"❯ ", "$imagegen", "Generate or edit images.", "Enter insert"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("skill picker missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "$openai-docs") {
+		t.Fatalf("skill picker renders a non-matching skill:\n%s", view)
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := m.textarea.Value(); got != "Use $imagegen " {
+		t.Fatalf("skill completion = %q, want %q", got, "Use $imagegen ")
+	}
+	select {
+	case got := <-m.submitted:
+		t.Fatalf("skill completion unexpectedly submitted %q", got)
+	default:
+	}
+}
+
+func TestChatModelSkillPickerEscapesTerminalControlCharacters(t *testing.T) {
+	sess := newPhase1TestSession(t)
+	sess.skillItems = []skillsutil.SkillStatusItem{
+		{ID: "safe", Description: "description\x1b[2Jclear\x1b]0;title\x07"},
+		{ID: "unsafe\x1b]52;c;clipboard\x07", Description: "ignored"},
+		{ID: "line\nbreak", Description: "ignored"},
+	}
+	m := newChatModel(sess)
+	m.textarea.SetValue("$")
+	m.textarea.CursorEnd()
+
+	view := m.View()
+	for _, unsafe := range []string{"\x1b[2J", "\x1b]0;title\x07", "\x1b]52;c;clipboard\x07"} {
+		if strings.Contains(view, unsafe) {
+			t.Fatalf("skill picker contains executable terminal control %q: %q", unsafe, view)
+		}
+	}
+	for _, visible := range []string{`\x1b[2Jclear`, `\x1b]0;title\x07`} {
+		if !strings.Contains(view, visible) {
+			t.Fatalf("skill picker missing visible control sequence %q: %q", visible, view)
+		}
+	}
+	for _, item := range m.picker().items {
+		if strings.ContainsAny(item.value, "\r\n\x1b") {
+			t.Fatalf("skill picker retained unsafe reference value %q", item.value)
+		}
+	}
+}
+
+func TestChatModelSkillPickerMatchesNameAndUsesID(t *testing.T) {
+	sess := newPhase1TestSession(t)
+	sess.skillItems = []skillsutil.SkillStatusItem{
+		{ID: "imagegen", Name: "Raster Artist", Description: "Generate or edit images."},
+	}
+	m := newChatModel(sess)
+	m.textarea.SetValue("Ask $artist")
+	m.textarea.CursorEnd()
+
+	if view := m.View(); !strings.Contains(view, "$imagegen") {
+		t.Fatalf("skill picker did not match the display name:\n%s", view)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if got := m.textarea.Value(); got != "Ask $imagegen " {
+		t.Fatalf("skill Tab completion = %q, want %q", got, "Ask $imagegen ")
+	}
+}
+
+func TestChatModelSkillPickerReplacesTokenAtCursor(t *testing.T) {
+	sess := newPhase1TestSession(t)
+	sess.skillItems = []skillsutil.SkillStatusItem{
+		{ID: "imagegen", Description: "Generate or edit images."},
+	}
+	m := newChatModel(sess)
+	m.textarea.SetValue("Use $ima tomorrow")
+	m.textarea.SetCursor(len([]rune("Use $ima")))
+
+	if view := m.View(); !strings.Contains(view, "$imagegen") {
+		t.Fatalf("skill picker did not follow the cursor:\n%s", view)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if got := m.textarea.Value(); got != "Use $imagegen tomorrow" {
+		t.Fatalf("skill completion = %q, want %q", got, "Use $imagegen tomorrow")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if got := m.textarea.Value(); got != "Use $imagegen xtomorrow" {
+		t.Fatalf("cursor after skill completion produced %q", got)
 	}
 }

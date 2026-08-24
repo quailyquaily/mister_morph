@@ -471,8 +471,8 @@ tasks:
 skills:
   # Directory name under file_state_dir for skills.
   dir_name: "skills"
-  # If false, the whole skill block is omitted from the system prompt.
-  # $name does not trigger skills while this is false.
+  # If false, skills are not loaded automatically or from the load list.
+  # A $name reference in the task still loads that skill for the run.
   enabled: true
   # Skills to load (by skill name or id).
   # Empty means load all discovered skills.

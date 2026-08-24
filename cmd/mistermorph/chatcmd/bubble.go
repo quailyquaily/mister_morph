@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,6 +23,7 @@ type (
 	thinkingMsg struct {
 		on      bool
 		message string
+		tool    bool
 	}
 	agentResultMsg struct {
 		output       string
@@ -33,6 +35,7 @@ type (
 	approvalClearedMsg    struct{}
 	activityTickMsg       time.Time
 	quitConfirmExpiredMsg struct{}
+	transcriptPrintedMsg  struct{}
 	quitMsg               struct{}
 	tuiOutputMsg          struct{ output string }
 )
@@ -42,6 +45,19 @@ type chatSessionStatus struct {
 	workspace    string
 	contextRatio float64
 	contextKnown bool
+}
+
+type chatPickerItem struct {
+	value       string
+	description string
+}
+
+type chatPicker struct {
+	items         []chatPickerItem
+	replaceStart  int
+	replaceEnd    int
+	appendSpace   bool
+	submitOnEnter bool
 }
 
 // chatModel owns only the fixed bottom surface. Conversation history is
@@ -56,6 +72,7 @@ type chatModel struct {
 
 	thinking        bool
 	thinkingMessage string
+	thinkingTool    bool
 	runStartedAt    time.Time
 	activityNow     time.Time
 	status          chatSessionStatus
@@ -72,6 +89,10 @@ type chatModel struct {
 	pickerIndex     int
 	pickerClosed    bool
 
+	transcriptQueue     []string
+	transcriptPrinting  bool
+	quitAfterTranscript bool
+
 	// pastedTexts stores the original text behind each paste placeholder,
 	// keyed by the exact placeholder string.
 	pastedTexts map[string]string
@@ -82,7 +103,7 @@ const (
 	shortInputHeight    = 3
 	shortTerminalHeight = 12
 	quitConfirmWindow   = 2 * time.Second
-	activityRefresh     = time.Second
+	activityRefresh     = 80 * time.Millisecond
 	inputMarkerWidth    = 2
 	maxPickerItems      = 6
 	shortPickerItems    = 3
@@ -96,6 +117,8 @@ var (
 	chatAccentStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "25", Dark: "75"}).
 			Bold(true)
+	chatSecondaryStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "239", Dark: "250"})
 	chatMutedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "245"})
 	chatWarningStyle = lipgloss.NewStyle().
@@ -105,6 +128,7 @@ var (
 				Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "77"})
 	chatErrorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "160", Dark: "203"})
+	chatSpinnerFrames = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 )
 
 func (m *chatModel) updateTextareaHeight() {
@@ -125,7 +149,7 @@ func newChatModel(sess *chatSession) *chatModel {
 	ta.Prompt = ""
 	ta.SetPromptFunc(inputMarkerWidth, func(line int) string {
 		if line == 0 {
-			return "› "
+			return "❯ "
 		}
 		return "  "
 	})
@@ -196,26 +220,27 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		matches := m.pickerCommands()
-		if len(matches) > 0 {
+		picker := m.picker()
+		if len(picker.items) > 0 {
 			switch msg.Type {
 			case tea.KeyEsc:
 				m.pickerClosed = true
 				return m, nil
 			case tea.KeyUp:
-				m.pickerIndex = (m.pickerIndex - 1 + len(matches)) % len(matches)
+				m.pickerIndex = (m.pickerIndex - 1 + len(picker.items)) % len(picker.items)
 				return m, nil
 			case tea.KeyDown:
-				m.pickerIndex = (m.pickerIndex + 1) % len(matches)
+				m.pickerIndex = (m.pickerIndex + 1) % len(picker.items)
 				return m, nil
 			case tea.KeyTab:
-				m.textarea.SetValue(matches[m.pickerIndex].Name)
-				m.textarea.CursorEnd()
-				m.pickerIndex = 0
+				m.applyPickerItem(picker)
 				return m, nil
 			case tea.KeyEnter:
-				m.textarea.SetValue(matches[m.pickerIndex].Name)
-				return m, m.submitInput(m.textarea.Value())
+				m.applyPickerItem(picker)
+				if picker.submitOnEnter {
+					return m, m.submitInput(m.textarea.Value())
+				}
+				return m, nil
 			}
 		}
 
@@ -320,6 +345,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activityNow = m.runStartedAt
 			}
 			m.thinkingMessage = normalizeActivityText(msg.message)
+			m.thinkingTool = msg.tool
 			m.textarea.Focus()
 			if !wasThinking {
 				return m, activityTick()
@@ -327,6 +353,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.thinkingMessage = ""
+		m.thinkingTool = false
 		m.runStartedAt = time.Time{}
 		m.activityNow = time.Time{}
 		m.textarea.Focus()
@@ -350,6 +377,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approvalScroll = 0
 		m.thinking = false
 		m.thinkingMessage = ""
+		m.thinkingTool = false
 		m.runStartedAt = time.Time{}
 		m.activityNow = time.Time{}
 		return m, nil
@@ -366,7 +394,17 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tuiOutputMsg:
-		return m, tea.Println(msg.output)
+		return m, m.enqueueTranscript(msg.output)
+
+	case transcriptPrintedMsg:
+		if len(m.transcriptQueue) > 0 {
+			m.transcriptQueue = m.transcriptQueue[1:]
+		}
+		m.transcriptPrinting = false
+		if len(m.transcriptQueue) == 0 && m.quitAfterTranscript {
+			return m, tea.Quit
+		}
+		return m, m.startTranscriptPrint()
 
 	case agentResultMsg:
 		if msg.err != nil && m.approval != nil {
@@ -375,22 +413,21 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !msg.keepThinking {
 			m.thinking = false
 			m.thinkingMessage = ""
+			m.thinkingTool = false
 			m.runStartedAt = time.Time{}
 			m.activityNow = time.Time{}
 		}
 		if msg.err != nil {
 			if errors.Is(msg.err, context.Canceled) {
-				return m, tea.Println("■ Stopped by user")
+				return m, m.enqueueTranscript("■ Stopped by user")
 			}
-			return m, tea.Println(chatErrorStyle.Render("×") + " " + msg.err.Error())
+			return m, m.enqueueTranscript(chatErrorStyle.Render("×") + " " + msg.err.Error())
 		}
-		return m, tea.Println(msg.output)
+		return m, m.enqueueTranscript(msg.output)
 
 	case quitMsg:
-		return m, tea.Sequence(
-			tea.Println("Bye! 👋"),
-			tea.Quit,
-		)
+		m.quitAfterTranscript = true
+		return m, m.enqueueTranscript("Bye! 👋")
 	}
 
 	before := m.textarea.Value()
@@ -414,9 +451,15 @@ func (m *chatModel) View() string {
 	}
 	if m.thinking {
 		lines = append(lines, m.renderActivity())
+		if m.height >= shortTerminalHeight {
+			lines = append(lines, "")
+		}
 	}
 	lines = append(lines, m.textarea.View())
-	if picker := m.renderCommandPicker(); len(picker) > 0 {
+	if m.height >= shortTerminalHeight {
+		lines = append(lines, "")
+	}
+	if picker := m.renderPicker(); len(picker) > 0 {
 		lines = append(lines, picker...)
 	}
 	lines = append(lines, m.renderFooter())
@@ -430,27 +473,65 @@ func (m *chatModel) contentWidth() int {
 	return max(10, m.width-1)
 }
 
+func wrapChatTranscript(text string, terminalWidth int) string {
+	if terminalWidth <= 1 {
+		return text
+	}
+	return ansi.Hardwrap(text, terminalWidth-1, false)
+}
+
+func (m *chatModel) enqueueTranscript(text string) tea.Cmd {
+	m.transcriptQueue = append(m.transcriptQueue, text)
+	return m.startTranscriptPrint()
+}
+
+func (m *chatModel) startTranscriptPrint() tea.Cmd {
+	if m.transcriptPrinting || len(m.transcriptQueue) == 0 {
+		return nil
+	}
+	m.transcriptPrinting = true
+	text := wrapChatTranscript(m.transcriptQueue[0], m.width)
+	return tea.Sequence(
+		tea.Println(text),
+		func() tea.Msg { return transcriptPrintedMsg{} },
+	)
+}
+
 func (m *chatModel) renderActivity() string {
 	width := m.contentWidth()
 	detail := normalizeActivityText(m.thinkingMessage)
-	parts := []string{chatAccentStyle.Render("● Running")}
+	now := m.activityNow
+	if now.IsZero() {
+		now = m.runStartedAt
+	}
+	frame := chatSpinnerFrames[0]
+	elapsed := time.Duration(0)
+	if !m.runStartedAt.IsZero() {
+		elapsed = max(time.Duration(0), now.Sub(m.runStartedAt))
+		frame = chatSpinnerFrames[int(elapsed/activityRefresh)%len(chatSpinnerFrames)]
+	}
+	parts := []string{chatAccentStyle.Render(frame + " Running")}
 	if detail != "" {
-		parts = append(parts, chatMutedStyle.Render(detail))
+		style := chatMutedStyle
+		if m.thinkingTool {
+			style = chatSecondaryStyle
+		}
+		parts = append(parts, style.Render(detail))
 	}
 	if !m.runStartedAt.IsZero() {
-		now := m.activityNow
-		if now.IsZero() {
-			now = m.runStartedAt
-		}
-		parts = append(parts, chatMutedStyle.Render(formatActivityElapsed(now.Sub(m.runStartedAt))))
+		parts = append(parts, chatMutedStyle.Render(formatActivityElapsed(elapsed)))
 	}
 	return fitChatLine(strings.Join(parts, chatMutedStyle.Render(" · ")), width)
 }
 
 func (m *chatModel) renderFooter() string {
 	width := m.contentWidth()
-	if len(m.pickerCommands()) > 0 {
-		return fitChatLine(chatMutedStyle.Render("  ↑↓ select · Tab complete · Enter run · Esc close"), width)
+	if picker := m.picker(); len(picker.items) > 0 {
+		enterAction := "run"
+		if !picker.submitOnEnter {
+			enterAction = "insert"
+		}
+		return fitChatLine(chatMutedStyle.Render("  ↑↓ select · Tab complete · Enter "+enterAction+" · Esc close"), width)
 	}
 	if m.quitConfirmation {
 		return fitChatLine(chatMutedStyle.Render("  Ctrl+C again to exit"), width)
@@ -573,7 +654,7 @@ func formatSubmittedInput(input string) string {
 	lines := strings.Split(input, "\n")
 	for i := range lines {
 		if i == 0 {
-			lines[i] = chatAccentStyle.Render("› ") + lines[i]
+			lines[i] = chatAccentStyle.Render("❯ ") + lines[i]
 		} else {
 			lines[i] = "  " + lines[i]
 		}
@@ -597,36 +678,128 @@ func (m *chatModel) submitInput(value string) tea.Cmd {
 	m.pickerClosed = false
 	m.pickerIndex = 0
 	m.updateTextareaHeight()
-	return tea.Println(formatSubmittedInput(expanded))
+	return m.enqueueTranscript(formatSubmittedInput(expanded))
 }
 
-func (m *chatModel) pickerCommands() []chatcommands.Command {
-	if m.commandRegistry == nil || m.pickerClosed {
-		return nil
+func (m *chatModel) picker() chatPicker {
+	var picker chatPicker
+	if m.pickerClosed {
+		return picker
 	}
+
 	input := m.textarea.Value()
-	if !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \t\r\n") {
-		return nil
-	}
-	input = strings.ToLower(input)
-	commands := m.commandRegistry.Commands()
-	matches := make([]chatcommands.Command, 0, len(commands))
-	for _, command := range commands {
-		if strings.HasPrefix(command.Name, input) {
-			matches = append(matches, command)
+	if m.commandRegistry != nil && strings.HasPrefix(input, "/") && !strings.ContainsAny(input, " \t\r\n") {
+		query := strings.ToLower(input)
+		for _, command := range m.commandRegistry.Commands() {
+			if strings.HasPrefix(strings.ToLower(command.Name), query) {
+				picker.items = append(picker.items, chatPickerItem{
+					value:       command.Name,
+					description: command.Description,
+				})
+			}
+		}
+		picker.replaceEnd = len([]rune(input))
+		picker.submitOnEnter = true
+	} else if m.sess != nil && len(m.sess.skillItems) > 0 {
+		runes := []rune(input)
+		cursor := min(len(runes), textareaCursorOffset(m.textarea))
+		start := cursor
+		for start > 0 && !unicode.IsSpace(runes[start-1]) {
+			start--
+		}
+		token := runes[start:cursor]
+		if len(token) > 0 && token[0] == '$' {
+			query := strings.ToLower(string(token[1:]))
+			for _, skill := range m.sess.skillItems {
+				id := strings.TrimSpace(skill.ID)
+				if id == "" {
+					id = strings.TrimSpace(skill.Name)
+				}
+				if id == "" || strings.ContainsAny(id, "\r\n") || escapeTerminalControls(id) != id {
+					continue
+				}
+				if query != "" && !strings.Contains(strings.ToLower(id), query) &&
+					!strings.Contains(strings.ToLower(skill.Name), query) &&
+					!strings.Contains(strings.ToLower(skill.Description), query) {
+					continue
+				}
+				picker.items = append(picker.items, chatPickerItem{
+					value:       "$" + id,
+					description: strings.TrimSpace(skill.Description),
+				})
+			}
+			picker.replaceStart = start
+			picker.replaceEnd = cursor
+			picker.appendSpace = true
 		}
 	}
-	if len(matches) == 0 {
+
+	if len(picker.items) == 0 {
 		m.pickerIndex = 0
-	} else if m.pickerIndex >= len(matches) {
-		m.pickerIndex = len(matches) - 1
+	} else if m.pickerIndex >= len(picker.items) {
+		m.pickerIndex = len(picker.items) - 1
 	}
-	return matches
+	return picker
 }
 
-func (m *chatModel) renderCommandPicker() []string {
-	matches := m.pickerCommands()
-	if len(matches) == 0 {
+func textareaCursorOffset(ta textarea.Model) int {
+	lines := strings.Split(ta.Value(), "\n")
+	row := min(max(0, ta.Line()), len(lines)-1)
+	offset := 0
+	for i := 0; i < row; i++ {
+		offset += len([]rune(lines[i])) + 1
+	}
+	lineInfo := ta.LineInfo()
+	column := min(len([]rune(lines[row])), lineInfo.StartColumn+lineInfo.ColumnOffset)
+	return offset + column
+}
+
+func (m *chatModel) applyPickerItem(picker chatPicker) {
+	if m.pickerIndex < 0 || m.pickerIndex >= len(picker.items) {
+		return
+	}
+	runes := []rune(m.textarea.Value())
+	start := min(max(0, picker.replaceStart), len(runes))
+	end := min(max(start, picker.replaceEnd), len(runes))
+	insert := []rune(picker.items[m.pickerIndex].value)
+	if picker.appendSpace {
+		insert = append(insert, ' ')
+		if end < len(runes) && runes[end] == ' ' {
+			end++
+		}
+	}
+
+	next := make([]rune, 0, len(runes)-(end-start)+len(insert))
+	next = append(next, runes[:start]...)
+	next = append(next, insert...)
+	cursor := len(next)
+	next = append(next, runes[end:]...)
+	m.textarea.SetValue(string(next))
+
+	targetRow := 0
+	targetColumn := 0
+	for _, r := range next[:cursor] {
+		if r == '\n' {
+			targetRow++
+			targetColumn = 0
+		} else {
+			targetColumn++
+		}
+	}
+	for m.textarea.Line() > targetRow {
+		m.textarea.CursorUp()
+	}
+	for m.textarea.Line() < targetRow {
+		m.textarea.CursorDown()
+	}
+	m.textarea.SetCursor(targetColumn)
+	m.pickerIndex = 0
+	m.updateTextareaHeight()
+}
+
+func (m *chatModel) renderPicker() []string {
+	picker := m.picker()
+	if len(picker.items) == 0 {
 		return nil
 	}
 	limit := maxPickerItems
@@ -636,8 +809,14 @@ func (m *chatModel) renderCommandPicker() []string {
 	if m.height > 0 {
 		textareaRows := strings.Count(m.textarea.View(), "\n") + 1
 		reservedRows := 2 + textareaRows // separator and footer
+		if m.height >= shortTerminalHeight {
+			reservedRows++ // space below the composer
+		}
 		if m.thinking {
 			reservedRows++
+			if m.height >= shortTerminalHeight {
+				reservedRows++ // space below activity
+			}
 		}
 		rowsPerItem := 1
 		if m.width < 60 {
@@ -652,30 +831,35 @@ func (m *chatModel) renderCommandPicker() []string {
 	if m.pickerIndex >= limit {
 		start = m.pickerIndex - limit + 1
 	}
-	end := min(len(matches), start+limit)
-	visible := matches[start:end]
+	end := min(len(picker.items), start+limit)
+	visible := append([]chatPickerItem(nil), picker.items[start:end]...)
+	lineBreaks := strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+	for i := range visible {
+		visible[i].value = lineBreaks.Replace(escapeTerminalControls(visible[i].value))
+		visible[i].description = lineBreaks.Replace(escapeTerminalControls(visible[i].description))
+	}
 	nameWidth := 0
-	for _, command := range visible {
-		nameWidth = max(nameWidth, ansi.StringWidth(command.Name))
+	for _, item := range visible {
+		nameWidth = max(nameWidth, ansi.StringWidth(item.value))
 	}
 
 	width := m.contentWidth()
 	lines := make([]string, 0, len(visible)*2)
-	for i, command := range visible {
+	for i, item := range visible {
 		selected := start+i == m.pickerIndex
 		marker := "  "
-		name := command.Name
+		name := item.value
 		if selected {
-			marker = chatAccentStyle.Render("› ")
+			marker = chatAccentStyle.Render("❯ ")
 			name = chatAccentStyle.Render(name)
 		}
-		if width >= 60 || command.Description == "" {
-			gap := strings.Repeat(" ", nameWidth-ansi.StringWidth(command.Name)+2)
-			lines = append(lines, fitChatLine(marker+name+gap+chatMutedStyle.Render(command.Description), width))
+		if width >= 60 || item.description == "" {
+			gap := strings.Repeat(" ", nameWidth-ansi.StringWidth(item.value)+2)
+			lines = append(lines, fitChatLine(marker+name+gap+chatMutedStyle.Render(item.description), width))
 			continue
 		}
 		lines = append(lines, fitChatLine(marker+name, width))
-		lines = append(lines, fitChatLine("  "+chatMutedStyle.Render(command.Description), width))
+		lines = append(lines, fitChatLine("  "+chatMutedStyle.Render(item.description), width))
 	}
 	return lines
 }

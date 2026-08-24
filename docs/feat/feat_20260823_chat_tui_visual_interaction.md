@@ -32,7 +32,7 @@ status: implemented
 
 ### 2.2 启动信息很快失效
 
-非 compact 模式先打印大幅 ASCII banner，再打印 model、workspace 和 file state 目录。这些信息随后进入 scrollback，不再持续可见。大 banner 占用首屏，但不能帮助用户判断后续状态。
+非 compact 模式的启动信息缺少清晰层级，Logo 和 session 信息容易混成一块。启动区需要保留识别度，同时只显示能帮助用户确认当前会话的信息。
 
 ### 2.3 输入行为缺少上下文提示
 
@@ -56,10 +56,10 @@ status: implemented
 
 | 产品 | 有价值的做法 | 不直接照搬的部分 |
 | --- | --- | --- |
-| Claude Code | 输入区之外有持续状态；`/` 打开命令选择；多行输入先移动光标、到边界后才浏览历史；运行、审批、任务列表和 transcript detail 有明确入口 | 全屏 transcript viewer、后台 Agent 和复杂 permission modes 超出本次范围 |
-| OpenAI Codex | 底部区域同时承担 composer、运行提示、context status 和临时选择界面；审批或选择器出现时临时替换 composer，但保留草稿；footer 根据宽度和状态改变内容 | 可配置 status line、线程分支和大量模式不应进入第一版 |
+| Claude Code | 输入区之外有持续状态；普通视图把工具调用压成摘要，`Ctrl+O` 打开详细 transcript；运行、审批和任务列表有明确入口 | 全屏 transcript viewer、后台 Agent 和复杂 permission modes 超出本次范围 |
+| OpenAI Codex | 底部区域同时承担 composer、运行提示、context status 和临时选择界面；工具输出缩进到调用下方，并按屏幕行数保留首尾预览 | 可配置 status line、线程分支和大量模式不应进入第一版 |
 | Gemini CLI | 弹层和建议可以用 Esc 关闭；运行中断、退出、外部编辑器和工具详情都有明确快捷键；长输出仍可使用原生 scrollback | 主题系统、Vim 模式和 debug console 不是当前主要问题 |
-| OpenCode | `/` 是命令入口，session、tool details、thinking、undo 等能力通过同一命令体系发现 | session 分享、文件级 undo/redo 需要额外的数据和恢复语义 |
+| OpenCode | `/` 是命令入口；`/details` 控制工具详情；通用工具输出默认显示三行预览，较长内容可以展开 | session 分享、文件级 undo/redo 需要额外的数据和恢复语义 |
 | Crush / Aider | command palette、外部编辑器、session 和 compact 等高频能力有短路径；终端失焦时可通知 | 通知和完整 session 管理可等实际需求出现后再做 |
 
 参考资料：
@@ -68,6 +68,7 @@ status: implemented
 - [Claude Code status line](https://code.claude.com/docs/en/statusline)
 - [OpenAI Codex bottom pane](https://github.com/openai/codex/blob/main/codex-rs/tui/src/bottom_pane/mod.rs)
 - [OpenAI Codex footer](https://github.com/openai/codex/blob/main/codex-rs/tui/src/bottom_pane/footer.rs)
+- [OpenAI Codex exec output renderer](https://github.com/openai/codex/blob/main/codex-rs/tui/src/exec_cell/render.rs)
 - [OpenAI Codex TUI tooltips](https://github.com/openai/codex/blob/main/codex-rs/tui/tooltips.txt)
 - [Gemini CLI keyboard shortcuts](https://google-gemini.github.io/gemini-cli/docs/cli/keyboard-shortcuts.html)
 - [Gemini CLI commands](https://google-gemini.github.io/gemini-cli/docs/cli/commands.html)
@@ -142,25 +143,33 @@ idle ──submit──> running ──done──> idle
 
 ### 6.1 启动
 
-默认不再显示大幅 ASCII banner。启动只打印一行身份，再进入 composer：
+非 compact 模式保留 Morph ASCII Logo。Logo 使用终端默认前景色和不足 1 秒的分块显现动画；非 TTY 输出不包含动画或 ANSI 控制符。Logo 下方空一行，再用与 Logo 相同块字符语言的灰色像素框显示当前 provider、model、workspace basename 和版本：
 
 ```text
-MisterMorph · gpt-5.2 · project-name
+▄▄   ▄▄  ▄▄▄  ▄▄▄▄  ▄▄▄▄  ▄▄ ▄▄
+██▀▄▀██ ██▀██ ██▄█▄ ██▄█▀ ██▄██
+██   ██ ▀███▀ ██ ██ ██    ██ ██
 
-› _
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ openai / gpt-5.2   version v0.2.0 ┃
+┃ workspace  project-name           ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+❯ _
+
   Enter send · Alt+Enter newline · / commands
 ```
 
-完整路径、file state 目录、版本和完整模型名由新增的 `/status` 查看，不占首屏。compact 模式可进一步省略启动身份行。
+完整路径、file state 目录和 context 使用量由 `/status` 查看，不占首屏。compact 模式省略整个启动区。
 
 ### 6.2 Idle
 
 ```text
-› Explain why this test is flaky_
+❯ Explain why this test is flaky_
   gpt-5.2 · project-name · ctx 18%              / commands
 ```
 
-- `›` 是输入焦点，不使用 `username>` 这类较长 prompt；
+- `❯` 是输入焦点，不使用 `username>` 这类较长 prompt；
 - footer 空闲时显示 model、workspace basename 和 context 百分比；
 - context 数据不可用时直接省略，不显示占位符；
 - 有草稿时仍保持同一布局，不上下跳动。
@@ -168,8 +177,10 @@ MisterMorph · gpt-5.2 · project-name
 ### 6.3 Running
 
 ```text
-● Running · bash · {"cmd":"go test ./...","timeout":120} · 00:13
-› Add a regression test for Windows_
+⠋ Running · bash · cmd: go test ./... · timeout: 120 · 00:13
+
+❯ Add a regression test for Windows_
+
   Enter steer · Ctrl+C stop
 ```
 
@@ -179,13 +190,14 @@ MisterMorph · gpt-5.2 · project-name
 - 用户输入草稿不因 activity 更新而丢失；
 - Enter 的提示明确写成 `steer`，避免用户误以为会开始独立任务。
 
-工具完成后只向 scrollback 写一行稳定摘要：
+工具完成后向 scrollback 写一条稳定记录。单行参数和工具名放在同一行，空间不足时续行缩进两个字符。只有需要多行表达的参数使用独立的 YAML 块：
 
 ```text
-✓ bash · {"cmd":"go test ./...","timeout":120}
+✓ bash · cmd: go test ./... · timeout: 120
+  └ ok  github.com/quailyquaily/mistermorph/cmd/mistermorph/chatcmd
 ```
 
-运行中的 activity 保持单行，宽度不足时只裁剪这一行的显示。工具结束后写入 scrollback 的记录包含完整的 `tool_params` 紧凑 JSON，不挑选 `cmd`、`path` 或 `query` 等少数字段。失败记录同时保留完整参数和错误内容。计划首次生成时向 scrollback 打印一次完整列表，activity 随后只显示当前步骤和 `i/n`，不重复打印全部步骤。
+运行中的 activity 保持单行，宽度不足时只裁剪这一行的显示。完成记录保留全部具名参数，不使用 JSON 花括号。非空工具输出显示在调用下方；先按当前终端宽度换行，再保留首两行和末两行，中间用省略行标明数量。Bash 和 PowerShell 只显示实际 stdout、stderr，不显示内部 observation 包装。失败记录同时保留输出预览和错误。`write_file` 使用 diff 代替通用输出，`plan_create` 由计划视图呈现。计划首次生成时向 scrollback 打印一次完整列表，activity 随后只显示当前步骤和 `i/n`，不重复打印全部步骤。
 
 ### 6.4 Approval
 
@@ -203,7 +215,7 @@ MisterMorph · gpt-5.2 · project-name
 ```
 
 - 信息顺序与 Web UI 一致：工具、reasons、全部具名参数、操作；
-- `cmd` 排在第一个，其余参数按名称排序；非字符串值使用完整 JSON 显示；
+- `cmd` 排在第一个，其余参数按名称排序；非字符串值使用与工具记录相同的 YAML 排版；
 - reasons 直接作为正文逐行显示，不再加冗余 label；
 - 参数默认全部显示，不再设置会隐藏内容的 details 状态；
 - `y`、`n` 可立即操作；
@@ -215,9 +227,9 @@ MisterMorph · gpt-5.2 · project-name
 在行首输入 `/` 后，composer 上方显示匹配命令：
 
 ```text
-› /wo_
+❯ /wo_
 
-› /workspace          show or change workspace
+❯ /workspace          show or change workspace
   /workspace attach   attach a workspace
   /workspace detach   detach current workspace
 
@@ -225,6 +237,18 @@ MisterMorph · gpt-5.2 · project-name
 ```
 
 命令名称、可用性和说明必须来自同一个 command registry。不能继续维护一份只供 TUI 使用的硬编码命令列表。排序先按前缀匹配，再按注册顺序或使用频率；第一版不需要模糊搜索算法。
+
+在任意空白分隔的 token 开头输入 `$` 时，同一个 picker 显示已发现的 skills：
+
+```text
+❯ Use $ima_
+
+❯ $imagegen          Generate or edit images.
+
+  ↑↓ select · Tab complete · Enter insert · Esc close
+```
+
+skill 候选与 Web UI 使用相同语义：同时搜索 ID、名称和描述。Enter 和 Tab 只把 `$skill-id ` 插入当前位置，不立即发送消息。
 
 ### 6.6 Error 和 stop
 
@@ -252,8 +276,8 @@ footer 不换行。空间不足时按以下顺序删除：
 最窄时只保留状态和一个主要动作：
 
 ```text
-● Running · 00:13
-› _
+⠋ Running · 00:13
+❯ _
   Ctrl+C stop
 ```
 
@@ -268,13 +292,13 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 底部区域使用两列：2 列宽的 marker，以及从第 3 列开始的正文。activity、composer、footer 和临时视图都遵守同一条左对齐线。
 
 ```text
-● Running · bash · go test ./... · 00:13
-› Add a regression test_
+⠋ Running · bash · go test ./... · 00:13
+❯ Add a regression test_
   Enter steer · Ctrl+C stop
   ↑正文统一从第 3 列开始
 ```
 
-- marker 固定使用一个字符和一个空格：`● `、`› `、`! `、`× `、`✓ `、`■ `；
+- marker 固定使用一个字符和一个空格：输入和 picker 都使用 `❯ `，其余使用 spinner、`! `、`× `、`✓ `、`■ `；
 - 没有 marker 的次要信息仍保留两个空格，不能顶到第 1 列；
 - 不使用 Tab 对齐，只使用空格；
 - 计算宽度必须使用终端显示宽度，不能使用 UTF-8 字节数或 rune 数。中文、日文和全角字符通常占两列；
@@ -286,8 +310,8 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 - transcript 中相邻的两个 turn 之间保留 1 个空行；
 - 同一个 turn 内，工具摘要、计划摘要和 Agent 正文之间不额外插入空行；
 - transcript 与底部区域之间保留 1 个空行，不能使用整行边框代替；
-- idle 底部区域固定为 composer 和 footer 两行；
-- running 增加 1 行 activity，activity 始终位于 composer 上方；
+- 正常高度下 composer 上下各保留 1 个空行；终端不足 12 行时省略这两处留白；
+- running 的 activity 位于 composer 上方，并与 composer 保留 1 个空行；
 - composer 高度继续为 1 至 5 行，输入增长只向上扩展，footer 始终处于最底行；
 - command picker 最多显示 6 个候选，更多候选在列表内部滚动；
 - approval 展示全部参数，不以固定行数省略审批依据；
@@ -299,23 +323,24 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 | --- | --- | --- |
 | Primary | 用户草稿、Agent 正文、审批命令 | 终端默认前景色，不加粗 |
 | Active | `Running`、当前 picker 选项、需要立即处理的审批 | 强调色；文字或 marker 加粗，不使用整行反色背景 |
-| Secondary | footer、工具名、耗时、context、命令说明 | dim |
+| Secondary | 启动 metadata、工具名和工具参数 | 较清晰的自适应灰色 |
+| Muted | footer、耗时、context 和命令说明 | 更弱的自适应灰色 |
 | Success | 已完成的工具或计划 | `✓` 加 success 色，正文保持默认色 |
 | Warning | 审批和可恢复警告 | `!` 加 warning 色，同时保留明确文字 |
 | Error | 失败结果 | `×` 加 error 色，错误摘要保持默认色 |
 
-不使用斜体，因为部分终端会把它显示成普通文字或错误字形。不使用 underline 表达选中状态；picker 使用 `›` marker。颜色不铺满整行，也不为 composer、activity 或 approval 增加方框。
+不使用斜体，因为部分终端会把它显示成普通文字或错误字形。不使用 underline 表达选中状态；picker 使用 `❯` marker。颜色不铺满整行，也不为 composer、activity 或 approval 增加方框。
 
 #### 换行与截断
 
 - 用户输入和 Agent 正文允许自然换行；续行与第 3 列正文线对齐；
-- activity 和 footer 必须保持单行；工具完成记录保留全部参数，由终端自然换行；
-- 只对临时单行状态使用省略；写入 scrollback 的参数不省略；
+- activity 和 footer 必须保持单行；工具完成记录保留全部参数，并对所有续行增加两个字符的 hanging indent；
+- 写入 scrollback 的参数不省略；工具输出预览最多占五个屏幕行，并明确标记省略内容；
 - 错误详情、审批参数和 diff 可以多行显示，续行缩进两个空格；
 - markdown code/pre 保留原有渲染，不再额外套一层边框；
 - 清除或替换内容时必须覆盖旧行尾，不能留下上一次较长状态的残字符。
 
-排版效果应依靠对齐和留白形成层级，而不是依靠 box、背景块或更多颜色。
+运行中的交互区域依靠对齐和留白形成层级，不增加 box 或背景块；像素边框只用于一次性的启动 metadata。
 
 ### 6.9 完整排版样例
 
@@ -324,15 +349,29 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 #### 80 列：运行中
 
 ```text
-MisterMorph · gpt-5.2 · mistermorph
+▄▄   ▄▄  ▄▄▄  ▄▄▄▄  ▄▄▄▄  ▄▄ ▄▄
+██▀▄▀██ ██▀██ ██▄█▄ ██▄█▀ ██▄██
+██   ██ ▀███▀ ██ ██ ██    ██ ██
 
-› 检查 Chat 输入历史为什么在多行时跳转错误
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ openai / gpt-5.2   version v0.2.0 ┃
+┃ workspace  mistermorph            ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+❯ 检查 Chat 输入历史为什么在多行时跳转错误
 
 我先检查 textarea 的按键处理和现有测试。
-✓ read_file · cmd/mistermorph/chatcmd/bubble.go
+✓ read_file · path: cmd/mistermorph/chatcmd/bubble.go
+  └ package chatcmd
+    import (
+    … 84 lines omitted
+    }
+    }
 
-● Running · bash · go test ./cmd/mistermorph/chatcmd · 00:13        2/4
-› 同时覆盖包含中文的输入_
+⠋ Running · bash · go test ./cmd/mistermorph/chatcmd · 00:13        2/4
+
+❯ 同时覆盖包含中文的输入_
+
   Enter steer · Ctrl+C stop
 ```
 
@@ -341,12 +380,14 @@ MisterMorph · gpt-5.2 · mistermorph
 #### 80 列：任务完成并回到 idle
 
 ```text
-✓ bash · go test ./cmd/mistermorph/chatcmd · 4.2s
+✓ bash · cmd: go test ./cmd/mistermorph/chatcmd · timeout: 120
+  └ ok  github.com/quailyquaily/mistermorph/cmd/mistermorph/chatcmd  1.284s
 
 问题来自 Up/Down 在 textarea 处理光标之前截获按键。现在只有光标已经
 位于首行或末行边界时，才会进入历史记录。
 
-› _
+❯ _
+
   gpt-5.2 · mistermorph · ctx 18%                       / commands
 ```
 
@@ -372,22 +413,24 @@ Agent 正文允许自然换行。footer 保持一行，并使用 dim 样式，�
 #### 80 列：选择命令
 
 ```text
-› /wo_
+❯ /wo_
 
-› /workspace          show or change workspace
+❯ /workspace          show or change workspace
   /workspace attach   attach a workspace
   /workspace detach   detach current workspace
 
   ↑↓ select · Tab complete · Enter run · Esc close
 ```
 
-输入和选中项都使用 `›`，但位于不同的行。未选中项和说明文字从第 3 列开始。选择器不使用边框或整行背景。
+输入和选中项都使用 `❯`。未选中项和说明文字从第 3 列开始。选择器不使用边框或整行背景。
 
 #### 40 列：运行中
 
 ```text
-● Running · bash · 00:13
-› 同时覆盖中文输入_
+⠋ Running · bash · 00:13
+
+❯ 同时覆盖中文输入_
+
   Ctrl+C stop
 ```
 
@@ -396,9 +439,10 @@ Agent 正文允许自然换行。footer 保持一行，并使用 dim 样式，�
 #### 多行 composer
 
 ```text
-› 请检查这两个条件：
+❯ 请检查这两个条件：
   1. 光标在首行时才读取历史
   2. 光标在末行时才读取下一条_
+
   Enter send · Alt+Enter newline
 ```
 
@@ -409,11 +453,11 @@ Agent 正文允许自然换行。footer 保持一行，并使用 dim 样式，�
 本方案可以使用 tmux 和 GNU Screen 的 scrollback，但必须保留 inline rendering。Bubble Tea 1.3.10 的 `tea.Println` 会把输出持久写在程序区域上方；进入 alternate screen 后，这类输出不会写入原生 history。因此实现需要遵守以下约束：
 
 - `tea.NewProgram` 不能增加 `tea.WithAltScreen()`，运行中也不能发送 `tea.EnterAltScreen`；
-- transcript 只通过 Bubble Tea message queue 和 `tea.Println` 输出，程序启动后不能从其他 goroutine 直接向 stdout 写入；
+- transcript 只通过 Bubble Tea message queue 和 `tea.Println` 输出，程序启动后不能从其他 goroutine 直接向 stdout 写入；所有来源共用一个 FIFO，上一块收到打印完成消息后才提交下一块；
 - `View()` 继续只拥有底部区域，不能把已经进入 scrollback 的 transcript 再次放进 `View()`；
-- activity 使用静态 marker。耗时最多每秒刷新一次，不能继续使用每秒 12 帧的 spinner；
+- activity 的 spinner 每 80ms 更新一帧，只重绘 Bubble Tea 管理的底部区域，不向 transcript 追加内容；
 - 每一行底部内容都根据 `tea.WindowSizeMsg` 中的 pane 宽度裁剪，并在最右侧保留 1 个空列，避免边界自动换行破坏 cursor 位置；
-- transcript 不预先按当前窗口宽度插入硬换行，由 tmux 或 Screen 保存和显示自然换行；窗口 resize 后的历史 reflow 结果由 multiplexer 决定；
+- 写入 `tea.Println` 前按当前窗口宽度减一列插入换行。Bubble Tea 只按显式换行计算 transcript 高度；依赖终端自动换行会让底部区域覆盖 transcript。已经写入的历史保留写入时的宽度；
 - 不启用 Bubble Tea mouse mode。鼠标滚轮是否进入 copy mode 由 tmux、Screen 和终端配置决定；键盘 copy mode 始终可用；
 - 用户进入 copy mode 后，Agent 仍可继续运行并产生输出。应用不尝试检测或退出 copy mode；离开 copy mode 后显示最新底部状态。
 
@@ -473,7 +517,7 @@ defscrollback 10000
 
 ### 7.3 工具输出
 
-默认 transcript 只打印工具完成摘要，失败则显示必要的参数和错误。diff 保留现有渲染。第一版不增加 compact / verbose 模式，也不实现可折叠历史节点。原生 scrollback 中已经打印的文本无法可靠折叠，强行模拟只会引入第二套 transcript 状态。
+默认 transcript 打印工具完成记录和最多五个屏幕行的输出预览。短输出完整显示；长输出保留首尾，并明确写出省略行数。失败再显示错误。diff 保留现有渲染。第一版不增加 compact / verbose 模式，也不实现可折叠历史节点。原生 scrollback 中已经打印的文本无法可靠折叠，强行模拟只会引入第二套 transcript 状态。
 
 ## 8. 最小实现边界
 
@@ -502,7 +546,7 @@ defscrollback 10000
 
 ### Phase 1：稳定底部区域
 
-- 去掉默认大 banner，增加单行启动身份；
+- 保留 ASCII Logo，并在下方使用紧凑信息框显示 provider、model、workspace 和版本；
 - 增加 `/status`，承接不再常驻显示的完整 session 信息；
 - 增加 idle/running footer 和自适应宽度；
 - 显示当前工具、计划步骤、耗时和 `i/n`；
@@ -518,11 +562,12 @@ defscrollback 10000
 - 长审批正文使用 Up/Down 滚动，重复审批按键只提交第一次决定；
 - `/` 打开 command picker；
 - 候选来自 command registry，删除硬编码 autocomplete；
+- `$` 打开 skill picker，候选来自已发现的 skills；
 
 ### Phase 3：输出降噪
 
 - 工具开始只更新 activity，不立即写 scrollback；
-- 工具完成写一条包含完整参数的稳定记录，失败同时保留错误详情；
+- 工具完成写一条包含完整参数的稳定记录，并显示有界的输出预览；失败同时保留错误详情；
 - 计划只在底部更新当前步骤，完成后打印一次总结；
 - 为长错误、参数、粘贴和 diff 提供一致的摘要规则。
 
@@ -575,11 +620,12 @@ Phase 3 依赖回调事件能稳定区分 started、completed 和 failed。若�
 - [x] 完成现有 Chat TUI 检查、同类产品对照和方案设计。
 - [x] Phase 1：稳定底部区域。
   - [x] 用测试固定 idle、running、窄终端和多行输入行为。
-  - [x] 使用单行启动身份替换默认大 banner。
+  - [x] 使用 ASCII Logo 和 FC 像素信息框显示 provider、model、workspace 与版本。
   - [x] 增加 `/status`。
   - [x] 增加 activity、composer 和 contextual footer。
+  - [x] 正常高度下在 composer 上下保留明确留白。
   - [x] 修正 Enter、Ctrl+C、Ctrl+D、Ctrl+J 和 Up/Down 的状态语义。
-  - [x] 移除 12 FPS 彩色 spinner，activity 最多每秒刷新一次。
+  - [x] 使用单色字符序列渲染 activity spinner。
 - [x] Phase 2：临时交互界面。
   - [x] 用测试固定审批、草稿恢复和命令选择行为。
   - [x] 审批界面临时替换 composer，并显示审批对象、参数和 reasons。
@@ -589,7 +635,9 @@ Phase 3 依赖回调事件能稳定区分 started、completed 和 failed。若�
 - [x] Phase 3：输出降噪。
   - [x] 用测试固定工具、计划和错误的 transcript 输出规则。
   - [x] 工具和计划开始事件只更新 activity。
-  - [x] 工具结束后打印一次包含完整参数的稳定记录，失败同时保留错误。
+  - [x] 工具结束后紧凑显示非 JSON 具名参数，并在下方显示最多五个屏幕行的输出预览；失败同时保留错误。
+  - [x] transcript 在进入 `tea.Println` 前按终端宽度换行，避免覆盖底部 activity。
+  - [x] transcript 使用单一 FIFO 串行打印，避免工具记录、response 和输入回显乱序。
   - [x] 完整计划只打印一次，后续步骤在 activity 原地更新。
 - [ ] tmux copy mode、resize、detach/attach 人工检查通过。
 - [x] GNU Screen copy mode、resize、detach/attach 人工检查通过。

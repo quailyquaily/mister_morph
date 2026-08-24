@@ -59,6 +59,7 @@ type chatSession struct {
 	llmValues              llmutil.RuntimeValues
 	clientOverridesEnabled bool
 	loadedSkills           []string
+	skillItems             []skillsutil.SkillStatusItem
 	onPlanStepUpdate       func(*agent.Context, agent.PlanStepUpdate)
 	onToolCallStart        func(*agent.Context, agent.ToolCall)
 	onToolCallDone         func(*agent.Context, agent.ToolCall, string, error)
@@ -321,9 +322,9 @@ func (s *chatSession) clearActivity() {
 	}
 }
 
-func (s *chatSession) setActivity(msg string) {
+func (s *chatSession) setActivity(msg string, tool bool) {
 	if s != nil && s.sendMsg != nil {
-		s.sendMsg(thinkingMsg{on: true, message: msg})
+		s.sendMsg(thinkingMsg{on: true, message: msg, tool: tool})
 	}
 }
 
@@ -518,6 +519,12 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		_ = taskRuntime.Close()
 		sess.taskRuntime = nil
 		return nil, err
+	}
+	skillStatus, err := skillsutil.BuildSkillStatus(skillsutil.SkillsConfigFromRunCmd(cmd), sess.loadedSkills)
+	if err != nil {
+		logger.Warn("chat_skill_picker_load_failed", "error", err.Error())
+	} else {
+		sess.skillItems = append(skillStatus.Loaded, skillStatus.Available...)
 	}
 
 	return sess, nil

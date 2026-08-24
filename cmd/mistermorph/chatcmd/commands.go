@@ -39,7 +39,7 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 	runAgentsCommand := func(ctx context.Context, input, activity, projectDir string) (*chatcommands.Result, error) {
 		commandCtx, finish := sess.beginForegroundCommand(ctx)
 		defer finish()
-		sess.setActivity(activity)
+		sess.setActivity(activity, false)
 		defer sess.clearActivity()
 		prepared, err := prepareChatCommandRuntime(commandCtx, sess, input)
 		if err != nil {

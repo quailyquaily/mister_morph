@@ -23,9 +23,9 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
-// programWriter buffers output by line and forwards each complete line to the
-// bubbletea program as a tuiOutputMsg. This lets engine callbacks write through
-// the standard io.Writer interface while bubbletea owns the terminal.
+// programWriter keeps partial lines between writes and forwards each complete
+// block to Bubble Tea. Keeping the block intact prevents a multi-line tool
+// record from being interleaved with other transcript output.
 type programWriter struct {
 	p      *tea.Program
 	mu     sync.Mutex
@@ -39,16 +39,10 @@ func (w *programWriter) Write(p []byte) (int, error) {
 	w.buffer.Write(p)
 	data := w.buffer.String()
 
-	for {
-		idx := strings.IndexByte(data, '\n')
-		if idx < 0 {
-			break
-		}
-		line := data[:idx] // exclude newline; tea.Println adds its own
-		func() {
-			defer func() { recover() }() // guard against closed program
-			w.p.Send(tuiOutputMsg{output: line})
-		}()
+	if idx := strings.LastIndexByte(data, '\n'); idx >= 0 {
+		// Exclude the final newline because tea.Println supplies it. Any earlier
+		// newlines remain part of the same atomic transcript block.
+		safeSend(w.p, tuiOutputMsg{output: data[:idx]})
 		data = data[idx+1:]
 	}
 
@@ -199,7 +193,7 @@ func runREPL(sess *chatSession) error {
 	}
 	p := tea.NewProgram(model, tea.WithInput(sess.cmd.InOrStdin()), tea.WithOutput(sess.cmd.OutOrStdout()), tea.WithContext(rootCtx))
 
-	printChatSessionHeader(sess.cmd.OutOrStdout(), sess.compactMode, strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir)
+	printChatSessionHeader(sess.cmd.OutOrStdout(), sess.compactMode, strings.TrimSpace(sess.mainCfg.Provider), strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.version)
 
 	sess.sendMsg = func(msg any) { safeSend(p, msg) }
 	sess.setWriter(&programWriter{p: p})

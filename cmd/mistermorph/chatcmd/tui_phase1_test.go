@@ -53,7 +53,7 @@ func TestChatModelIdleLayoutShowsSessionContext(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	view := m.View()
-	for _, want := range []string{"› ", "gpt-5.2", "mistermorph", "ctx 18%", "/ commands"} {
+	for _, want := range []string{"❯ ", "gpt-5.2", "mistermorph", "ctx 18%", "/ commands"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("idle View() missing %q:\n%s", want, view)
 		}
@@ -170,21 +170,24 @@ func TestChatModelEmptyCtrlDExits(t *testing.T) {
 	}
 }
 
-func TestPrintChatSessionHeaderUsesSingleIdentityLine(t *testing.T) {
+func TestPrintChatSessionHeaderKeepsBannerAndSessionMetadata(t *testing.T) {
 	var out bytes.Buffer
-	printChatSessionHeader(&out, false, "gpt-5.2", "/work/mistermorph")
+	printChatSessionHeader(&out, false, "openai", "gpt-5.2", "/work/mistermorph", "v1.2.3")
 
 	got := out.String()
-	if strings.Contains(got, "▄▄") || strings.Contains(got, "workspace_dir=") {
-		t.Fatalf("header still contains the old banner or key/value block:\n%s", got)
+	if !strings.Contains(got, "▄▄") {
+		t.Fatalf("header is missing the Morph banner:\n%s", got)
 	}
-	for _, want := range []string{"MisterMorph", "gpt-5.2", "mistermorph"} {
+	if strings.Contains(got, "workspace_dir=") {
+		t.Fatalf("header contains the old key/value block:\n%s", got)
+	}
+	for _, want := range []string{"openai", "gpt-5.2", "mistermorph", "version v1.2.3"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("header missing %q: %q", want, got)
 		}
 	}
-	if lines := strings.Count(strings.TrimSpace(got), "\n") + 1; lines != 1 {
-		t.Fatalf("header lines = %d, want 1: %q", lines, got)
+	if strings.Contains(got, "MisterMorph") {
+		t.Fatalf("header metadata contains the product name: %q", got)
 	}
 }
 
