@@ -178,7 +178,7 @@ idle ──submit──> running ──done──> idle
 
 ❯ Add a regression test for Windows_
 
-  Enter steer · Ctrl+C stop
+  Enter steer · Esc/Ctrl+C stop
 ```
 
 - activity 固定在 composer 上方并原地更新；
@@ -279,7 +279,7 @@ footer 不换行。空间不足时按以下顺序删除：
 ```text
 ⠋ Running · 00:13
 ❯ _
-  Ctrl+C stop
+  Esc/Ctrl+C stop
 ```
 
 activity 在可用宽度内裁成一行，不能把 composer 挤出屏幕。终端高度不足时，审批标题和操作固定显示，参数正文使用 Up/Down 逐行滚动，不丢弃参数。
@@ -295,7 +295,7 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 ```text
 ⠋ Running · bash · go test ./... · 00:13
 ❯ Add a regression test_
-  Enter steer · Ctrl+C stop
+  Enter steer · Esc/Ctrl+C stop
   ↑正文统一从第 3 列开始
 ```
 
@@ -311,11 +311,11 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 - 用户输入与本轮第一块输出之间保留 1 个空行；
 - Agent 输出与下一次输入区域之间保留 1 个空行；
 - 同一个 turn 内，工具摘要、计划摘要和 Agent 正文之间不额外插入空行；
-- transcript 与底部区域之间保留 1 个空行，不能使用整行边框代替；
+- transcript 与底部区域之间保留 1 个空行；composer 使用上下细边界，不使用左右边框；
 - 正常高度下 composer 上下各保留 1 个空行；终端不足 12 行时省略这两处留白；
 - running 的 activity 位于 composer 上方，并与 composer 保留 1 个空行；
 - composer 高度继续为 1 至 5 行，输入增长只向上扩展，footer 始终处于最底行；
-- command picker 最多显示 6 个候选，更多候选在列表内部滚动；
+- command picker 最多显示 6 个候选，更多候选在列表内部滚动；终端不足 12 行时，每个候选压缩为一行；
 - approval 展示全部参数，不以固定行数省略审批依据；
 - 终端总高度不足 12 行时，composer 上限降为 3 行，picker 最多显示 3 个候选。
 
@@ -331,7 +331,7 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 | Warning | 审批和可恢复警告 | `!` 加 warning 色，同时保留明确文字 |
 | Error | 失败结果 | `×` 加 error 色，错误摘要保持默认色 |
 
-不使用斜体，因为部分终端会把它显示成普通文字或错误字形。不使用 underline 表达选中状态；picker 使用 `❯` marker。颜色不铺满整行，也不为 composer、activity 或 approval 增加方框。
+不使用斜体，因为部分终端会把它显示成普通文字或错误字形。不使用 underline 表达选中状态；picker 使用 `❯` marker。颜色不铺满整行。composer 只使用上下细边界，activity 和 approval 不增加方框。
 
 #### 换行与截断
 
@@ -342,7 +342,7 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 - markdown code/pre 保留原有渲染，不再额外套一层边框；
 - 清除或替换内容时必须覆盖旧行尾，不能留下上一次较长状态的残字符。
 
-运行中的交互区域依靠对齐和留白形成层级，不增加 box 或背景块；像素块只用于一次性的启动 metadata 状态条。
+运行中的交互区域依靠对齐、留白和 composer 的上下边界形成层级，不增加 box 或背景块；像素块只用于一次性的启动 metadata 状态条。
 
 ### 6.9 完整排版样例
 
@@ -371,7 +371,7 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 
 ❯ 同时覆盖包含中文的输入_
 
-  Enter steer · Ctrl+C stop
+  Enter steer · Esc/Ctrl+C stop
 ```
 
 这里的视觉顺序是：已经发生的内容留在上方；唯一的动态行是 `Running`；输入草稿紧随其后；最后一行只说明此刻可执行的操作。
@@ -430,7 +430,7 @@ Agent 正文允许自然换行。footer 保持一行，并使用 dim 样式，�
 
 ❯ 同时覆盖中文输入_
 
-  Ctrl+C stop
+  Esc/Ctrl+C stop
 ```
 
 窄终端优先保留状态、当前工具、输入和停止入口。命令详情、计划总数、workspace、context 和次要快捷键依次省略，不允许 footer 自动折成两行。
@@ -493,19 +493,19 @@ defscrollback 10000
 | --- | --- | --- |
 | idle | Enter | 发送新任务 |
 | running | Enter | 将当前输入作为 steer 发送 |
-| 任意 composer | Alt+Enter 或 Ctrl+J | 插入换行 |
+| 任意 composer | Shift+Enter、Alt+Enter 或 Ctrl+J | 插入换行 |
 | 多行输入 | Up/Down | 先移动光标；到首行或末行边界后才浏览历史 |
 | 有草稿 | Ctrl+C | 清空草稿，不退出 |
 | 空草稿且 idle | Ctrl+C | 第一次提示再次按下退出；两秒内第二次退出 |
 | 空草稿且 idle | Ctrl+D | 退出 |
-| running | Ctrl+C | 停止当前任务，不退出 Chat |
-| `/init` 或 `/update` 运行中 | Ctrl+C | 直接中止当前命令，不等待 slash command 返回 |
+| running | Esc 或 Ctrl+C | 停止当前任务，不退出 Chat |
+| `/init` 或 `/update` 运行中 | Esc 或 Ctrl+C | 直接中止当前命令，不等待 slash command 返回 |
 | awaiting approval | Up/Down | 滚动审批原因和完整参数，标题与操作保持可见 |
 | awaiting approval | y / n | 批准或拒绝；第一次决定提交后忽略重复按键 |
-| awaiting approval | Ctrl+C | 拒绝审批，不退出 Chat |
+| awaiting approval | Esc 或 Ctrl+C | 拒绝审批，不退出 Chat |
 | picker | Esc | 关闭 picker，保留草稿 |
 
-传统终端协议把 Shift+Enter 和 Enter 都编码成回车，应用无法可靠区分。Ctrl+J 是所有支持环境中的明确换行入口；终端若把 modified Enter 报告为 Alt+Enter，也使用同一 textarea 换行 binding。
+Bubble Tea v2 会请求终端的按键消歧能力；Ghostty、Kitty、Alacritty、iTerm2、WezTerm 等支持该协议的终端可以区分 Shift+Enter。传统终端仍会把 Shift+Enter 和 Enter 都编码成回车，因此 Ctrl+J 保留为通用换行入口，Alt+Enter 也使用同一 textarea binding。
 
 这组规则避免一次误按退出，同时保留终端用户熟悉的中断和 EOF 语义。
 
@@ -552,7 +552,7 @@ defscrollback 10000
 - 增加 idle/running footer 和自适应宽度；
 - 显示当前工具、计划步骤、耗时和 `i/n`；
 - 明确 running 时 Enter 是 steer；
-- 修正 Ctrl+C、Ctrl+D、多行 Up/Down 和 Ctrl+J；
+- 修正 Ctrl+C、Ctrl+D、多行 Up/Down、Shift+Enter 和 Ctrl+J；
 - 使用自适应的有限语义色，移除固定 RGB spinner。
 
 这一阶段不改变 scrollback 数据结构，风险和改动范围最小。
@@ -625,7 +625,7 @@ Phase 3 依赖回调事件能稳定区分 started、completed 和 failed。若�
   - [x] 增加 `/status`。
   - [x] 增加 activity、composer 和 contextual footer。
   - [x] 正常高度下在 composer 上下保留明确留白。
-  - [x] 修正 Enter、Ctrl+C、Ctrl+D、Ctrl+J 和 Up/Down 的状态语义。
+  - [x] 修正 Enter、Esc、Ctrl+C、Ctrl+D、Shift+Enter、Ctrl+J 和 Up/Down 的状态语义。
   - [x] 使用单色字符序列渲染 activity spinner。
 - [x] Phase 2：临时交互界面。
   - [x] 用测试固定审批、草稿恢复和命令选择行为。

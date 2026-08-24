@@ -11,10 +11,11 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	lipglosscompat "charm.land/lipgloss/v2/compat"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/caprefs"
@@ -116,56 +117,55 @@ const pastePlaceholderLineThreshold = 2
 
 var (
 	chatAccentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "25", Dark: "75"}).
+			Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("25"), Dark: lipgloss.Color("75")}).
 			Bold(true)
 	chatSecondaryStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "239", Dark: "250"})
+				Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("239"), Dark: lipgloss.Color("250")})
 	chatMutedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "245"})
+			Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("242"), Dark: lipgloss.Color("245")})
 	chatWarningStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "214"}).
+				Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("130"), Dark: lipgloss.Color("214")}).
 				Bold(true)
 	chatSuccessStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "77"})
+				Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("28"), Dark: lipgloss.Color("77")})
 	chatErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "160", Dark: "203"})
+			Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("160"), Dark: lipgloss.Color("203")})
 	chatSpinnerFrames = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 )
-
-func (m *chatModel) updateTextareaHeight() {
-	lines := strings.Count(m.textarea.Value(), "\n") + 1
-	limit := maxInputHeight
-	if m.height > 0 && m.height < shortTerminalHeight {
-		limit = shortInputHeight
-	}
-	if lines > limit {
-		lines = limit
-	}
-	m.textarea.SetHeight(max(1, lines))
-}
 
 func newChatModel(sess *chatSession) *chatModel {
 	ta := textarea.New()
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
-	ta.SetPromptFunc(inputMarkerWidth, func(line int) string {
-		if line == 0 {
+	ta.SetPromptFunc(inputMarkerWidth, func(info textarea.PromptInfo) string {
+		if info.LineNumber == 0 {
 			return "❯ "
 		}
 		return "  "
 	})
-	ta.FocusedStyle.Prompt = chatAccentStyle
-	ta.BlurredStyle.Prompt = chatAccentStyle
+	styles := ta.Styles()
+	styles.Focused.Prompt = chatAccentStyle
+	styles.Blurred.Prompt = chatAccentStyle
+	styles.Focused.CursorLine = lipgloss.NewStyle()
+	styles.Blurred.CursorLine = lipgloss.NewStyle()
+	inputBorderColor := lipglosscompat.AdaptiveColor{Light: lipgloss.Color("242"), Dark: lipgloss.Color("245")}
+	styles.Focused.Base = styles.Focused.Base.
+		Border(lipgloss.NormalBorder(), true, false, true, false).
+		BorderForeground(inputBorderColor)
+	styles.Blurred.Base = styles.Blurred.Base.
+		Border(lipgloss.NormalBorder(), true, false, true, false).
+		BorderForeground(inputBorderColor)
+	ta.SetStyles(styles)
 	ta.Focus()
-	ta.SetHeight(1)
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
+	ta.MaxHeight = maxInputHeight
+	// Keep MaxHeight as a viewport cap rather than an input-length limit.
+	ta.MaxContentHeight = 10_000
 	ta.SetWidth(79)
 
 	// Enter submits. Modified Enter and Ctrl+J remain composer newlines.
-	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
-
-	// Keep the composer on the terminal's own background.
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("shift+enter", "alt+enter", "ctrl+j"))
 
 	return &chatModel{
 		textarea:    ta,
@@ -189,26 +189,43 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.textarea.MaxHeight = maxInputHeight
+		if m.height > 0 && m.height < shortTerminalHeight {
+			m.textarea.MaxHeight = shortInputHeight
+		}
 		m.textarea.SetWidth(m.contentWidth())
-		m.updateTextareaHeight()
 		m.clampApprovalScroll()
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.PasteMsg:
+		if m.approval != nil {
+			return m, nil
+		}
+		if lines := countPasteLines(msg.Content); lines >= pastePlaceholderLineThreshold {
+			placeholder := fmt.Sprintf("[Pasted text #%d +%d lines]", len(m.pastedTexts)+1, lines)
+			m.pastedTexts[placeholder] = msg.Content
+			m.textarea.InsertString(placeholder)
+			return m, nil
+		}
+
+	case tea.KeyPressMsg:
+		keyName := msg.String()
 		if m.approval != nil {
 			decision := ""
-			switch {
-			case msg.Type == tea.KeyUp:
+			switch keyName {
+			case "up":
 				m.approvalScroll = max(0, m.approvalScroll-1)
-			case msg.Type == tea.KeyDown:
+			case "down":
 				m.approvalScroll++
 				m.clampApprovalScroll()
-			case msg.Type == tea.KeyCtrlC:
+			case "ctrl+c", "esc":
 				decision = "n"
-			case msg.Type == tea.KeyRunes && strings.EqualFold(string(msg.Runes), "y"):
-				decision = "y"
-			case msg.Type == tea.KeyRunes && strings.EqualFold(string(msg.Runes), "n"):
-				decision = "n"
+			default:
+				if strings.EqualFold(msg.Key().Text, "y") {
+					decision = "y"
+				} else if strings.EqualFold(msg.Key().Text, "n") {
+					decision = "n"
+				}
 			}
 			if decision != "" && !m.approvalResolving {
 				m.approvalResolving = true
@@ -223,20 +240,20 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		picker := m.picker()
 		if len(picker.items) > 0 {
-			switch msg.Type {
-			case tea.KeyEsc:
+			switch keyName {
+			case "esc":
 				m.pickerClosed = true
 				return m, nil
-			case tea.KeyUp:
+			case "up":
 				m.pickerIndex = (m.pickerIndex - 1 + len(picker.items)) % len(picker.items)
 				return m, nil
-			case tea.KeyDown:
+			case "down":
 				m.pickerIndex = (m.pickerIndex + 1) % len(picker.items)
 				return m, nil
-			case tea.KeyTab:
+			case "tab":
 				m.applyPickerItem(picker)
 				return m, nil
-			case tea.KeyEnter:
+			case "enter":
 				m.applyPickerItem(picker)
 				if picker.submitOnEnter {
 					return m, m.submitInput(m.textarea.Value())
@@ -245,25 +262,18 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if msg.Type != tea.KeyCtrlC {
+		if keyName != "ctrl+c" {
 			m.quitConfirmation = false
 		}
 
-		// Fold bracketed multi-line pastes. Some tmux and SSH combinations do
-		// not preserve the paste flag, so retain the existing newline fallback.
-		isPasteEvent := msg.Paste && msg.Type == tea.KeyRunes
-		if !isPasteEvent && msg.Type == tea.KeyRunes {
-			text := string(msg.Runes)
-			isPasteEvent = (strings.Contains(text, "\n") || strings.Contains(text, "\r")) && len(text) > 10
-		}
-		if isPasteEvent {
-			text := string(msg.Runes)
+		// Some tmux and SSH combinations do not preserve bracketed paste, so
+		// retain the multi-character newline fallback.
+		if text := msg.Key().Text; (strings.Contains(text, "\n") || strings.Contains(text, "\r")) && len(text) > 10 {
 			lines := countPasteLines(text)
 			if lines >= pastePlaceholderLineThreshold {
 				placeholder := fmt.Sprintf("[Pasted text #%d +%d lines]", len(m.pastedTexts)+1, lines)
 				m.pastedTexts[placeholder] = text
 				m.textarea.InsertString(placeholder)
-				m.updateTextareaHeight()
 				return m, nil
 			}
 		}
@@ -271,12 +281,11 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Matches(msg, m.textarea.KeyMap.InsertNewline) {
 			var cmd tea.Cmd
 			m.textarea, cmd = m.textarea.Update(msg)
-			m.updateTextareaHeight()
 			return m, cmd
 		}
 
-		switch msg.Type {
-		case tea.KeyCtrlC:
+		switch keyName {
+		case "ctrl+c", "esc":
 			if m.sess != nil && m.sess.cancelForegroundCommand() {
 				return m, nil
 			}
@@ -284,10 +293,12 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				go func() { m.submitted <- "/stop" }()
 				return m, nil
 			}
+			if keyName == "esc" {
+				return m, nil
+			}
 			if m.textarea.Value() != "" {
 				m.textarea.Reset()
 				m.pastedTexts = make(map[string]string)
-				m.updateTextareaHeight()
 				return m, nil
 			}
 			if m.quitConfirmation {
@@ -298,36 +309,33 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return quitConfirmExpiredMsg{}
 			})
 
-		case tea.KeyCtrlD:
+		case "ctrl+d":
 			if m.textarea.Value() == "" {
 				return m, tea.Quit
 			}
 
-		case tea.KeyEnter:
+		case "enter":
 			return m, m.submitInput(m.textarea.Value())
 
-		case tea.KeyUp:
+		case "up":
 			if m.atTextareaTop() {
 				if m.historyIdx > 0 {
 					m.historyIdx--
 					m.textarea.SetValue(m.inputHistory[m.historyIdx])
 					m.textarea.CursorEnd()
-					m.updateTextareaHeight()
 				}
 				return m, nil
 			}
 
-		case tea.KeyDown:
+		case "down":
 			if m.atTextareaBottom() {
 				if m.historyIdx < len(m.inputHistory)-1 {
 					m.historyIdx++
 					m.textarea.SetValue(m.inputHistory[m.historyIdx])
 					m.textarea.CursorEnd()
-					m.updateTextareaHeight()
 				} else if m.historyIdx == len(m.inputHistory)-1 {
 					m.historyIdx = len(m.inputHistory)
 					m.textarea.Reset()
-					m.updateTextareaHeight()
 				}
 				return m, nil
 			}
@@ -424,16 +432,19 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pickerIndex = 0
 	}
 	cmds = append(cmds, cmd)
-	m.updateTextareaHeight()
 	return m, tea.Batch(cmds...)
 }
 
-// View renders only the fixed bottom surface. The leading blank row separates
-// it from transcript content printed into native terminal scrollback.
-func (m *chatModel) View() string {
-	lines := []string{""}
+// View renders only the fixed bottom surface. At normal heights, the leading
+// blank row separates it from transcript content printed into scrollback.
+func (m *chatModel) View() tea.View {
 	if m.approval != nil {
-		return strings.Join(append(lines, m.renderApproval()...), "\n")
+		lines := []string{""}
+		return tea.NewView(strings.Join(append(lines, m.renderApproval()...), "\n"))
+	}
+	lines := make([]string, 0, 8)
+	if m.height >= shortTerminalHeight {
+		lines = append(lines, "")
 	}
 	if m.thinking {
 		lines = append(lines, m.renderActivity())
@@ -449,7 +460,7 @@ func (m *chatModel) View() string {
 		lines = append(lines, picker...)
 	}
 	lines = append(lines, m.renderFooter())
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (m *chatModel) contentWidth() int {
@@ -623,9 +634,9 @@ func (m *chatModel) renderFooter() string {
 		return fitChatLine(chatMutedStyle.Render("  Ctrl+C again to exit"), width)
 	}
 	if m.thinking {
-		text := "  Enter steer · Ctrl+J newline · Ctrl+C stop"
+		text := "  Enter steer · Ctrl+J newline · Esc/Ctrl+C stop"
 		if width < 60 {
-			text = "  Ctrl+C stop"
+			text = "  Esc/Ctrl+C stop"
 		}
 		return fitChatLine(chatMutedStyle.Render(text), width)
 	}
@@ -763,7 +774,6 @@ func (m *chatModel) submitInput(value string) tea.Cmd {
 	m.pastedTexts = make(map[string]string)
 	m.pickerClosed = false
 	m.pickerIndex = 0
-	m.updateTextareaHeight()
 	return m.enqueueTranscript(formatSubmittedInput(expanded))
 }
 
@@ -877,9 +887,8 @@ func (m *chatModel) applyPickerItem(picker chatPicker) {
 	for m.textarea.Line() < targetRow {
 		m.textarea.CursorDown()
 	}
-	m.textarea.SetCursor(targetColumn)
+	m.textarea.SetCursorColumn(targetColumn)
 	m.pickerIndex = 0
-	m.updateTextareaHeight()
 }
 
 func (m *chatModel) renderPicker() []string {
@@ -893,9 +902,9 @@ func (m *chatModel) renderPicker() []string {
 	}
 	if m.height > 0 {
 		textareaRows := strings.Count(m.textarea.View(), "\n") + 1
-		reservedRows := 2 + textareaRows // separator and footer
+		reservedRows := 1 + textareaRows // footer
 		if m.height >= shortTerminalHeight {
-			reservedRows++ // space below the composer
+			reservedRows += 2 // space above and below the composer
 		}
 		if m.thinking {
 			reservedRows++
@@ -904,7 +913,7 @@ func (m *chatModel) renderPicker() []string {
 			}
 		}
 		rowsPerItem := 1
-		if m.width < 60 {
+		if m.width < 60 && m.height >= shortTerminalHeight {
 			rowsPerItem = 2
 		}
 		limit = min(limit, max(0, m.height-reservedRows)/rowsPerItem)
@@ -938,7 +947,7 @@ func (m *chatModel) renderPicker() []string {
 			marker = chatAccentStyle.Render("❯ ")
 			name = chatAccentStyle.Render(name)
 		}
-		if width >= 60 || item.description == "" {
+		if width >= 60 || item.description == "" || (m.height > 0 && m.height < shortTerminalHeight) {
 			gap := strings.Repeat(" ", nameWidth-ansi.StringWidth(item.value)+2)
 			lines = append(lines, fitChatLine(marker+name+gap+chatMutedStyle.Render(item.description), width))
 			continue
@@ -971,9 +980,9 @@ func (m *chatModel) renderApproval() []string {
 		visible = append(visible, "")
 	}
 
-	footer := "  y approve · n deny"
+	footer := "  y approve · n deny · Esc stop"
 	if len(body) > bodyHeight && bodyHeight > 0 {
-		footer = fmt.Sprintf("  y approve · n deny · ↑↓ %d–%d/%d", start+1, end, len(body))
+		footer = fmt.Sprintf("  y approve · n deny · Esc stop · ↑↓ %d–%d/%d", start+1, end, len(body))
 	}
 	lines := make([]string, 0, 2+len(visible))
 	lines = append(lines, title)

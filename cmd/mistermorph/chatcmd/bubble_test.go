@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 )
@@ -96,7 +96,7 @@ func TestChatModelSubmit(t *testing.T) {
 
 	// type something and press enter
 	m.textarea.SetValue("hello world")
-	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	cm := m2.(*chatModel)
 
 	// should produce a tea.Println command
@@ -122,23 +122,23 @@ func TestChatModelHistoryNavigation(t *testing.T) {
 	m.historyIdx = 3
 
 	// press up twice
-	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m2, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 	m = m2.(*chatModel)
-	m3, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m3, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 	m = m3.(*chatModel)
 	if m.textarea.Value() != "second" {
 		t.Errorf("after 2x up, value = %q, want second", m.textarea.Value())
 	}
 
 	// press down once
-	m4, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m4, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m = m4.(*chatModel)
 	if m.textarea.Value() != "third" {
 		t.Errorf("after down, value = %q, want third", m.textarea.Value())
 	}
 
 	// press down past the end
-	m5, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m5, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m = m5.(*chatModel)
 	if m.textarea.Value() != "" {
 		t.Errorf("after down past end, value = %q, want empty", m.textarea.Value())
@@ -153,7 +153,7 @@ func TestChatModelAutocomplete(t *testing.T) {
 	m.commandRegistry = reg
 	m.textarea.SetValue("/ex")
 
-	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	if m.textarea.Value() != "/exit" {
 		t.Errorf("after tab, value = %q, want /exit", m.textarea.Value())
 	}
@@ -193,7 +193,7 @@ func TestChatModelSubmitsInputWhileThinking(t *testing.T) {
 	m.thinking = true
 	m.textarea.SetValue("make it shorter")
 
-	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	cm := m2.(*chatModel)
 	if cmd == nil {
 		t.Fatal("expected print command after Enter while thinking")
@@ -216,7 +216,26 @@ func TestChatModelCtrlCWhileThinkingSubmitsStop(t *testing.T) {
 	m := newChatModel(sess)
 	m.thinking = true
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
+	if cmd != nil {
+		t.Fatalf("cmd = %#v, want nil so chat keeps running", cmd)
+	}
+	select {
+	case got := <-m.submitted:
+		if got != "/stop" {
+			t.Fatalf("submitted = %q, want /stop", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for /stop")
+	}
+}
+
+func TestChatModelEscWhileThinkingSubmitsStop(t *testing.T) {
+	sess := &chatSession{compactMode: false}
+	m := newChatModel(sess)
+	m.thinking = true
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	if cmd != nil {
 		t.Fatalf("cmd = %#v, want nil so chat keeps running", cmd)
 	}
@@ -237,7 +256,7 @@ func TestChatModelCtrlCWhileForegroundCommandCancelsItDirectly(t *testing.T) {
 	m := newChatModel(sess)
 	m.thinking = true
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
 	if cmd != nil {
 		t.Fatalf("cmd = %#v, want nil so chat keeps running", cmd)
 	}
@@ -253,11 +272,34 @@ func TestChatModelCtrlCWhileForegroundCommandCancelsItDirectly(t *testing.T) {
 	}
 }
 
+func TestChatModelEscWhileForegroundCommandCancelsItDirectly(t *testing.T) {
+	sess := &chatSession{compactMode: false}
+	commandCtx, finish := sess.beginForegroundCommand(context.Background())
+	defer finish()
+	m := newChatModel(sess)
+	m.thinking = true
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if cmd != nil {
+		t.Fatalf("cmd = %#v, want nil so chat keeps running", cmd)
+	}
+	select {
+	case <-commandCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Esc did not cancel the foreground command")
+	}
+	select {
+	case got := <-m.submitted:
+		t.Fatalf("Esc queued %q while the command processor was blocked", got)
+	case <-time.After(25 * time.Millisecond):
+	}
+}
+
 func TestChatModelView(t *testing.T) {
 	sess := &chatSession{compactMode: false}
 	m := newChatModel(sess)
 
-	view := m.View()
+	view := m.View().Content
 	// View should contain the composer marker.
 	if !strings.Contains(view, "❯ ") {
 		t.Errorf("View should contain prompt, got:\n%s", view)
@@ -270,7 +312,7 @@ func TestChatModelView(t *testing.T) {
 	m.thinking = true
 	m.runStartedAt = time.Now()
 	m.activityNow = m.runStartedAt
-	view = m.View()
+	view = m.View().Content
 	if !strings.Contains(view, "Running") {
 		t.Errorf("View should contain running state, got:\n%s", view)
 	}
@@ -282,21 +324,18 @@ func TestChatModelDynamicHeight(t *testing.T) {
 	m.textarea.SetWidth(40)
 
 	// empty -> height 1
-	m.updateTextareaHeight()
 	if m.textarea.Height() != 1 {
 		t.Errorf("empty height = %d, want 1", m.textarea.Height())
 	}
 
 	// 3 lines -> height 3
 	m.textarea.SetValue("line1\nline2\nline3")
-	m.updateTextareaHeight()
 	if m.textarea.Height() != 3 {
 		t.Errorf("3-line height = %d, want 3", m.textarea.Height())
 	}
 
 	// 10 lines -> capped at maxInputHeight
 	m.textarea.SetValue("1\n2\n3\n4\n5\n6\n7\n8\n9\n10")
-	m.updateTextareaHeight()
 	if m.textarea.Height() != maxInputHeight {
 		t.Errorf("10-line height = %d, want %d", m.textarea.Height(), maxInputHeight)
 	}
@@ -390,7 +429,7 @@ func TestChatModelPasteFoldsLargeBlock(t *testing.T) {
 	m := newChatModel(sess)
 
 	pasted := "line1\nline2\nline3\nline4"
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(pasted), Paste: true}
+	msg := tea.PasteMsg{Content: pasted}
 	m2, cmd := m.Update(msg)
 	cm := m2.(*chatModel)
 
@@ -412,7 +451,7 @@ func TestChatModelPasteShortInline(t *testing.T) {
 
 	// 2 lines meets the threshold — should fold into a placeholder.
 	pasted := "one\ntwo"
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(pasted), Paste: true}
+	msg := tea.PasteMsg{Content: pasted}
 	m2, _ := m.Update(msg)
 	cm := m2.(*chatModel)
 
@@ -430,12 +469,12 @@ func TestChatModelPasteSubmitExpands(t *testing.T) {
 	m := newChatModel(sess)
 
 	pasted := "alpha\nbeta\ngamma\ndelta"
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(pasted), Paste: true})
+	m.Update(tea.PasteMsg{Content: pasted})
 
 	// Prepend a label so we can verify mixed text + placeholder submission.
 	m.textarea.SetValue("look: " + m.textarea.Value())
 
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 
 	// Give the goroutine time to send.
 	var sent string

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
@@ -52,7 +52,7 @@ func TestChatModelIdleLayoutShowsSessionContext(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"❯ ", "gpt-5.2", "mistermorph", "ctx 18%", "Ctrl+J newline", "/ commands"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("idle View() missing %q:\n%s", want, view)
@@ -68,7 +68,7 @@ func TestChatModelRunningLayoutExplainsInputSemantics(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.Update(thinkingMsg{on: true, message: "bash · go test ./..."})
 
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"Running", "bash · go test ./...", "Enter steer", "Ctrl+C stop"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("running View() missing %q:\n%s", want, view)
@@ -84,14 +84,13 @@ func TestChatModelBottomRowsFitNarrowTerminal(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
 	m.Update(thinkingMsg{on: true, message: "bash · a-command-with-a-very-long-target-name"})
 
-	for _, line := range strings.Split(m.View(), "\n") {
+	for _, line := range strings.Split(m.View().Content, "\n") {
 		if width := lipgloss.Width(line); width > 39 {
 			t.Fatalf("line width = %d, want <= 39: %q", width, line)
 		}
 	}
 
 	m.textarea.SetValue("1\n2\n3\n4\n5")
-	m.updateTextareaHeight()
 	if got := m.textarea.Height(); got != 3 {
 		t.Fatalf("small-terminal textarea height = %d, want 3", got)
 	}
@@ -103,7 +102,7 @@ func TestChatModelMultilineArrowsMoveCursorBeforeHistory(t *testing.T) {
 	m.historyIdx = len(m.inputHistory)
 	m.textarea.SetValue("first\nsecond")
 
-	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 	if got := m.textarea.Value(); got != "first\nsecond" {
 		t.Fatalf("Up inside multiline changed value to history entry %q", got)
 	}
@@ -111,7 +110,7 @@ func TestChatModelMultilineArrowsMoveCursorBeforeHistory(t *testing.T) {
 		t.Fatalf("textarea line after Up = %d, want 0", got)
 	}
 
-	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 	if got := m.textarea.Value(); got != "older" {
 		t.Fatalf("Up at top boundary value = %q, want older history", got)
 	}
@@ -120,18 +119,18 @@ func TestChatModelMultilineArrowsMoveCursorBeforeHistory(t *testing.T) {
 func TestChatModelCtrlJInsertsNewline(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
 	m.textarea.SetValue("first")
-	m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModCtrl}))
 	if got := m.textarea.Value(); got != "first\n" {
 		t.Fatalf("Ctrl+J value = %q, want newline", got)
 	}
 }
 
-func TestChatModelAltEnterInsertsNewline(t *testing.T) {
+func TestChatModelShiftEnterInsertsNewline(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
 	m.textarea.SetValue("first")
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift}))
 	if got := m.textarea.Value(); got != "first\n" {
-		t.Fatalf("Alt+Enter value = %q, want newline", got)
+		t.Fatalf("Shift+Enter value = %q, want newline", got)
 	}
 }
 
@@ -139,7 +138,7 @@ func TestChatModelCtrlCClearsDraftBeforeExit(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
 	m.textarea.SetValue("draft")
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
 	if cmd != nil {
 		t.Fatalf("Ctrl+C with draft returned quit command")
 	}
@@ -151,15 +150,15 @@ func TestChatModelCtrlCClearsDraftBeforeExit(t *testing.T) {
 func TestChatModelEmptyCtrlCRequiresConfirmation(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
 
-	_, first := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, first := m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
 	if first == nil {
 		t.Fatal("first empty Ctrl+C should schedule confirmation expiry")
 	}
-	if view := m.View(); !strings.Contains(view, "Ctrl+C again to exit") {
+	if view := m.View().Content; !strings.Contains(view, "Ctrl+C again to exit") {
 		t.Fatalf("first empty Ctrl+C did not show confirmation:\n%s", view)
 	}
 
-	_, second := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, second := m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
 	if second == nil {
 		t.Fatal("second empty Ctrl+C should quit")
 	}
@@ -170,7 +169,7 @@ func TestChatModelEmptyCtrlCRequiresConfirmation(t *testing.T) {
 
 func TestChatModelEmptyCtrlDExits(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'd', Mod: tea.ModCtrl}))
 	if cmd == nil {
 		t.Fatal("empty Ctrl+D should quit")
 	}
