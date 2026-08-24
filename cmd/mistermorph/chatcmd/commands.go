@@ -8,6 +8,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -173,8 +174,100 @@ func chatModelCommand(sess *chatSession) chatcommands.ModelCommandFunc {
 		if output != "" {
 			output += "\n"
 		}
-		output += fmt.Sprintf("\033[33m[active model: %s]\033[0m", sess.mainCfg.Model)
+		output += fmt.Sprintf("Active model: %s", sess.mainCfg.Model)
 		return output, true, nil
+	}
+}
+
+func formatChatCommandOutput(input string, reply string, reg *chatcommands.Registry) string {
+	command, _ := chatcommands.ParseCommand(input)
+	command = chatcommands.NormalizeCommand(command)
+	markdown := strings.TrimSpace(reply)
+
+	switch command {
+	case "/help":
+		lines := []string{"**Commands**", ""}
+		if reg != nil {
+			for _, item := range reg.Commands() {
+				line := "- `" + item.Name + "`"
+				if item.Description != "" {
+					line += " — " + item.Description
+				}
+				lines = append(lines, line)
+			}
+		}
+		markdown = strings.Join(lines, "\n")
+	case "/status":
+		lines := []string{"**Session**", ""}
+		for _, line := range strings.Split(markdown, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.EqualFold(line, "Chat status") {
+				continue
+			}
+			if label, value, ok := strings.Cut(line, ": "); ok {
+				lines = append(lines, "- **"+label+":** "+value)
+			} else {
+				lines = append(lines, "- "+line)
+			}
+		}
+		markdown = strings.Join(lines, "\n")
+	case "/models":
+		lines := make([]string, 0, strings.Count(markdown, "\n")+1)
+		for _, line := range strings.Split(markdown, "\n") {
+			line = strings.TrimSpace(line)
+			switch {
+			case line == "":
+				continue
+			case strings.HasPrefix(line, "- "):
+				lines = append(lines, line)
+			case strings.HasSuffix(line, ":"):
+				if len(lines) > 0 {
+					lines = append(lines, "")
+				}
+				lines = append(lines, "**"+line+"**", "")
+			case strings.Contains(line, ": "):
+				label, value, _ := strings.Cut(line, ": ")
+				lines = append(lines, "- **"+label+":** "+value)
+			default:
+				lines = append(lines, line)
+			}
+		}
+		markdown = strings.Join(lines, "\n")
+	case "/workspace":
+		if label, value, ok := strings.Cut(markdown, ": "); ok {
+			marker := "○"
+			lower := strings.ToLower(label)
+			switch {
+			case strings.HasPrefix(lower, "error"):
+				marker = "×"
+			case strings.Contains(lower, "attached"), strings.Contains(lower, "detached"), strings.Contains(lower, "replaced"):
+				marker = "✓"
+			}
+			if label != "" {
+				label = strings.ToUpper(label[:1]) + label[1:]
+			}
+			markdown = marker + " **" + label + ":** " + value
+		}
+	case "/reset":
+		markdown = "✓ " + markdown
+	case "/stop":
+		markdown = "■ " + markdown
+	case "/approve", "/deny":
+		markdown = "○ " + markdown
+	}
+
+	rendered := strings.TrimSpace(clifmt.RenderMarkdown(escapeTerminalControls(markdown)))
+	switch {
+	case strings.HasPrefix(rendered, "✓"):
+		return chatSuccessStyle.Render("✓") + strings.TrimPrefix(rendered, "✓")
+	case strings.HasPrefix(rendered, "×"):
+		return chatErrorStyle.Render("×") + strings.TrimPrefix(rendered, "×")
+	case strings.HasPrefix(rendered, "■"):
+		return chatMutedStyle.Render("■") + strings.TrimPrefix(rendered, "■")
+	case strings.HasPrefix(rendered, "○"):
+		return chatMutedStyle.Render("○") + strings.TrimPrefix(rendered, "○")
+	default:
+		return rendered
 	}
 }
 

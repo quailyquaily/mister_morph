@@ -53,7 +53,7 @@ func TestChatModelIdleLayoutShowsSessionContext(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	view := m.View()
-	for _, want := range []string{"❯ ", "gpt-5.2", "mistermorph", "ctx 18%", "/ commands"} {
+	for _, want := range []string{"❯ ", "gpt-5.2", "mistermorph", "ctx 18%", "Ctrl+J newline", "/ commands"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("idle View() missing %q:\n%s", want, view)
 		}
@@ -126,6 +126,15 @@ func TestChatModelCtrlJInsertsNewline(t *testing.T) {
 	}
 }
 
+func TestChatModelAltEnterInsertsNewline(t *testing.T) {
+	m := newChatModel(newPhase1TestSession(t))
+	m.textarea.SetValue("first")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	if got := m.textarea.Value(); got != "first\n" {
+		t.Fatalf("Alt+Enter value = %q, want newline", got)
+	}
+}
+
 func TestChatModelCtrlCClearsDraftBeforeExit(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
 	m.textarea.SetValue("draft")
@@ -188,6 +197,21 @@ func TestPrintChatSessionHeaderKeepsBannerAndSessionMetadata(t *testing.T) {
 	}
 	if strings.Contains(got, "MisterMorph") {
 		t.Fatalf("header metadata contains the product name: %q", got)
+	}
+	var nonEmpty []string
+	for _, line := range strings.Split(got, "\n") {
+		if strings.TrimSpace(line) != "" {
+			nonEmpty = append(nonEmpty, line)
+		}
+	}
+	if len(nonEmpty) != 4 {
+		t.Fatalf("header has %d non-empty lines, want 3 logo lines and 1 metadata line:\n%s", len(nonEmpty), got)
+	}
+	metadata := nonEmpty[3]
+	for _, want := range []string{"openai / gpt-5.2", "mistermorph", "version v1.2.3"} {
+		if !strings.Contains(metadata, want) {
+			t.Fatalf("metadata line missing %q: %q", want, metadata)
+		}
 	}
 }
 

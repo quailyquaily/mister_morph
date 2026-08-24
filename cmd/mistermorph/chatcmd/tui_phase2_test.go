@@ -6,10 +6,25 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 )
+
+func TestChatInputHighlightRangesCoverCommandAndSkillReferences(t *testing.T) {
+	view := "❯ /status Use $imagegen and $openai-docs"
+	ranges := chatInputHighlightRanges(view, "/status Use $imagegen and $openai-docs")
+	if len(ranges) != 3 {
+		t.Fatalf("highlight range count = %d, want 3", len(ranges))
+	}
+	want := []string{"/status", "$imagegen", "$openai-docs"}
+	for index, highlight := range ranges {
+		if got := ansi.Cut(view, highlight.Start, highlight.End); got != want[index] {
+			t.Fatalf("highlight %d = %q, want %q", index, got, want[index])
+		}
+	}
+}
 
 func phase2ApprovalRecord() guard.ApprovalRecord {
 	return guard.ApprovalRecord{

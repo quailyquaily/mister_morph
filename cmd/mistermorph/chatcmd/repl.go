@@ -501,7 +501,7 @@ func runREPL(sess *chatSession) error {
 							return
 						}
 						if result != nil && result.Reply != "" {
-							safeSend(p, agentResultMsg{output: result.Reply})
+							safeSend(p, agentResultMsg{output: formatChatCommandOutput(input, result.Reply, reg)})
 						}
 						safeSend(p, sessionStatusMsg{status: chatSessionStatusFromSession(sess)})
 						continue
