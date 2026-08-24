@@ -56,7 +56,6 @@ type chatPicker struct {
 	items         []chatPickerItem
 	replaceStart  int
 	replaceEnd    int
-	appendSpace   bool
 	submitOnEnter bool
 }
 
@@ -90,7 +89,6 @@ type chatModel struct {
 	pickerClosed    bool
 
 	transcriptQueue     []string
-	transcriptPrinting  bool
 	quitAfterTranscript bool
 
 	// pastedTexts stores the original text behind each paste placeholder,
@@ -338,8 +336,8 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case thinkingMsg:
 		wasThinking := m.thinking
-		m.thinking = msg.on
 		if msg.on {
+			m.thinking = true
 			if !wasThinking {
 				m.runStartedAt = time.Now()
 				m.activityNow = m.runStartedAt
@@ -352,10 +350,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		m.thinkingMessage = ""
-		m.thinkingTool = false
-		m.runStartedAt = time.Time{}
-		m.activityNow = time.Time{}
+		m.clearThinking()
 		m.textarea.Focus()
 		return m, nil
 
@@ -375,11 +370,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approval = &record
 		m.approvalResolving = false
 		m.approvalScroll = 0
-		m.thinking = false
-		m.thinkingMessage = ""
-		m.thinkingTool = false
-		m.runStartedAt = time.Time{}
-		m.activityNow = time.Time{}
+		m.clearThinking()
 		return m, nil
 
 	case approvalClearedMsg:
@@ -400,7 +391,6 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.transcriptQueue) > 0 {
 			m.transcriptQueue = m.transcriptQueue[1:]
 		}
-		m.transcriptPrinting = false
 		if len(m.transcriptQueue) == 0 && m.quitAfterTranscript {
 			return m, tea.Quit
 		}
@@ -411,11 +401,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.approvalResolving = false
 		}
 		if !msg.keepThinking {
-			m.thinking = false
-			m.thinkingMessage = ""
-			m.thinkingTool = false
-			m.runStartedAt = time.Time{}
-			m.activityNow = time.Time{}
+			m.clearThinking()
 		}
 		if msg.err != nil {
 			if errors.Is(msg.err, context.Canceled) {
@@ -481,20 +467,31 @@ func wrapChatTranscript(text string, terminalWidth int) string {
 }
 
 func (m *chatModel) enqueueTranscript(text string) tea.Cmd {
+	idle := len(m.transcriptQueue) == 0
 	m.transcriptQueue = append(m.transcriptQueue, text)
+	if !idle {
+		return nil
+	}
 	return m.startTranscriptPrint()
 }
 
 func (m *chatModel) startTranscriptPrint() tea.Cmd {
-	if m.transcriptPrinting || len(m.transcriptQueue) == 0 {
+	if len(m.transcriptQueue) == 0 {
 		return nil
 	}
-	m.transcriptPrinting = true
 	text := wrapChatTranscript(m.transcriptQueue[0], m.width)
 	return tea.Sequence(
 		tea.Println(text),
 		func() tea.Msg { return transcriptPrintedMsg{} },
 	)
+}
+
+func (m *chatModel) clearThinking() {
+	m.thinking = false
+	m.thinkingMessage = ""
+	m.thinkingTool = false
+	m.runStartedAt = time.Time{}
+	m.activityNow = time.Time{}
 }
 
 func (m *chatModel) renderActivity() string {
@@ -715,7 +712,7 @@ func (m *chatModel) picker() chatPicker {
 				if id == "" {
 					id = strings.TrimSpace(skill.Name)
 				}
-				if id == "" || strings.ContainsAny(id, "\r\n") || escapeTerminalControls(id) != id {
+				if id == "" || strings.IndexFunc(id, unicode.IsControl) >= 0 {
 					continue
 				}
 				if query != "" && !strings.Contains(strings.ToLower(id), query) &&
@@ -730,7 +727,6 @@ func (m *chatModel) picker() chatPicker {
 			}
 			picker.replaceStart = start
 			picker.replaceEnd = cursor
-			picker.appendSpace = true
 		}
 	}
 
@@ -762,7 +758,7 @@ func (m *chatModel) applyPickerItem(picker chatPicker) {
 	start := min(max(0, picker.replaceStart), len(runes))
 	end := min(max(start, picker.replaceEnd), len(runes))
 	insert := []rune(picker.items[m.pickerIndex].value)
-	if picker.appendSpace {
+	if !picker.submitOnEnter {
 		insert = append(insert, ' ')
 		if end < len(runes) && runes[end] == ' ' {
 			end++

@@ -114,7 +114,8 @@ func chatApprovalData(record guard.ApprovalRecord) chatApprovalViewData {
 	} else if summary := strings.TrimSpace(record.ActionSummaryRedacted); summary != "" {
 		data.action = escapeTerminalControls(summary)
 	} else if len(params) > 0 {
-		data.action = strings.Join(formatChatToolParamLines(params), " · ")
+		inline, block := formatChatToolParams(params)
+		data.action = strings.Join(append(inline, block...), " · ")
 	}
 
 	data.reasons = make([]string, 0, len(record.Reasons))

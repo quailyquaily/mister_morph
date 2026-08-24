@@ -85,7 +85,8 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	spec := agent.DefaultPromptSpec()
 	var loadedOrdered []string
 
-	if !cfg.Enabled && len(caprefs.Names(task)) == 0 {
+	referenceNames := caprefs.Names(task)
+	if !cfg.Enabled && len(referenceNames) == 0 {
 		return spec, nil, nil
 	}
 
@@ -98,7 +99,7 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 
 	loadedSkillIDs := make(map[string]bool)
 
-	referenced := resolveReferencedSkillIDs(task, discovered)
+	referenced := resolveReferencedSkillIDs(referenceNames, discovered)
 	requested := append([]string{}, referenced...)
 	if cfg.Enabled {
 		requested = append(append([]string{}, cfg.Requested...), referenced...)
@@ -182,14 +183,15 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 }
 
 func ResolveTaskSkillRefs(task string, cfg SkillsConfig) map[string]bool {
-	if len(caprefs.Names(task)) == 0 {
+	referenceNames := caprefs.Names(task)
+	if len(referenceNames) == 0 {
 		return nil
 	}
 	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})
 	if err != nil && len(discovered) == 0 {
 		return nil
 	}
-	return resolveReferencedSkillNames(task, discovered)
+	return resolveReferencedSkillNames(referenceNames, discovered)
 }
 
 func skillsEnabledFromReader(r ConfigReader) bool {
@@ -219,14 +221,9 @@ func skillPromptFilePath(skillID string, dirName string) string {
 	return path.Join("file_state_dir", dirName, id, "SKILL.md")
 }
 
-func resolveReferencedSkillIDs(task string, discovered []skills.Skill) []string {
-	names := caprefs.Names(task)
-	if len(names) == 0 {
-		return nil
-	}
-
-	out := make([]string, 0, len(names))
-	for _, q := range names {
+func resolveReferencedSkillIDs(referenceNames []string, discovered []skills.Skill) []string {
+	out := make([]string, 0, len(referenceNames))
+	for _, q := range referenceNames {
 		q = strings.TrimSpace(q)
 		if q == "" {
 			continue
@@ -244,13 +241,9 @@ func resolveReferencedSkillIDs(task string, discovered []skills.Skill) []string 
 	return out
 }
 
-func resolveReferencedSkillNames(task string, discovered []skills.Skill) map[string]bool {
-	names := caprefs.Names(task)
-	if len(names) == 0 {
-		return nil
-	}
-	out := make(map[string]bool, len(names))
-	for _, q := range names {
+func resolveReferencedSkillNames(referenceNames []string, discovered []skills.Skill) map[string]bool {
+	out := make(map[string]bool, len(referenceNames))
+	for _, q := range referenceNames {
 		q = strings.TrimSpace(q)
 		if q == "" {
 			continue
