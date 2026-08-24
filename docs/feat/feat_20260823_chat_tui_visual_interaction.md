@@ -143,21 +143,18 @@ idle ──submit──> running ──done──> idle
 
 ### 6.1 启动
 
-非 compact 模式保留 Morph ASCII Logo。Logo 使用终端默认前景色和不足 1 秒的分块显现动画；非 TTY 输出不包含动画或 ANSI 控制符。Logo 下方空一行，再用与 Logo 相同块字符语言的灰色像素框显示当前 provider、model、workspace basename 和版本：
+非 compact 模式保留 Morph ASCII Logo。Logo 使用终端默认前景色和不足 1 秒的分块显现动画；非 TTY 输出不包含动画或 ANSI 控制符。Logo 下方空一行，再用与 Logo 相同块字符语言的灰色单行状态条显示当前 provider、model、workspace basename 和版本：
 
 ```text
 ▄▄   ▄▄  ▄▄▄  ▄▄▄▄  ▄▄▄▄  ▄▄ ▄▄
 ██▀▄▀██ ██▀██ ██▄█▄ ██▄█▀ ██▄██
 ██   ██ ▀███▀ ██ ██ ██    ██ ██
 
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ openai / gpt-5.2   version v0.2.0 ┃
-┃ workspace  project-name           ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+▓ openai / gpt-5.2  │  workspace project-name  │  version v0.2.0
 
 ❯ _
 
-  Enter send · Alt+Enter newline · / commands
+  Enter send · Ctrl+J newline · / commands
 ```
 
 完整路径、file state 目录和 context 使用量由 `/status` 查看，不占首屏。compact 模式省略整个启动区。
@@ -250,6 +247,10 @@ idle ──submit──> running ──done──> idle
 
 skill 候选与 Web UI 使用相同语义：同时搜索 ID、名称和描述。Enter 和 Tab 只把 `$skill-id ` 插入当前位置，不立即发送消息。
 
+composer 中已经输入的 slash command token 和 `$skill-id` 使用 Active 色。高亮只改变显示，不修改 textarea 中的原始文字、光标位置或提交内容。
+
+命令执行结果统一经过终端 Markdown renderer。`/help` 直接读取 command registry 的名称和说明；`/status`、`/models`、`/skills`、`/ctx` 使用标题和列表；reset、stop、workspace 等短结果使用与工具状态一致的 marker。command handler 不再自行写 ANSI。
+
 ### 6.6 Error 和 stop
 
 错误用短摘要进入 scrollback，底部恢复输入能力：
@@ -307,7 +308,8 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 
 #### 垂直节奏
 
-- transcript 中相邻的两个 turn 之间保留 1 个空行；
+- 用户输入与本轮第一块输出之间保留 1 个空行；
+- Agent 输出与下一次输入区域之间保留 1 个空行；
 - 同一个 turn 内，工具摘要、计划摘要和 Agent 正文之间不额外插入空行；
 - transcript 与底部区域之间保留 1 个空行，不能使用整行边框代替；
 - 正常高度下 composer 上下各保留 1 个空行；终端不足 12 行时省略这两处留白；
@@ -340,7 +342,7 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 - markdown code/pre 保留原有渲染，不再额外套一层边框；
 - 清除或替换内容时必须覆盖旧行尾，不能留下上一次较长状态的残字符。
 
-运行中的交互区域依靠对齐和留白形成层级，不增加 box 或背景块；像素边框只用于一次性的启动 metadata。
+运行中的交互区域依靠对齐和留白形成层级，不增加 box 或背景块；像素块只用于一次性的启动 metadata 状态条。
 
 ### 6.9 完整排版样例
 
@@ -353,10 +355,7 @@ TUI 不能控制用户的终端字体和字号，因此排版只使用字符列�
 ██▀▄▀██ ██▀██ ██▄█▄ ██▄█▀ ██▄██
 ██   ██ ▀███▀ ██ ██ ██    ██ ██
 
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ openai / gpt-5.2   version v0.2.0 ┃
-┃ workspace  mistermorph            ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+▓ openai / gpt-5.2  │  workspace mistermorph  │  version v0.2.0
 
 ❯ 检查 Chat 输入历史为什么在多行时跳转错误
 
@@ -443,7 +442,7 @@ Agent 正文允许自然换行。footer 保持一行，并使用 dim 样式，�
   1. 光标在首行时才读取历史
   2. 光标在末行时才读取下一条_
 
-  Enter send · Alt+Enter newline
+  Enter send · Ctrl+J newline
 ```
 
 续行从第 3 列开始，与首行正文对齐。输入增长到 5 行后在 composer 内滚动，不能继续向上挤压 transcript。
@@ -505,6 +504,8 @@ defscrollback 10000
 | awaiting approval | y / n | 批准或拒绝；第一次决定提交后忽略重复按键 |
 | awaiting approval | Ctrl+C | 拒绝审批，不退出 Chat |
 | picker | Esc | 关闭 picker，保留草稿 |
+
+传统终端协议把 Shift+Enter 和 Enter 都编码成回车，应用无法可靠区分。Ctrl+J 是所有支持环境中的明确换行入口；终端若把 modified Enter 报告为 Alt+Enter，也使用同一 textarea 换行 binding。
 
 这组规则避免一次误按退出，同时保留终端用户熟悉的中断和 EOF 语义。
 
@@ -620,7 +621,7 @@ Phase 3 依赖回调事件能稳定区分 started、completed 和 failed。若�
 - [x] 完成现有 Chat TUI 检查、同类产品对照和方案设计。
 - [x] Phase 1：稳定底部区域。
   - [x] 用测试固定 idle、running、窄终端和多行输入行为。
-  - [x] 使用 ASCII Logo 和 FC 像素信息框显示 provider、model、workspace 与版本。
+  - [x] 使用 ASCII Logo 和 FC 像素状态条单行显示 provider、model、workspace 与版本。
   - [x] 增加 `/status`。
   - [x] 增加 activity、composer 和 contextual footer。
   - [x] 正常高度下在 composer 上下保留明确留白。
@@ -632,6 +633,8 @@ Phase 3 依赖回调事件能稳定区分 started、completed 和 failed。若�
   - [x] 固定审批标题和操作，小终端中允许滚动完整参数，并阻止重复决定。
   - [x] command picker 从 command registry 读取名称和说明。
   - [x] 删除硬编码 slash command autocomplete。
+  - [x] 高亮 composer 中的 slash command 和 `$skill` 引用。
+  - [x] 统一格式化 slash command 的 TUI 输出。
 - [x] Phase 3：输出降噪。
   - [x] 用测试固定工具、计划和错误的 transcript 输出规则。
   - [x] 工具和计划开始事件只更新 activity。

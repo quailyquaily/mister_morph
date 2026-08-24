@@ -7,12 +7,87 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/llm"
 )
+
+func TestFormatChatCommandOutputForTUI(t *testing.T) {
+	reg := chatcommands.NewRegistry()
+	reg.Register("/help", "show available commands", nil)
+	reg.Register("/status", "show session details", nil)
+
+	tests := []struct {
+		name      string
+		input     string
+		reply     string
+		want      []string
+		notWanted []string
+	}{
+		{
+			name:      "help uses registry descriptions",
+			input:     "/help",
+			reply:     "Available commands:\n  /help\n  /status",
+			want:      []string{"Commands", "/help", "show available commands", "/status", "show session details"},
+			notWanted: []string{"Available commands:", "**", "`"},
+		},
+		{
+			name:      "status uses a labeled list",
+			input:     "/status",
+			reply:     "Chat status\nModel: gpt-5.2\nWorkspace: /work/project\nContext: 18.0%",
+			want:      []string{"Session", "Model: gpt-5.2", "Workspace: /work/project", "Context: 18.0%"},
+			notWanted: []string{"Chat status", "**"},
+		},
+		{
+			name:      "models keeps sections and profiles readable",
+			input:     "/models",
+			reply:     "Current LLM selection: automatic\nActive profile:\n- default | provider=openai | model_name=gpt-5.2\nActive model: gpt-5.2",
+			want:      []string{"Current LLM selection: automatic", "Active profile:", "default", "Active model: gpt-5.2"},
+			notWanted: []string{"**"},
+		},
+		{
+			name:      "markdown command output is rendered",
+			input:     "/skills",
+			reply:     "**Loaded Skills (1)**\n\n- `imagegen`\n: Generate images.",
+			want:      []string{"Loaded Skills (1)", "imagegen", "Generate images."},
+			notWanted: []string{"**", "`"},
+		},
+		{
+			name:      "workspace status is labeled",
+			input:     "/workspace",
+			reply:     "workspace attached: /work/project",
+			want:      []string{"✓", "Workspace attached:", "/work/project"},
+			notWanted: []string{"**"},
+		},
+		{
+			name:      "reset is a success result",
+			input:     "/reset",
+			reply:     "Session reset.",
+			want:      []string{"✓", "Session reset."},
+			notWanted: []string{"**"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ansi.Strip(formatChatCommandOutput(tt.input, tt.reply, reg))
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("formatted output missing %q:\n%s", want, got)
+				}
+			}
+			for _, notWanted := range tt.notWanted {
+				if strings.Contains(got, notWanted) {
+					t.Fatalf("formatted output contains %q:\n%s", notWanted, got)
+				}
+			}
+		})
+	}
+}
 
 func TestChatTimeoutContextTreatsNonPositiveTimeoutAsUnlimited(t *testing.T) {
 	ctx, cancel := chatTimeoutContext(context.Background(), 0)

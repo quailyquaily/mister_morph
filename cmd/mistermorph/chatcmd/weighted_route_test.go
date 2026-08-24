@@ -397,8 +397,11 @@ func TestChatModelCommandDisablesCLIOverridesBeforeRebuild(t *testing.T) {
 	if got := sess.mainCfg.Model; got != "cheap-model" {
 		t.Fatalf("active model = %q, want cheap-model", got)
 	}
-	if !strings.Contains(output, "[active model: cheap-model]") {
+	if !strings.Contains(output, "Active model: cheap-model") {
 		t.Fatalf("output = %q, want selected profile model", output)
+	}
+	if strings.Contains(output, "\x1b") {
+		t.Fatalf("output contains presentation ANSI: %q", output)
 	}
 }
 

@@ -6,15 +6,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/caprefs"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 )
 
@@ -157,8 +160,8 @@ func newChatModel(sess *chatSession) *chatModel {
 	ta.SetHeight(1)
 	ta.SetWidth(79)
 
-	// Enter submits. Alt+Enter and Ctrl+J are handled explicitly below.
-	ta.KeyMap.InsertNewline.SetEnabled(false)
+	// Enter submits. Modified Enter and Ctrl+J remain composer newlines.
+	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
 
 	// Keep the composer on the terminal's own background.
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
@@ -265,6 +268,13 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if key.Matches(msg, m.textarea.KeyMap.InsertNewline) {
+			var cmd tea.Cmd
+			m.textarea, cmd = m.textarea.Update(msg)
+			m.updateTextareaHeight()
+			return m, cmd
+		}
+
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			if m.sess != nil && m.sess.cancelForegroundCommand() {
@@ -293,17 +303,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 
-		case tea.KeyCtrlJ:
-			m.textarea.InsertString("\n")
-			m.updateTextareaHeight()
-			return m, nil
-
 		case tea.KeyEnter:
-			if msg.Alt {
-				m.textarea.InsertString("\n")
-				m.updateTextareaHeight()
-				return m, nil
-			}
 			return m, m.submitInput(m.textarea.Value())
 
 		case tea.KeyUp:
@@ -441,7 +441,7 @@ func (m *chatModel) View() string {
 			lines = append(lines, "")
 		}
 	}
-	lines = append(lines, m.textarea.View())
+	lines = append(lines, m.renderTextarea())
 	if m.height >= shortTerminalHeight {
 		lines = append(lines, "")
 	}
@@ -457,6 +457,95 @@ func (m *chatModel) contentWidth() int {
 		return 10
 	}
 	return max(10, m.width-1)
+}
+
+func (m *chatModel) renderTextarea() string {
+	view := m.textarea.View()
+	ranges := chatInputHighlightRanges(view, m.textarea.Value())
+	if len(ranges) == 0 {
+		return view
+	}
+
+	if cursorStart, cursorEnd, ok := chatInputCursorRange(view); ok {
+		visible := make([]lipgloss.Range, 0, len(ranges)+1)
+		for _, highlight := range ranges {
+			if cursorEnd <= highlight.Start || cursorStart >= highlight.End {
+				visible = append(visible, highlight)
+				continue
+			}
+			if highlight.Start < cursorStart {
+				visible = append(visible, lipgloss.NewRange(highlight.Start, cursorStart, highlight.Style))
+			}
+			if cursorEnd < highlight.End {
+				visible = append(visible, lipgloss.NewRange(cursorEnd, highlight.End, highlight.Style))
+			}
+		}
+		ranges = visible
+	}
+	return lipgloss.StyleRanges(view, ranges...)
+}
+
+func chatInputHighlightRanges(view string, input string) []lipgloss.Range {
+	plain := ansi.Strip(view)
+	referenceNames := caprefs.Names(input)
+	tokens := make([]string, 0, 1+len(referenceNames))
+	if command, _ := chatcommands.ParseCommand(input); chatcommands.NormalizeCommand(command) != "" {
+		tokens = append(tokens, command)
+	}
+	for _, name := range referenceNames {
+		tokens = append(tokens, "$"+name)
+	}
+	sort.SliceStable(tokens, func(i, j int) bool { return len(tokens[i]) > len(tokens[j]) })
+
+	ranges := make([]lipgloss.Range, 0, len(tokens))
+	for _, token := range tokens {
+		searchFrom := 0
+		for searchFrom < len(plain) {
+			match := strings.Index(plain[searchFrom:], token)
+			if match < 0 {
+				break
+			}
+			match += searchFrom
+			start := ansi.StringWidth(plain[:match])
+			end := start + ansi.StringWidth(token)
+			overlaps := false
+			for _, existing := range ranges {
+				if start < existing.End && end > existing.Start {
+					overlaps = true
+					break
+				}
+			}
+			if !overlaps {
+				ranges = append(ranges, lipgloss.NewRange(start, end, chatAccentStyle))
+			}
+			searchFrom = match + len(token)
+			if strings.HasPrefix(token, "/") {
+				break
+			}
+		}
+	}
+	sort.Slice(ranges, func(i, j int) bool { return ranges[i].Start < ranges[j].Start })
+	return ranges
+}
+
+func chatInputCursorRange(view string) (int, int, bool) {
+	const reverseVideo = "\x1b[7m"
+	startByte := strings.Index(view, reverseVideo)
+	if startByte < 0 {
+		return 0, 0, false
+	}
+	contentStart := startByte + len(reverseVideo)
+	contentEnd := strings.Index(view[contentStart:], "\x1b[0m")
+	if contentEnd < 0 {
+		return 0, 0, false
+	}
+	contentEnd += contentStart
+	width := ansi.StringWidth(view[contentStart:contentEnd])
+	if width == 0 {
+		return 0, 0, false
+	}
+	start := ansi.StringWidth(view[:startByte])
+	return start, start + width, true
 }
 
 func wrapChatTranscript(text string, terminalWidth int) string {
@@ -534,7 +623,7 @@ func (m *chatModel) renderFooter() string {
 		return fitChatLine(chatMutedStyle.Render("  Ctrl+C again to exit"), width)
 	}
 	if m.thinking {
-		text := "  Enter steer · Ctrl+C stop"
+		text := "  Enter steer · Ctrl+J newline · Ctrl+C stop"
 		if width < 60 {
 			text = "  Ctrl+C stop"
 		}
@@ -552,7 +641,7 @@ func (m *chatModel) renderFooter() string {
 		left = append(left, fmt.Sprintf("ctx %.0f%%", m.status.contextRatio*100))
 	}
 	leftText := strings.Join(left, " · ")
-	return chatMutedStyle.Render(joinChatFooter(leftText, "/ commands", width))
+	return chatMutedStyle.Render(joinChatFooter(leftText, "Ctrl+J newline · / commands", width))
 }
 
 func (m *chatModel) atTextareaTop() bool {
@@ -656,7 +745,7 @@ func formatSubmittedInput(input string) string {
 			lines[i] = "  " + lines[i]
 		}
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func (m *chatModel) submitInput(value string) tea.Cmd {
