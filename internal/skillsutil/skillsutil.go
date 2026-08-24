@@ -85,7 +85,7 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	spec := agent.DefaultPromptSpec()
 	var loadedOrdered []string
 
-	if !cfg.Enabled {
+	if !cfg.Enabled && len(caprefs.Names(task)) == 0 {
 		return spec, nil, nil
 	}
 
@@ -98,8 +98,11 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 
 	loadedSkillIDs := make(map[string]bool)
 
-	requested := append([]string{}, cfg.Requested...)
-	requested = append(requested, resolveReferencedSkillIDs(task, discovered)...)
+	referenced := resolveReferencedSkillIDs(task, discovered)
+	requested := append([]string{}, referenced...)
+	if cfg.Enabled {
+		requested = append(append([]string{}, cfg.Requested...), referenced...)
+	}
 
 	uniq := make(map[string]bool, len(requested))
 	var finalReq []string
@@ -120,6 +123,9 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 		finalReq = append(finalReq, r)
 	}
 	if len(finalReq) == 0 {
+		if !cfg.Enabled {
+			return spec, nil, nil
+		}
 		loadAll = true
 	}
 	if loadAll {
@@ -130,7 +136,7 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 		log.Info("skills_load_all_requested", "count", len(finalReq))
 	}
 
-	// Enabled mode: load from configured/requested skills.
+	// Configured skills require enabled mode; task references are always explicit.
 	for _, q := range finalReq {
 		s, err := skills.Resolve(discovered, q)
 		if err != nil {
@@ -176,7 +182,7 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 }
 
 func ResolveTaskSkillRefs(task string, cfg SkillsConfig) map[string]bool {
-	if !cfg.Enabled {
+	if len(caprefs.Names(task)) == 0 {
 		return nil
 	}
 	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})

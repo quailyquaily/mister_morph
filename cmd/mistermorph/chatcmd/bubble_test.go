@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 )
 
@@ -40,6 +41,52 @@ func TestChatModelWindowSize(t *testing.T) {
 	expectedTW := 100 - 1 - inputMarkerWidth
 	if cm.textarea.Width() != expectedTW {
 		t.Errorf("textarea width = %d, want %d", cm.textarea.Width(), expectedTW)
+	}
+}
+
+func TestWrapChatTranscriptAvoidsTerminalAutoWrap(t *testing.T) {
+	t.Parallel()
+
+	got := wrapChatTranscript("Linux "+strings.Repeat("x", 40), 20)
+	lines := strings.Split(got, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("wrapped transcript lines = %#v, want multiple lines", lines)
+	}
+	for _, line := range lines {
+		if width := ansi.StringWidth(line); width > 19 {
+			t.Fatalf("wrapped transcript line width = %d, want <= 19: %q", width, line)
+		}
+	}
+}
+
+func TestChatTranscriptQueuePrintsBlocksSequentially(t *testing.T) {
+	t.Parallel()
+
+	m := newChatModel(&chatSession{compactMode: false})
+	_, firstCmd := m.Update(tuiOutputMsg{output: "first"})
+	if firstCmd == nil || !m.transcriptPrinting {
+		t.Fatal("first transcript block did not start printing")
+	}
+
+	_, secondCmd := m.Update(tuiOutputMsg{output: "second"})
+	if secondCmd != nil {
+		t.Fatal("second transcript block started before the first completed")
+	}
+	if got := m.transcriptQueue; len(got) != 2 || got[0] != "first" || got[1] != "second" {
+		t.Fatalf("transcript queue = %#v, want [first second]", got)
+	}
+
+	_, nextCmd := m.Update(transcriptPrintedMsg{})
+	if nextCmd == nil || !m.transcriptPrinting {
+		t.Fatal("second transcript block did not start after acknowledgement")
+	}
+	if got := m.transcriptQueue; len(got) != 1 || got[0] != "second" {
+		t.Fatalf("transcript queue after first acknowledgement = %#v, want [second]", got)
+	}
+
+	_, doneCmd := m.Update(transcriptPrintedMsg{})
+	if doneCmd != nil || m.transcriptPrinting || len(m.transcriptQueue) != 0 {
+		t.Fatalf("transcript queue did not become idle: printing=%t queue=%#v cmd=%v", m.transcriptPrinting, m.transcriptQueue, doneCmd)
 	}
 }
 
@@ -212,7 +259,7 @@ func TestChatModelView(t *testing.T) {
 
 	view := m.View()
 	// View should contain the composer marker.
-	if !strings.Contains(view, "› ") {
+	if !strings.Contains(view, "❯ ") {
 		t.Errorf("View should contain prompt, got:\n%s", view)
 	}
 	if strings.Contains(view, "Running") {
@@ -278,6 +325,7 @@ func TestChatModelAgentResult(t *testing.T) {
 	if cmd == nil {
 		t.Error("expected tea.Println command for output")
 	}
+	cm.Update(transcriptPrintedMsg{})
 
 	// error case
 	m3, cmd2 := cm.Update(agentResultMsg{err: errTest})

@@ -16,12 +16,12 @@ status: draft
 
 ## 语义
 
-`skills.enabled=false` 是 skill 子系统总开关：
+`skills.enabled=false` 关闭自动和配置加载，但不阻止任务正文里的显式引用：
 
 ```text
-skills.enabled=false -> 不加载 skill
-skills.enabled=false -> system prompt 不包含 skill block
-skills.enabled=false -> $name 不触发 skill
+skills.enabled=false -> 不自动加载 skill，也不读取 skills.load
+skills.enabled=false -> 没有显式引用时，system prompt 不包含 skill block
+$name -> 当前任务加载匹配的 skill
 ```
 
 `tools.<name>.enabled=false` 只表示默认不暴露这个 tool：
@@ -50,7 +50,7 @@ $name
 
 解析顺序：
 
-1. 如果 `skills.enabled=true`，先匹配 skill。
+1. 先匹配 skill；显式引用不受 `skills.enabled` 限制。
 2. 没有匹配 skill 时，再匹配已知内置 tool。
 3. 都没有匹配时，当作普通用户文本。
 
@@ -64,7 +64,7 @@ $image_generate 生成一个图标
 $url_fetch 拉取这个 URL 并总结
 ```
 
-如果 skill 子系统开启且存在名为 `bash` 的 skill，`$bash` 会先触发 skill，不会再触发 `bash` tool。
+如果存在名为 `bash` 的 skill，`$bash` 会先触发 skill，不会再触发同名 tool。
 
 ## 注册规则
 
@@ -97,8 +97,8 @@ MCP tool 暂不支持 `$name` 启用 disabled server。原因是 server 未连�
 
 ## 测试点
 
-1. `skills.enabled=false` 时，`$name` 不加载 skill。
-2. `skills.enabled=true` 时，`$name` 可以加载匹配的 skill。
+1. `skills.enabled=false` 时，不自动加载 skill，但 `$name` 仍加载匹配的 skill。
+2. `skills.enabled=true` 时，配置加载和 `$name` 都可以加载匹配的 skill。
 3. 同名 skill 优先于 tool。
 4. disabled static tool 可以被 `$name` 当前任务启用。
 5. `$name` 不能绕过 selected tool allowlist。

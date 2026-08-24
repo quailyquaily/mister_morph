@@ -2,7 +2,6 @@ package chatcmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -101,18 +100,9 @@ func chatApprovalData(record guard.ApprovalRecord) chatApprovalViewData {
 	})
 	data.params = make([]chatApprovalParam, 0, len(keys))
 	for _, key := range keys {
-		value, ok := params[key].(string)
-		if !ok {
-			payload, err := json.MarshalIndent(params[key], "", "  ")
-			if err != nil {
-				value = fmt.Sprint(params[key])
-			} else {
-				value = string(payload)
-			}
-		}
 		data.params = append(data.params, chatApprovalParam{
 			name:  escapeTerminalControls(key),
-			value: escapeTerminalControls(value),
+			value: strings.Join(formatChatToolValueLines(params[key]), "\n"),
 		})
 	}
 	if command, ok := params["cmd"].(string); ok && strings.TrimSpace(command) != "" {
@@ -124,9 +114,7 @@ func chatApprovalData(record guard.ApprovalRecord) chatApprovalViewData {
 	} else if summary := strings.TrimSpace(record.ActionSummaryRedacted); summary != "" {
 		data.action = escapeTerminalControls(summary)
 	} else if len(params) > 0 {
-		if payload, err := json.Marshal(params); err == nil {
-			data.action = escapeTerminalControls(string(payload))
-		}
+		data.action = strings.Join(formatChatToolParamLines(params), " · ")
 	}
 
 	data.reasons = make([]string, 0, len(record.Reasons))
