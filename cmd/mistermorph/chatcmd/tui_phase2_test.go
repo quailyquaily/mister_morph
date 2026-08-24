@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
@@ -51,7 +51,7 @@ func TestChatModelApprovalReplacesComposerAndRestoresDraft(t *testing.T) {
 	m.textarea.SetValue("keep this draft")
 	m.Update(approvalMsg{record: phase2ApprovalRecord()})
 
-	view := m.View()
+	view := ansi.Strip(m.View().Content)
 	for _, want := range []string{
 		"! Approval · bash",
 		"$ git push origin feature/chat-tui",
@@ -82,12 +82,12 @@ func TestChatModelApprovalAcceptsOnlyApprovalKeys(t *testing.T) {
 	m.textarea.SetValue("draft")
 	m.Update(approvalMsg{record: phase2ApprovalRecord()})
 
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
 	if got := m.textarea.Value(); got != "draft" {
 		t.Fatalf("ordinary key changed approval draft to %q", got)
 	}
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
 	if cmd != nil {
 		t.Fatal("approval key should not print a user transcript line")
 	}
@@ -101,11 +101,29 @@ func TestChatModelApprovalAcceptsOnlyApprovalKeys(t *testing.T) {
 	}
 }
 
+func TestChatModelEscDeniesApproval(t *testing.T) {
+	m := newChatModel(newPhase1TestSession(t))
+	m.Update(approvalMsg{record: phase2ApprovalRecord()})
+
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if cmd != nil {
+		t.Fatal("Esc should not print a user transcript line")
+	}
+	select {
+	case got := <-m.submitted:
+		if got != "n" {
+			t.Fatalf("approval submission = %q, want n", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Esc did not deny approval")
+	}
+}
+
 func TestChatModelApprovalSubmitsOnlyFirstDecision(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
 	m.Update(approvalMsg{record: phase2ApprovalRecord()})
 
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
 	select {
 	case got := <-m.submitted:
 		if got != "y" {
@@ -115,7 +133,7 @@ func TestChatModelApprovalSubmitsOnlyFirstDecision(t *testing.T) {
 		t.Fatal("first approval decision was not submitted")
 	}
 
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
 	select {
 	case got := <-m.submitted:
 		t.Fatalf("second approval decision was submitted: %q", got)
@@ -125,7 +143,7 @@ func TestChatModelApprovalSubmitsOnlyFirstDecision(t *testing.T) {
 	// A transient resolution error leaves the same approval pending and must
 	// allow the user to retry without replacing the approval view.
 	m.Update(agentResultMsg{err: errTest})
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'n', Text: "n"}))
 	select {
 	case got := <-m.submitted:
 		if got != "n" {
@@ -153,7 +171,7 @@ func TestChatModelApprovalScrollsWithinTerminalHeight(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 48, Height: 9})
 	m.Update(approvalMsg{record: record})
 
-	initial := m.View()
+	initial := ansi.Strip(m.View().Content)
 	if lines := strings.Count(initial, "\n") + 1; lines > 9 {
 		t.Fatalf("approval View() uses %d rows in a 9-row terminal:\n%s", lines, initial)
 	}
@@ -167,9 +185,9 @@ func TestChatModelApprovalScrollsWithinTerminalHeight(t *testing.T) {
 	}
 
 	for range 32 {
-		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	}
-	scrolled := m.View()
+	scrolled := ansi.Strip(m.View().Content)
 	if lines := strings.Count(scrolled, "\n") + 1; lines > 9 {
 		t.Fatalf("scrolled approval View() uses %d rows in a 9-row terminal:\n%s", lines, scrolled)
 	}
@@ -192,7 +210,7 @@ func TestChatModelApprovalEscapesTerminalControlCharacters(t *testing.T) {
 	m := newChatModel(newPhase1TestSession(t))
 	m.Update(approvalMsg{record: record})
 
-	view := m.View()
+	view := m.View().Content
 	for _, unsafe := range []string{"\x1b[2J", "\x1b]0;untrusted\x07"} {
 		if strings.Contains(view, unsafe) {
 			t.Fatalf("approval View() contains executable terminal control %q: %q", unsafe, view)
@@ -219,7 +237,7 @@ func TestChatModelCommandPickerUsesRegistryMetadata(t *testing.T) {
 	m.textarea.SetValue("/wo")
 	m.textarea.CursorEnd()
 
-	view := m.View()
+	view := m.View().Content
 	if !strings.Contains(view, "/workspace") || !strings.Contains(view, "show or change workspace") {
 		t.Fatalf("picker does not render registry metadata:\n%s", view)
 	}
@@ -227,7 +245,7 @@ func TestChatModelCommandPickerUsesRegistryMetadata(t *testing.T) {
 		t.Fatalf("picker renders a non-matching command:\n%s", view)
 	}
 
-	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	if got := m.textarea.Value(); got != "/workspace" {
 		t.Fatalf("Tab completion = %q, want /workspace", got)
 	}
@@ -238,14 +256,20 @@ func TestChatModelCommandPickerCanCloseWithoutLosingDraft(t *testing.T) {
 	reg.Register("/workspace", "show or change workspace", nil)
 	m := newChatModel(newPhase1TestSession(t))
 	m.commandRegistry = reg
+	m.thinking = true
 	m.textarea.SetValue("/wo")
 
-	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	if got := m.textarea.Value(); got != "/wo" {
 		t.Fatalf("Esc changed picker draft to %q", got)
 	}
-	if view := m.View(); strings.Contains(view, "show or change workspace") {
+	if view := m.View().Content; strings.Contains(view, "show or change workspace") {
 		t.Fatalf("Esc left picker open:\n%s", view)
+	}
+	select {
+	case got := <-m.submitted:
+		t.Fatalf("Esc submitted %q instead of closing the picker", got)
+	default:
 	}
 }
 
@@ -259,7 +283,7 @@ func TestChatModelCommandPickerLimitsNarrowTerminalToThreeItems(t *testing.T) {
 	m.textarea.SetValue("/")
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"/alpha", "/beta", "/charlie"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("narrow picker missing %q:\n%s", want, view)
@@ -280,7 +304,7 @@ func TestChatModelCommandPickerFitsRemainingTerminalHeight(t *testing.T) {
 	m.textarea.SetValue("/")
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 5})
 
-	view := m.View()
+	view := m.View().Content
 	if lines := strings.Count(view, "\n") + 1; lines > 5 {
 		t.Fatalf("command picker View() uses %d rows in a 5-row terminal:\n%s", lines, view)
 	}
@@ -304,7 +328,7 @@ func TestChatModelSkillPickerFiltersAndInsertsReference(t *testing.T) {
 	m.textarea.SetValue("Use $ima")
 	m.textarea.CursorEnd()
 
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{"❯ ", "$imagegen", "Generate or edit images.", "Enter insert"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("skill picker missing %q:\n%s", want, view)
@@ -314,7 +338,7 @@ func TestChatModelSkillPickerFiltersAndInsertsReference(t *testing.T) {
 		t.Fatalf("skill picker renders a non-matching skill:\n%s", view)
 	}
 
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if got := m.textarea.Value(); got != "Use $imagegen " {
 		t.Fatalf("skill completion = %q, want %q", got, "Use $imagegen ")
 	}
@@ -336,7 +360,7 @@ func TestChatModelSkillPickerEscapesTerminalControlCharacters(t *testing.T) {
 	m.textarea.SetValue("$")
 	m.textarea.CursorEnd()
 
-	view := m.View()
+	view := m.View().Content
 	for _, unsafe := range []string{"\x1b[2J", "\x1b]0;title\x07", "\x1b]52;c;clipboard\x07"} {
 		if strings.Contains(view, unsafe) {
 			t.Fatalf("skill picker contains executable terminal control %q: %q", unsafe, view)
@@ -363,10 +387,10 @@ func TestChatModelSkillPickerMatchesNameAndUsesID(t *testing.T) {
 	m.textarea.SetValue("Ask $artist")
 	m.textarea.CursorEnd()
 
-	if view := m.View(); !strings.Contains(view, "$imagegen") {
+	if view := m.View().Content; !strings.Contains(view, "$imagegen") {
 		t.Fatalf("skill picker did not match the display name:\n%s", view)
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	if got := m.textarea.Value(); got != "Ask $imagegen " {
 		t.Fatalf("skill Tab completion = %q, want %q", got, "Ask $imagegen ")
 	}
@@ -379,16 +403,16 @@ func TestChatModelSkillPickerReplacesTokenAtCursor(t *testing.T) {
 	}
 	m := newChatModel(sess)
 	m.textarea.SetValue("Use $ima tomorrow")
-	m.textarea.SetCursor(len([]rune("Use $ima")))
+	m.textarea.SetCursorColumn(len([]rune("Use $ima")))
 
-	if view := m.View(); !strings.Contains(view, "$imagegen") {
+	if view := m.View().Content; !strings.Contains(view, "$imagegen") {
 		t.Fatalf("skill picker did not follow the cursor:\n%s", view)
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	if got := m.textarea.Value(); got != "Use $imagegen tomorrow" {
 		t.Fatalf("skill completion = %q, want %q", got, "Use $imagegen tomorrow")
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
 	if got := m.textarea.Value(); got != "Use $imagegen xtomorrow" {
 		t.Fatalf("cursor after skill completion produced %q", got)
 	}
