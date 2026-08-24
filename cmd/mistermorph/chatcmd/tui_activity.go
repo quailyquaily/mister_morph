@@ -163,11 +163,6 @@ func chatToolName(call agent.ToolCall) string {
 	return "tool"
 }
 
-func formatChatToolParamLines(params map[string]any) []string {
-	inline, block := formatChatToolParams(params)
-	return append(inline, block...)
-}
-
 func formatChatToolParams(params map[string]any) ([]string, []string) {
 	if len(params) == 0 {
 		return nil, nil

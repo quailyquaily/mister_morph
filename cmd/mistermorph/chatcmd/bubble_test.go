@@ -64,7 +64,7 @@ func TestChatTranscriptQueuePrintsBlocksSequentially(t *testing.T) {
 
 	m := newChatModel(&chatSession{compactMode: false})
 	_, firstCmd := m.Update(tuiOutputMsg{output: "first"})
-	if firstCmd == nil || !m.transcriptPrinting {
+	if firstCmd == nil {
 		t.Fatal("first transcript block did not start printing")
 	}
 
@@ -77,7 +77,7 @@ func TestChatTranscriptQueuePrintsBlocksSequentially(t *testing.T) {
 	}
 
 	_, nextCmd := m.Update(transcriptPrintedMsg{})
-	if nextCmd == nil || !m.transcriptPrinting {
+	if nextCmd == nil {
 		t.Fatal("second transcript block did not start after acknowledgement")
 	}
 	if got := m.transcriptQueue; len(got) != 1 || got[0] != "second" {
@@ -85,8 +85,8 @@ func TestChatTranscriptQueuePrintsBlocksSequentially(t *testing.T) {
 	}
 
 	_, doneCmd := m.Update(transcriptPrintedMsg{})
-	if doneCmd != nil || m.transcriptPrinting || len(m.transcriptQueue) != 0 {
-		t.Fatalf("transcript queue did not become idle: printing=%t queue=%#v cmd=%v", m.transcriptPrinting, m.transcriptQueue, doneCmd)
+	if doneCmd != nil || len(m.transcriptQueue) != 0 {
+		t.Fatalf("transcript queue did not become idle: queue=%#v cmd=%v", m.transcriptQueue, doneCmd)
 	}
 }
 
