@@ -123,6 +123,9 @@ var (
 				Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("239"), Dark: lipgloss.Color("250")})
 	chatMutedStyle = lipgloss.NewStyle().
 			Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("242"), Dark: lipgloss.Color("245")})
+	chatInputFrameStyle = lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder(), true, false, true, false).
+				BorderForeground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("242"), Dark: lipgloss.Color("245")})
 	chatWarningStyle = lipgloss.NewStyle().
 				Foreground(lipglosscompat.AdaptiveColor{Light: lipgloss.Color("130"), Dark: lipgloss.Color("214")}).
 				Bold(true)
@@ -136,6 +139,7 @@ var (
 func newChatModel(sess *chatSession) *chatModel {
 	ta := textarea.New()
 	ta.ShowLineNumbers = false
+	ta.Placeholder = "Ask a question or describe a task"
 	ta.Prompt = ""
 	ta.SetPromptFunc(inputMarkerWidth, func(info textarea.PromptInfo) string {
 		if info.LineNumber == 0 {
@@ -146,15 +150,10 @@ func newChatModel(sess *chatSession) *chatModel {
 	styles := ta.Styles()
 	styles.Focused.Prompt = chatAccentStyle
 	styles.Blurred.Prompt = chatAccentStyle
+	styles.Focused.Placeholder = chatMutedStyle
+	styles.Blurred.Placeholder = chatMutedStyle
 	styles.Focused.CursorLine = lipgloss.NewStyle()
 	styles.Blurred.CursorLine = lipgloss.NewStyle()
-	inputBorderColor := lipglosscompat.AdaptiveColor{Light: lipgloss.Color("242"), Dark: lipgloss.Color("245")}
-	styles.Focused.Base = styles.Focused.Base.
-		Border(lipgloss.NormalBorder(), true, false, true, false).
-		BorderForeground(inputBorderColor)
-	styles.Blurred.Base = styles.Blurred.Base.
-		Border(lipgloss.NormalBorder(), true, false, true, false).
-		BorderForeground(inputBorderColor)
 	ta.SetStyles(styles)
 	ta.Focus()
 	ta.DynamicHeight = true
@@ -473,14 +472,11 @@ func (m *chatModel) contentWidth() int {
 func (m *chatModel) renderTextarea() string {
 	view := m.textarea.View()
 	ranges := chatInputHighlightRanges(view, m.textarea.Value())
-	if len(ranges) == 0 {
-		return view
-	}
-
-	if cursorStart, cursorEnd, ok := chatInputCursorRange(view); ok {
+	if len(ranges) > 0 {
+		cursorStart, cursorEnd, cursorVisible := chatInputCursorRange(view)
 		visible := make([]lipgloss.Range, 0, len(ranges)+1)
 		for _, highlight := range ranges {
-			if cursorEnd <= highlight.Start || cursorStart >= highlight.End {
+			if !cursorVisible || cursorEnd <= highlight.Start || cursorStart >= highlight.End {
 				visible = append(visible, highlight)
 				continue
 			}
@@ -492,8 +488,9 @@ func (m *chatModel) renderTextarea() string {
 			}
 		}
 		ranges = visible
+		view = lipgloss.StyleRanges(view, ranges...)
 	}
-	return lipgloss.StyleRanges(view, ranges...)
+	return chatInputFrameStyle.Render(view)
 }
 
 func chatInputHighlightRanges(view string, input string) []lipgloss.Range {
@@ -901,7 +898,7 @@ func (m *chatModel) renderPicker() []string {
 		limit = shortPickerItems
 	}
 	if m.height > 0 {
-		textareaRows := strings.Count(m.textarea.View(), "\n") + 1
+		textareaRows := strings.Count(m.renderTextarea(), "\n") + 1
 		reservedRows := 1 + textareaRows // footer
 		if m.height >= shortTerminalHeight {
 			reservedRows += 2 // space above and below the composer
