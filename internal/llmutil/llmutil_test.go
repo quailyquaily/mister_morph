@@ -10,7 +10,8 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
-	xaiOAuthProvider "github.com/quailyquaily/mistermorph/providers/xaioauth"
+	codexProvider "github.com/quailyquaily/mistermorph/providers/codex"
+	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
 	"github.com/spf13/viper"
 )
 
@@ -768,15 +769,36 @@ func TestClientFromConfigWithValues_InvalidTemperature(t *testing.T) {
 }
 
 func TestClientFromConfigWithValues_CodexIgnoresUnsupportedRuntimeOptions(t *testing.T) {
-	_, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
+	client, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
 		Provider: "openai_codex",
 		Model:    "gpt-5.5",
 	}, RuntimeValues{
+		FileStateDir:       t.TempDir(),
 		TemperatureRaw:     "abc",
 		ReasoningBudgetRaw: "8k",
 	})
 	if err != nil {
 		t.Fatalf("ClientFromConfigWithValues() error = %v", err)
+	}
+	if _, ok := client.(*uniaiProvider.Client); !ok {
+		t.Fatalf("client type = %T, want *uniai.Client", client)
+	}
+}
+
+func TestClientFromConfigWithValuesKeepsCodexAPIKeyCompatibilityClient(t *testing.T) {
+	for _, endpoint := range []string{"", "https://example.test/v1"} {
+		client, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
+			Provider: "openai_codex",
+			Endpoint: endpoint,
+			APIKey:   "provider-key",
+			Model:    "gpt-5.5",
+		}, RuntimeValues{})
+		if err != nil {
+			t.Fatalf("ClientFromConfigWithValues(%q) error = %v", endpoint, err)
+		}
+		if _, ok := client.(*codexProvider.Client); !ok {
+			t.Fatalf("client type for endpoint %q = %T, want *codex.Client", endpoint, client)
+		}
 	}
 }
 
@@ -795,8 +817,8 @@ func TestClientFromConfigWithValuesBuildsXAIOAuthWithoutPricing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClientFromConfigWithValues() error = %v", err)
 	}
-	if _, ok := client.(*xaiOAuthProvider.Client); !ok {
-		t.Fatalf("client type = %T, want *xaioauth.Client", client)
+	if _, ok := client.(*uniaiProvider.Client); !ok {
+		t.Fatalf("client type = %T, want *uniai.Client", client)
 	}
 }
 

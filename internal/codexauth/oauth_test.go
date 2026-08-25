@@ -209,6 +209,85 @@ func TestResolveTokenSerializesConcurrentRefresh(t *testing.T) {
 	}
 }
 
+func TestRefreshRejectedTokenRefreshesUsableRejectedToken(t *testing.T) {
+	now := time.Date(2026, 8, 24, 2, 0, 0, 0, time.UTC)
+	refreshedAccess := testJWT(t, map[string]any{"exp": now.Add(2 * time.Hour).Unix()})
+	var refreshCount atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {
+		refreshCount.Add(1)
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Form.Get("refresh_token"); got != "refresh-old" {
+			t.Fatalf("refresh_token = %q, want refresh-old", got)
+		}
+		writeTestJSON(w, map[string]any{
+			"access_token":  refreshedAccess,
+			"refresh_token": "refresh-new",
+		})
+	})
+	server := testhttp.NewServer(mux)
+
+	stateDir := t.TempDir()
+	if err := WriteToken(stateDir, Token{
+		AccessToken:  "access-old",
+		RefreshToken: "refresh-old",
+		AccountID:    "account-old",
+		ExpiresAt:    now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	token, err := RefreshRejectedToken(context.Background(), stateDir, OAuthConfig{
+		Issuer:     server.URL,
+		HTTPClient: server.Client,
+		Now:        func() time.Time { return now },
+	}, "access-old")
+	if err != nil {
+		t.Fatalf("RefreshRejectedToken() error = %v", err)
+	}
+	if token.AccessToken != refreshedAccess || token.RefreshToken != "refresh-new" || token.AccountID != "account-old" {
+		t.Fatalf("token = %+v", token)
+	}
+	if got := refreshCount.Load(); got != 1 {
+		t.Fatalf("refresh count = %d, want 1", got)
+	}
+}
+
+func TestRefreshRejectedTokenKeepsNewerStoredToken(t *testing.T) {
+	now := time.Date(2026, 8, 24, 2, 30, 0, 0, time.UTC)
+	var refreshCount atomic.Int32
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		refreshCount.Add(1)
+		http.Error(w, "should not be called", http.StatusInternalServerError)
+	}))
+	stateDir := t.TempDir()
+	if err := WriteToken(stateDir, Token{
+		AccessToken:  "access-new",
+		RefreshToken: "refresh-new",
+		AccountID:    "account-new",
+		ExpiresAt:    now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	token, err := RefreshRejectedToken(context.Background(), stateDir, OAuthConfig{
+		Issuer:     server.URL,
+		HTTPClient: server.Client,
+		Now:        func() time.Time { return now },
+	}, "access-old")
+	if err != nil {
+		t.Fatalf("RefreshRejectedToken() error = %v", err)
+	}
+	if token.AccessToken != "access-new" || token.AccountID != "account-new" {
+		t.Fatalf("token = %+v", token)
+	}
+	if got := refreshCount.Load(); got != 0 {
+		t.Fatalf("refresh count = %d, want 0", got)
+	}
+}
+
 func TestResolveTokenDeletesStoredTokenAfterRefreshTokenReuse(t *testing.T) {
 	now := time.Date(2026, 8, 5, 2, 0, 0, 0, time.UTC)
 	mux := http.NewServeMux()

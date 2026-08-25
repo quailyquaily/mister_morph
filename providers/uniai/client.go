@@ -11,6 +11,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/llm"
 	uniaiapi "github.com/quailyquaily/uniai"
+	"github.com/quailyquaily/uniai/subscription"
 )
 
 type Config struct {
@@ -21,6 +22,8 @@ type Config struct {
 	Model             string
 	Headers           map[string]string
 	Pricing           *uniaiapi.PricingCatalog
+	CodexSubscription subscription.CredentialSource
+	XAISubscription   subscription.CredentialSource
 
 	RequestTimeout  time.Duration
 	Temperature     *float64
@@ -108,6 +111,8 @@ func New(cfg Config) (*Client, error) {
 		CloudflareAPIBase:   strings.TrimSpace(cfg.CloudflareAPIBase),
 		GeminiAPIKey:        strings.TrimSpace(geminiKey),
 		GeminiAPIBase:       strings.TrimSpace(geminiBase),
+		CodexSubscription:   cfg.CodexSubscription,
+		XAISubscription:     cfg.XAISubscription,
 		Pricing:             pricing,
 
 		Debug: cfg.Debug,

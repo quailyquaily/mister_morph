@@ -210,8 +210,10 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					if st.parseFailures > e.config.ParseRetries {
 						break
 					}
+					if strings.TrimSpace(result.Text) != "" {
+						st.messages = append(st.messages, llm.Message{Role: "assistant", Content: result.Text})
+					}
 					st.messages = append(st.messages,
-						llm.Message{Role: "assistant", Content: result.Text},
 						llm.Message{Role: "user", Content: "Your response was not valid JSON. You MUST respond with a JSON object containing \"type\" as \"plan\" or \"final\". Try again."},
 					)
 					st.protectLastMessage()

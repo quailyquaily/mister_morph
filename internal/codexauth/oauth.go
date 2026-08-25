@@ -205,7 +205,32 @@ func ResolveToken(ctx context.Context, stateDir string, cfg OAuthConfig) (Token,
 	if strings.TrimSpace(token.RefreshToken) == "" {
 		return Token{}, ErrNotLoggedIn
 	}
+	return refreshStoredToken(ctx, stateDir, cfg, token)
+}
 
+// RefreshRejectedToken refreshes the token rejected by an inference request.
+// If another caller already replaced it, the newer stored token is returned.
+func RefreshRejectedToken(ctx context.Context, stateDir string, cfg OAuthConfig, rejectedAccessToken string) (Token, error) {
+	cfg = normalizeOAuthConfig(cfg)
+	rejectedAccessToken = strings.TrimSpace(rejectedAccessToken)
+
+	refreshMu.Lock()
+	defer refreshMu.Unlock()
+
+	token, ok, err := ReadToken(stateDir)
+	if err != nil {
+		return Token{}, err
+	}
+	if !ok || strings.TrimSpace(token.RefreshToken) == "" {
+		return Token{}, ErrNotLoggedIn
+	}
+	if token.AccessToken != "" && token.AccessToken != rejectedAccessToken && token.IsAccessTokenUsable(cfg.now()) {
+		return token, nil
+	}
+	return refreshStoredToken(ctx, stateDir, cfg, token)
+}
+
+func refreshStoredToken(ctx context.Context, stateDir string, cfg OAuthConfig, token Token) (Token, error) {
 	refreshed, err := RefreshToken(ctx, cfg, token.RefreshToken)
 	if err != nil {
 		if errors.Is(err, ErrNotLoggedIn) {

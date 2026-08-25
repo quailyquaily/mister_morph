@@ -16,7 +16,89 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 	uniaiapi "github.com/quailyquaily/uniai"
 	uniaichat "github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/subscription"
 )
+
+type failingSubscriptionCredentialSource struct {
+	err error
+}
+
+func (s failingSubscriptionCredentialSource) Credential(context.Context) (subscription.Credential, error) {
+	return subscription.Credential{}, s.err
+}
+
+func (s failingSubscriptionCredentialSource) RefreshRejected(context.Context, string) (subscription.Credential, error) {
+	return subscription.Credential{}, s.err
+}
+
+func TestClientPassesSubscriptionCredentialSourcesToUniai(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		config   func(error) Config
+		messages []llm.Message
+	}{
+		{
+			name:     "codex",
+			provider: "openai_codex",
+			config: func(err error) Config {
+				return Config{CodexSubscription: failingSubscriptionCredentialSource{err: err}}
+			},
+			messages: []llm.Message{
+				{Role: "system", Content: "system prompt"},
+				{Role: "user", Content: "hello"},
+			},
+		},
+		{
+			name:     "xAI",
+			provider: "xai_oauth",
+			config: func(err error) Config {
+				return Config{XAISubscription: failingSubscriptionCredentialSource{err: err}}
+			},
+			messages: []llm.Message{{Role: "user", Content: "hello"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantErr := errors.New("credential source called")
+			cfg := tt.config(wantErr)
+			cfg.Provider = tt.provider
+			cfg.Model = "test-model"
+			client, err := New(cfg)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			_, err = client.Chat(context.Background(), llm.Request{Messages: tt.messages})
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("Chat() error = %v, want credential source error", err)
+			}
+		})
+	}
+}
+
+func TestClientRetainsLocalCostEstimationForSubscriptions(t *testing.T) {
+	pricing := &uniaiapi.PricingCatalog{Chat: []uniaiapi.ChatPricingRule{{
+		Model:               "test-model",
+		InputUSDPerMillion:  1,
+		OutputUSDPerMillion: 1,
+	}}}
+	source := failingSubscriptionCredentialSource{err: errors.New("unused")}
+
+	for _, cfg := range []Config{
+		{Provider: "openai_codex", Model: "test-model", Pricing: pricing, CodexSubscription: source},
+		{Provider: "xai_oauth", Model: "test-model", Pricing: pricing, XAISubscription: source},
+	} {
+		client, err := New(cfg)
+		if err != nil {
+			t.Fatalf("New(%s) error = %v", cfg.Provider, err)
+		}
+		cost, ok := client.pricing.EstimateChatCost("test-model", uniaiapi.Usage{InputTokens: 1})
+		if !ok || cost.Total <= 0 {
+			t.Fatalf("%s subscription lost local API pricing: %#v", cfg.Provider, cost)
+		}
+	}
+}
 
 func buildChatOptionsForTest(
 	req llm.Request,

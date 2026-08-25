@@ -202,6 +202,40 @@ func TestRun_ReplaysProviderAssistantMessagesForToolCalls(t *testing.T) {
 	}
 }
 
+func TestRun_PreservesToolCallOnlyAssistantMessage(t *testing.T) {
+	call := llm.ToolCall{
+		ID:        "call_1",
+		Name:      "read_file",
+		Arguments: map[string]any{},
+	}
+	client := newMockClient(
+		llm.Result{ToolCalls: []llm.ToolCall{call}},
+		finalResponse("done"),
+	)
+	reg := tools.NewRegistry()
+	reg.Register(&mockTool{name: "read_file", result: "file content"})
+	e := New(client, reg, baseCfg(), DefaultPromptSpec())
+
+	if _, _, err := e.Run(context.Background(), "read README", RunOptions{}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	calls := client.allCalls()
+	if len(calls) < 2 {
+		t.Fatalf("calls = %d, want at least 2", len(calls))
+	}
+	for _, msg := range calls[1].Messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		if msg.Content != "" || len(msg.ToolCalls) != 1 || msg.ToolCalls[0].ID != call.ID {
+			t.Fatalf("tool-call-only assistant message = %#v", msg)
+		}
+		return
+	}
+	t.Fatal("retry request is missing the tool-call-only assistant message")
+}
+
 func TestRun_BashTerminationCommandStopsTask(t *testing.T) {
 	for _, command := range []string{
 		"echo end",
@@ -1021,6 +1055,46 @@ func TestParseRetry_DisablesToolsForRetryRequest(t *testing.T) {
 	}
 	if !calls[1].ForceJSON {
 		t.Fatal("retry request ForceJSON = false, want true")
+	}
+}
+
+func TestParseRetry_OmitsAssistantMessagesWithoutContentOrToolCalls(t *testing.T) {
+	tests := []struct {
+		name   string
+		result llm.Result
+	}{
+		{name: "empty", result: llm.Result{}},
+		{name: "null content normalized by provider", result: llm.Result{Messages: []llm.Message{{Role: "assistant"}}}},
+		{name: "whitespace only", result: llm.Result{Text: " \n\t"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newMockClient(test.result, finalResponse("ok"))
+			e := New(client, baseRegistry(), Config{MaxSteps: 3, ParseRetries: 1}, DefaultPromptSpec())
+
+			final, _, err := e.Run(context.Background(), "test", RunOptions{})
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if final == nil || final.Output != "ok" {
+				t.Fatalf("final = %#v, want output ok", final)
+			}
+
+			calls := client.allCalls()
+			if len(calls) != 2 {
+				t.Fatalf("calls = %d, want 2", len(calls))
+			}
+			for _, msg := range calls[1].Messages {
+				if msg.Role == "assistant" && strings.TrimSpace(msg.Content) == "" && len(msg.ToolCalls) == 0 {
+					t.Fatalf("retry request contains unusable assistant message: %#v", msg)
+				}
+			}
+			last := calls[1].Messages[len(calls[1].Messages)-1]
+			if last.Role != "user" || !strings.Contains(last.Content, "not valid JSON") {
+				t.Fatalf("retry instruction = %#v", last)
+			}
+		})
 	}
 }
 

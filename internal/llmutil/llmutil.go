@@ -17,8 +17,8 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 	codexProvider "github.com/quailyquaily/mistermorph/providers/codex"
 	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
-	xaiOAuthProvider "github.com/quailyquaily/mistermorph/providers/xaioauth"
 	uniaiapi "github.com/quailyquaily/uniai"
+	uniaSubscription "github.com/quailyquaily/uniai/subscription"
 	"github.com/spf13/viper"
 )
 
@@ -342,31 +342,31 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	if provider == "openai_resp" && reasoningBudget != nil {
 		slog.Warn("llm_reasoning_budget_ignored", "provider", provider, "field", "llm.reasoning_budget_tokens")
 	}
+	var codexSubscription, xaiSubscription uniaSubscription.CredentialSource
+	if provider == "openai_codex" && strings.TrimSpace(cfg.APIKey) == "" {
+		codexSubscription = codexSubscriptionSource{stateDir: strings.TrimSpace(values.FileStateDir)}
+	}
+	if provider == xaiauth.ProviderName {
+		xaiSubscription = xaiSubscriptionSource{stateDir: strings.TrimSpace(values.FileStateDir)}
+	}
 	uniaiProviderName := uniaiChatProviderName(provider)
 	switch provider {
 	case "openai_codex":
-		return codexProvider.New(codexProvider.Config{
-			Endpoint:           strings.TrimSpace(cfg.Endpoint),
-			APIKey:             strings.TrimSpace(cfg.APIKey),
-			Model:              strings.TrimSpace(cfg.Model),
-			Headers:            cloneStringMap(cfg.Headers),
-			Pricing:            pricing,
-			RequestTimeout:     cfg.RequestTimeout,
-			ToolsEmulationMode: toolsEmulationMode,
-			ReasoningEffort:    reasoningEffort,
-			StateDir:           strings.TrimSpace(values.FileStateDir),
-		}), nil
-	case xaiauth.ProviderName:
-		return xaiOAuthProvider.New(xaiOAuthProvider.Config{
-			Model:              strings.TrimSpace(cfg.Model),
-			Headers:            cloneStringMap(cfg.Headers),
-			RequestTimeout:     cfg.RequestTimeout,
-			Temperature:        temperature,
-			ToolsEmulationMode: toolsEmulationMode,
-			ReasoningEffort:    reasoningEffort,
-			StateDir:           strings.TrimSpace(values.FileStateDir),
-		}), nil
-	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "meta", "sakana", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
+		if codexSubscription == nil {
+			return codexProvider.New(codexProvider.Config{
+				Endpoint:           strings.TrimSpace(cfg.Endpoint),
+				APIKey:             strings.TrimSpace(cfg.APIKey),
+				Model:              strings.TrimSpace(cfg.Model),
+				Headers:            cloneStringMap(cfg.Headers),
+				Pricing:            pricing,
+				RequestTimeout:     cfg.RequestTimeout,
+				ToolsEmulationMode: toolsEmulationMode,
+				ReasoningEffort:    reasoningEffort,
+				StateDir:           strings.TrimSpace(values.FileStateDir),
+			}), nil
+		}
+		fallthrough
+	case xaiauth.ProviderName, "openai", "openai_resp", "openai_custom", "deepseek", "xai", "meta", "sakana", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
 		c, err := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,
 			InferenceProvider:  strings.TrimSpace(values.InferenceProvider),
@@ -375,6 +375,8 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Model:              strings.TrimSpace(cfg.Model),
 			Headers:            cloneStringMap(cfg.Headers),
 			Pricing:            pricing,
+			CodexSubscription:  codexSubscription,
+			XAISubscription:    xaiSubscription,
 			RequestTimeout:     cfg.RequestTimeout,
 			CacheTTL:           strings.TrimSpace(values.CacheTTL),
 			CacheKeyPrefix:     strings.TrimSpace(values.CacheKeyPrefix),
