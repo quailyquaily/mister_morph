@@ -771,6 +771,13 @@ const TodoView = {
           ? selectedTaskDraft.value
           : selectedStoredTask.value
     );
+    const orderedTasks = computed(() =>
+      [...tasks.value].sort((left, right) => {
+        const leftDisabled = taskListDisplayTask(left)?.enabled === false;
+        const rightDisabled = taskListDisplayTask(right)?.enabled === false;
+        return Number(leftDisabled) - Number(rightDisabled);
+      })
+    );
     const deleteTarget = computed(() => tasks.value.find((task) => task._key === deleteTargetKey.value) || null);
     const taskHasLocalChanges = computed(() => tasksDirty.value || draftDirty.value);
     const selectedTaskHasLocalChanges = computed(() => {
@@ -2344,6 +2351,7 @@ const TodoView = {
       heartbeatEditorMeta,
       heartbeatDisabled,
       tasks,
+      orderedTasks,
       selectedTask,
       selectedTaskKey,
       canSave,
@@ -2473,7 +2481,7 @@ const TodoView = {
                     </span>
                   </span>
                   <span class="todo-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
-                    <QBadge v-if="heartbeatSelected" dot type="primary" size="sm" />
+                    <QBadge dot :type="heartbeatDisabled ? 'default' : 'primary'" size="sm" />
                   </span>
                 </button>
               </div>
@@ -2482,7 +2490,7 @@ const TodoView = {
             <section class="todo-index-group todo-task-group">
               <div v-if="tasks.length > 0" class="todo-index-items workspace-sidebar-list" role="listbox">
                 <div
-                  v-for="task in tasks"
+                  v-for="task in orderedTasks"
                   :key="task._key"
                   :class="taskClass(task)"
                   role="option"
@@ -2499,7 +2507,7 @@ const TodoView = {
                     </span>
                   </span>
                   <span class="todo-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
-                    <QBadge v-if="task._key === selectedTaskKey" dot type="primary" size="sm" />
+                    <QBadge dot :type="taskListDisplayTask(task).enabled === false ? 'default' : 'primary'" size="sm" />
                   </span>
                 </div>
               </div>
