@@ -20,6 +20,21 @@ There are three separate decisions:
 
 These are related, but not the same switch.
 
+### 1.1) Group Delivery Prerequisite
+
+Disabling Group Privacy in `@BotFather` does not update groups that the bot has
+already joined. Remove the bot from each existing group and add it again after
+disabling privacy. Alternatively, make the bot a group administrator. Telegram
+documents this requirement in [Privacy Mode](https://core.telegram.org/bots/features#privacy-mode).
+
+This commonly appears as private messages working while group `@mentions`
+produce no Morph log at all. No restart is required. After adding the bot again:
+
+1. Send `/id@bot_username` in the group.
+2. Add the returned group ID to `telegram.allowed_chat_ids`, or leave the list
+   empty to allow every chat.
+3. Send `@bot_username ping` from a human account.
+
 ## 2) End-to-End Flow
 
 ```text
