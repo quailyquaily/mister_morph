@@ -1,10 +1,13 @@
 import { useToast } from "quail-ui";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import "./TodoView.css";
 
 import AppPage from "../components/AppPage";
 import AppMarkdownEditor from "../components/AppMarkdownEditor";
+import TodoCalendar from "../components/TodoCalendar";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
+import { isValidCronExpression } from "../core/cron";
 import { modelVendorMeta } from "../core/model-vendor";
 import { invalidateConsoleSetupReadiness } from "../core/setup";
 import { requestSystemNotificationPermission } from "../core/system-notifications";
@@ -557,15 +560,6 @@ function parseEveryCronStep(raw) {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
-function cronFieldNumber(raw, min, max) {
-  const text = trimText(raw);
-  if (!/^\d+$/.test(text)) {
-    return null;
-  }
-  const value = Number(text);
-  return Number.isInteger(value) && value >= min && value <= max ? value : null;
-}
-
 function positiveCronStep(raw) {
   const text = trimText(raw);
   if (!/^\d+$/.test(text)) {
@@ -573,66 +567,6 @@ function positiveCronStep(raw) {
   }
   const value = Number(text);
   return Number.isInteger(value) && value > 0 ? value : null;
-}
-
-function isValidCronFieldBase(raw, min, max) {
-  const text = trimText(raw);
-  if (text === "*") {
-    return true;
-  }
-  if (text.includes("-")) {
-    const [startRaw, endRaw, extra] = text.split("-");
-    if (extra !== undefined) {
-      return false;
-    }
-    const start = cronFieldNumber(startRaw, min, max);
-    const end = cronFieldNumber(endRaw, min, max);
-    return start !== null && end !== null && start <= end;
-  }
-  return cronFieldNumber(text, min, max) !== null;
-}
-
-function isValidCronField(raw, min, max) {
-  const text = trimText(raw);
-  if (!text) {
-    return false;
-  }
-  const tokens = text.split(",");
-  for (const tokenRaw of tokens) {
-    const token = trimText(tokenRaw);
-    if (!token) {
-      return false;
-    }
-    const [baseRaw, stepRaw, extra] = token.split("/");
-    if (extra !== undefined) {
-      return false;
-    }
-    if (stepRaw !== undefined) {
-      const step = positiveCronStep(stepRaw);
-      if (step === null) {
-        return false;
-      }
-    }
-    if (!isValidCronFieldBase(baseRaw, min, max)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function isValidCronExpression(raw) {
-  const parts = parseCronParts(raw);
-  if (!parts) {
-    return false;
-  }
-  const [minuteRaw, hourRaw, domRaw, monthRaw, dowRaw] = parts;
-  return (
-    isValidCronField(minuteRaw, 0, 59) &&
-    isValidCronField(hourRaw, 0, 23) &&
-    isValidCronField(domRaw, 1, 31) &&
-    isValidCronField(monthRaw, 1, 12) &&
-    isValidCronField(dowRaw, 0, 7)
-  );
 }
 
 function isValidAtValue(raw) {
@@ -731,10 +665,13 @@ const TodoView = {
   components: {
     AppPage,
     AppMarkdownEditor,
+    TodoCalendar,
   },
   setup() {
     const t = translate;
     const toast = useToast();
+    const route = useRoute();
+    const router = useRouter();
     const loading = ref(false);
     const saving = ref(false);
     const tasks = ref([]);
@@ -744,6 +681,9 @@ const TodoView = {
     const llmProfiles = ref([]);
     const selectedTaskKey = ref("");
     const selectedTaskDraft = ref(null);
+    const selectedCalendarDate = ref("");
+    const selectedCalendarDateTitle = ref("");
+    const selectedCalendarTaskIDs = ref([]);
     const draftDirty = ref(false);
     const tasksDirty = ref(false);
     const isMobile = ref(false);
@@ -760,6 +700,12 @@ const TodoView = {
     const heartbeatTask = ref(null);
     const heartbeatEnabled = ref(true);
     const runningTaskKey = ref("");
+    const calendarView = computed(() => trimText(route.query.view).toLowerCase() === "calendar");
+    const todoViewTabs = computed(() => [
+      { id: "list", title: t("todo_view_list") },
+      { id: "calendar", title: t("todo_view_calendar") },
+    ]);
+    const selectedTodoViewTab = computed(() => todoViewTabs.value[calendarView.value ? 1 : 0]);
 
     const heartbeatSelected = computed(() => selectedTaskKey.value === HEARTBEAT_ITEM_KEY);
     const heartbeatDisabled = computed(() => heartbeatEnabled.value === false);
@@ -778,6 +724,10 @@ const TodoView = {
         return Number(leftDisabled) - Number(rightDisabled);
       })
     );
+    const selectedCalendarTasks = computed(() => {
+      const tasksByID = new Map(tasks.value.map((task) => [trimText(task?.id), task]));
+      return selectedCalendarTaskIDs.value.map((id) => tasksByID.get(id)).filter(Boolean);
+    });
     const deleteTarget = computed(() => tasks.value.find((task) => task._key === deleteTargetKey.value) || null);
     const taskHasLocalChanges = computed(() => tasksDirty.value || draftDirty.value);
     const selectedTaskHasLocalChanges = computed(() => {
@@ -903,9 +853,14 @@ const TodoView = {
         ? heartbeatSelected.value
           ? t("todo_heartbeat_title")
           : taskTitle(selectedTask.value) || t("todo_detail_title")
+        : calendarView.value
+        ? t("todo_view_calendar")
         : t("todo_title")
     );
-    const pageClass = computed(() => (isMobile.value ? "todo-page todo-page-mobile-split" : "todo-page"));
+    const pageClass = computed(() => [
+      "todo-page",
+      { "todo-page-mobile-split": isMobile.value, "todo-page-calendar": calendarView.value },
+    ]);
     const selectedIndex = computed(() => tasks.value.findIndex((task) => task._key === selectedTaskKey.value));
     const selectedCanMoveUp = computed(() => selectedIndex.value > 0);
     const selectedCanMoveDown = computed(() => selectedIndex.value >= 0 && selectedIndex.value < tasks.value.length - 1);
@@ -964,6 +919,27 @@ const TodoView = {
 
     function showIndexView() {
       mobileEditorVisible.value = false;
+    }
+
+    function setTodoView(view) {
+      mobileEditorVisible.value = false;
+      const query = { ...route.query };
+      if (view === "calendar") {
+        selectCalendarDate({ date: "", title: "", task_ids: [], activate: true });
+        const now = new Date();
+        query.view = "calendar";
+        if (!/^\d{4}-\d{2}$/.test(trimText(query.month))) {
+          query.month = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+        }
+      } else {
+        delete query.view;
+        delete query.month;
+      }
+      void router.push({ query });
+    }
+
+    function onTodoViewChange(detail) {
+      setTodoView(detail?.tab?.id === "calendar" ? "calendar" : "list");
     }
 
     function taskTitle(task) {
@@ -1190,6 +1166,22 @@ const TodoView = {
       if (isMobile.value) {
         mobileEditorVisible.value = true;
       }
+    }
+
+    function selectCalendarDate(selection) {
+      selectedCalendarDate.value = trimText(selection?.date);
+      selectedCalendarDateTitle.value = trimText(selection?.title);
+      selectedCalendarTaskIDs.value = Array.isArray(selection?.task_ids)
+        ? selection.task_ids.map((id) => trimText(id)).filter(Boolean)
+        : [];
+      if (selection?.activate !== true) {
+        return;
+      }
+      commitSelectedTaskDraft();
+      selectedTaskKey.value = "";
+      selectedTaskDraft.value = null;
+      draftDirty.value = false;
+      mobileEditorVisible.value = false;
     }
 
     function selectHeartbeat() {
@@ -2354,9 +2346,15 @@ const TodoView = {
       orderedTasks,
       selectedTask,
       selectedTaskKey,
+      selectedCalendarDate,
+      selectedCalendarDateTitle,
+      selectedCalendarTasks,
       canSave,
       canRunSelectedTask,
       runningTaskKey,
+      calendarView,
+      todoViewTabs,
+      selectedTodoViewTab,
       showIndexPane,
       showEditorPane,
       mobileShowBack,
@@ -2422,7 +2420,10 @@ const TodoView = {
       selectHeartbeat,
       onHeartbeatContentChange,
       selectTask,
+      selectCalendarDate,
       showIndexView,
+      onTodoViewChange,
+      setTodoView,
       load,
       runSelectedTaskNow,
       save,
@@ -2445,12 +2446,28 @@ const TodoView = {
         </div>
       </template>
 
-      <div class="todo-workbench">
-        <aside v-if="showIndexPane" class="todo-index workspace-sidebar-section" :aria-label="t('todo_nav_title')">
+      <div :class="['todo-workbench', { 'is-calendar': calendarView }]">
+        <TodoCalendar
+          v-if="calendarView && !mobileShowBack"
+          :tasks="tasks"
+          :tasks-loading="loading"
+          :task-title="taskTitle"
+          :schedule-label="scheduleLabel"
+          @add-task="addTask"
+          @select-date="selectCalendarDate"
+          @select-task="selectTask"
+          @show-list="setTodoView('list')"
+        />
+
+        <aside v-if="!calendarView && showIndexPane" class="todo-index workspace-sidebar-section" :aria-label="t('todo_nav_title')">
           <div class="todo-index-head workspace-sidebar-head">
-            <div class="todo-index-copy">
-              <h3 class="todo-index-title workspace-section-title">{{ t("todo_nav_title") }}</h3>
-            </div>
+            <QTabs
+              class="todo-view-tabs todo-index-view-tabs"
+              :tabs="todoViewTabs"
+              :modelValue="selectedTodoViewTab"
+              variant="plain"
+              @change="onTodoViewChange"
+            />
             <QButton
               class="plain sm icon todo-index-new"
               :title="t('todo_action_add')"
@@ -2517,7 +2534,7 @@ const TodoView = {
           </div>
         </aside>
 
-        <QCard v-if="showEditorPane && heartbeatSelected" class="todo-editor-card todo-heartbeat-editor-card" variant="default">
+        <QCard v-if="!calendarView && showEditorPane && heartbeatSelected" class="todo-editor-card todo-heartbeat-editor-card" variant="default">
           <div class="todo-editor-shell todo-heartbeat-editor-shell">
             <header class="todo-editor-head">
               <div class="todo-editor-copy">
@@ -2554,7 +2571,11 @@ const TodoView = {
           </div>
         </QCard>
 
-        <QCard v-else-if="showEditorPane && selectedTask" class="todo-editor-card" variant="default">
+        <QCard
+          v-else-if="showEditorPane && selectedTask"
+          class="todo-editor-card"
+          variant="default"
+        >
           <div class="todo-editor-shell">
             <header class="todo-editor-head todo-task-editor-head">
               <div class="todo-editor-toolbar">
@@ -2869,6 +2890,38 @@ const TodoView = {
             </div>
 
           </div>
+        </QCard>
+        <QCard
+          v-else-if="calendarView && showEditorPane && selectedCalendarDate"
+          class="todo-calendar-day-detail-card todo-editor-card"
+          variant="default"
+        >
+          <section class="todo-calendar-day-detail-shell" :aria-label="t('todo_calendar_agenda')">
+            <header class="todo-calendar-day-detail-head">
+              <h3 class="todo-calendar-day-detail-title workspace-document-title">{{ selectedCalendarDateTitle }}</h3>
+              <span class="todo-calendar-day-detail-count">
+                {{ t("todo_calendar_item_count", { count: selectedCalendarTasks.length }) }}
+              </span>
+            </header>
+
+            <div v-if="selectedCalendarTasks.length > 0" class="todo-calendar-day-detail-items">
+              <button
+                v-for="task in selectedCalendarTasks"
+                :key="task._key"
+                type="button"
+                :class="['todo-calendar-day-detail-item', { 'is-disabled': task.enabled === false }]"
+                :aria-label="taskTitle(task)"
+                @click="selectTask(task)"
+              >
+                <span class="todo-calendar-day-detail-status" aria-hidden="true"></span>
+                <span class="todo-calendar-day-detail-copy">
+                  <span class="todo-calendar-day-detail-name">{{ taskTitle(task) }}</span>
+                  <span class="todo-calendar-day-detail-meta">{{ scheduleLabel(task) }}</span>
+                </span>
+              </button>
+            </div>
+            <p v-else class="todo-calendar-day-detail-empty">{{ t("todo_calendar_day_empty") }}</p>
+          </section>
         </QCard>
         <section v-else-if="showEditorPane" class="todo-placeholder">
           <div class="todo-placeholder-copy">

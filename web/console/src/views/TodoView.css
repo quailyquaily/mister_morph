@@ -40,14 +40,19 @@
 }
 
 .todo-workbench {
+  --todo-sidebar-width: 310px;
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(220px, var(--workspace-sidebar-max-width, 310px)) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, var(--todo-sidebar-width)) minmax(0, 1fr);
   grid-template-rows: auto;
   gap: 4px;
   align-items: stretch;
   min-width: 0;
   min-height: 100%;
+}
+
+.todo-workbench.is-calendar {
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.55fr);
 }
 
 .todo-index {
@@ -77,16 +82,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.todo-index-copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.todo-index-title {
-  margin: 0;
 }
 
 .todo-empty-list,
@@ -195,6 +190,105 @@
   min-width: 0;
   min-height: 100%;
   height: auto;
+}
+
+.todo-calendar-day-detail-card .q-card-body {
+  align-content: start;
+}
+
+.todo-calendar-day-detail-shell {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+}
+
+.todo-calendar-day-detail-head {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.todo-calendar-day-detail-title {
+  min-width: 0;
+  margin: 0;
+}
+
+.todo-calendar-day-detail-count,
+.todo-calendar-day-detail-meta,
+.todo-calendar-day-detail-empty {
+  color: var(--text-2);
+  font-size: var(--font-size-meta);
+}
+
+.todo-calendar-day-detail-items {
+  min-width: 0;
+  display: grid;
+}
+
+.todo-calendar-day-detail-item {
+  appearance: none;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 13px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--text-0);
+  text-align: left;
+  cursor: pointer;
+}
+
+.todo-calendar-day-detail-item:hover {
+  background: color-mix(in srgb, var(--q-c-blue) 5%, transparent);
+}
+
+.todo-calendar-day-detail-status {
+  width: 7px;
+  height: 7px;
+  background: var(--q-c-blue);
+}
+
+.todo-calendar-day-detail-item.is-disabled .todo-calendar-day-detail-status {
+  background: var(--text-3, var(--text-2));
+}
+
+.todo-calendar-day-detail-item.is-disabled .todo-calendar-day-detail-copy {
+  color: var(--text-2);
+}
+
+.todo-calendar-day-detail-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.todo-calendar-day-detail-name,
+.todo-calendar-day-detail-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todo-calendar-day-detail-name {
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.todo-calendar-day-detail-meta {
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.todo-calendar-day-detail-empty {
+  margin: 0;
+  padding: 18px 4px;
 }
 
 .todo-editor-shell {
@@ -804,6 +898,16 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   }
 }
 
+@container (max-width: 680px) {
+  .todo-repeat-controls.is-weekly {
+    grid-template-columns: 1fr;
+  }
+
+  .todo-weekday-picker {
+    grid-template-columns: repeat(4, minmax(34px, 1fr));
+  }
+}
+
 @media (max-width: 1080px) {
   .todo-weekday-picker {
     grid-template-columns: repeat(4, minmax(34px, 1fr));
@@ -819,6 +923,10 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
     grid-template-columns: 1fr;
     grid-template-rows: auto;
     min-height: auto;
+  }
+
+  .todo-workbench.is-calendar {
+    grid-template-columns: 1fr;
   }
 
   .todo-page-mobile-split .todo-workbench:has(> .todo-index) {
@@ -885,6 +993,10 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 
 @media (max-width: 620px) {
   .todo-page-bar {
+    gap: 6px;
+  }
+
+  .todo-index-head {
     gap: 6px;
   }
 
