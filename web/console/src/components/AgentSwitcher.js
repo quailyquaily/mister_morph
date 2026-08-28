@@ -111,6 +111,10 @@ const AgentSwitcher = {
       type: String,
       default: "",
     },
+    compact: {
+      type: Boolean,
+      default: false,
+    },
   },
   emits: ["change", "desk", "overview"],
   setup(props, { emit }) {
@@ -314,7 +318,7 @@ const AgentSwitcher = {
     };
   },
   template: `
-    <div ref="root" class="agent-switcher" :class="{ 'is-open': open }">
+    <div ref="root" class="agent-switcher" :class="{ 'is-open': open, 'is-compact': compact }">
       <button
         ref="trigger"
         type="button"

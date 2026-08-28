@@ -206,7 +206,7 @@ const routes = [
   {
     path: `${ENDPOINT_SCOPE_PATH}/chat/:topic_id`,
     component: ChatView,
-    meta: { endpointScoped: true },
+    meta: { endpointScoped: true, mobileBottomNav: false },
   },
   { path: `${ENDPOINT_SCOPE_PATH}/stats`, component: StatsView, meta: { endpointScoped: true } },
   { path: `${ENDPOINT_SCOPE_PATH}/audit`, component: AuditView, meta: { endpointScoped: true } },

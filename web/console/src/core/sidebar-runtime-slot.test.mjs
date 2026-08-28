@@ -4,14 +4,14 @@ import test from "node:test";
 
 const appNavListSource = new URL("../components/AppNavList.js", import.meta.url);
 const appSidebarSource = new URL("../components/AppSidebar.js", import.meta.url);
-const appMobileNavDrawerSource = new URL("../components/AppMobileNavDrawer.js", import.meta.url);
+const appMobileBottomNavSource = new URL("../components/AppMobileBottomNav.js", import.meta.url);
 const slotsSource = new URL("../ext/slots/index.js", import.meta.url);
 
 test("sidebar exposes a slot before the runtime nav link", async () => {
-  const [navList, sidebar, mobileDrawer, slots] = await Promise.all([
+  const [navList, sidebar, mobileBottomNav, slots] = await Promise.all([
     readFile(appNavListSource, "utf8"),
     readFile(appSidebarSource, "utf8"),
-    readFile(appMobileNavDrawerSource, "utf8"),
+    readFile(appMobileBottomNavSource, "utf8"),
     readFile(slotsSource, "utf8"),
   ]);
 
@@ -32,7 +32,7 @@ test("sidebar exposes a slot before the runtime nav link", async () => {
   assert.ok(slotIndex >= 0, "runtime slot marker missing");
   assert.ok(linkIndex > slotIndex, "runtime nav link should render after the slot");
 
-  for (const source of [sidebar, mobileDrawer]) {
+  for (const source of [sidebar, mobileBottomNav]) {
     assert.match(source, /:selectedEndpointItem="selectedEndpointItem"/);
     assert.match(source, /:t="t"/);
   }

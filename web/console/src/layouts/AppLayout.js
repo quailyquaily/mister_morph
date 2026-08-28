@@ -1,31 +1,34 @@
-import { provide } from "vue";
-
 import { useAppShell } from "../composables/useAppShell";
-import AppMobileNavDrawer from "../components/AppMobileNavDrawer";
+import AppMobileBottomNav from "../components/AppMobileBottomNav";
 import AppSidebar from "../components/AppSidebar";
 import "./AppLayout.css";
 
 const AppLayout = {
   components: {
     AppSidebar,
-    AppMobileNavDrawer,
+    AppMobileBottomNav,
   },
   setup() {
-    const shell = useAppShell();
-    provide("app-shell-chrome", {
-      shouldShowMobileNavTrigger: () => shell.mobileMode.value && shell.inWorkspacePage.value,
-      openMobileNav: shell.openMobileNav,
-      drawerNavLabel: () => shell.t("drawer_nav"),
-    });
-    return shell;
+    return useAppShell();
   },
   template: `
     <div>
       <section v-if="inShellless">
         <RouterView :key="endpointViewKey" />
       </section>
-      <section v-else class="app-shell">
-        <div :class="mobileMode || inStandalone ? 'workspace is-mobile' : 'workspace'">
+      <section
+        v-else
+        class="app-shell"
+        :style="{ '--app-viewport-height': appViewportHeight }"
+      >
+        <div
+          :class="[
+            'workspace',
+            {
+              'is-mobile': mobileMode || inStandalone,
+            },
+          ]"
+        >
           <AppSidebar
             v-if="!mobileMode && !inStandalone"
             :t="t"
@@ -50,20 +53,18 @@ const AppLayout = {
             <RouterView :key="endpointViewKey" />
           </main>
         </div>
-        <AppMobileNavDrawer
-          v-if="mobileMode && !inStandalone"
-          v-model="mobileNavOpen"
+        <AppMobileBottomNav
+          v-if="mobileBottomNavVisible"
+          v-model="mobileMoreOpen"
           :t="t"
-          :title="t('drawer_nav')"
           :endpointItems="endpointItems"
           :selectedEndpointItem="selectedEndpointItem"
           :navItems="navItems"
           :currentPath="currentPath"
-          @navigate="goTo"
-          @preload="preloadNavItem"
+          @navigate="goTo($event, false)"
+          @preload="preloadNavItem($event, false)"
           @endpoint-change="onEndpointChange"
-          @go-settings="goSettings"
-          @close="closeMobileNav"
+          @close="closeMobileMore"
         />
       </section>
     </div>

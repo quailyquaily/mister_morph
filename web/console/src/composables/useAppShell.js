@@ -72,8 +72,14 @@ function useAppShell() {
           }
     )
   );
-  const mobileNavOpen = ref(false);
+  const mobileMoreOpen = ref(false);
   const mobileMode = ref(window.innerWidth <= 980);
+  const appViewportHeight = ref(
+    `${Math.round(window.visualViewport?.height || window.innerHeight)}px`,
+  );
+  const mobileBottomNavVisible = computed(
+    () => mobileMode.value && !inStandalone.value && route.meta?.mobileBottomNav !== false,
+  );
   const endpointItems = computed(() =>
     visibleEndpoints(endpointState.items).map((item) => {
       const display = endpointDisplayItem(item, t);
@@ -93,8 +99,11 @@ function useAppShell() {
 
   function syncViewport() {
     mobileMode.value = window.innerWidth <= 980;
+    appViewportHeight.value = `${Math.round(
+      window.visualViewport?.height || window.innerHeight,
+    )}px`;
     if (!mobileMode.value) {
-      mobileNavOpen.value = false;
+      mobileMoreOpen.value = false;
     }
   }
 
@@ -149,11 +158,11 @@ function useAppShell() {
     return () => window.clearTimeout(handle);
   }
 
-  function navTargetPath(item) {
+  function navTargetPath(item, restoreChatTopic = true) {
     if (!item || typeof item.id !== "string" || !item.id) {
       return "";
     }
-    if (item.pagePath === "/chat") {
+    if (restoreChatTopic && item.pagePath === "/chat") {
       return endpointRoutePath(
         endpointState.selectedRef,
         chatPagePath(lastTopicID(chatSubmitEndpointRef(endpointState.selectedRef))),
@@ -162,8 +171,8 @@ function useAppShell() {
     return item.id;
   }
 
-  function preloadNavItem(item) {
-    const nextPath = navTargetPath(item);
+  function preloadNavItem(item, restoreChatTopic = true) {
+    const nextPath = navTargetPath(item, restoreChatTopic);
     if (!nextPath || nextPath === route.path || navPreloadCancels.has(nextPath)) {
       return;
     }
@@ -177,10 +186,12 @@ function useAppShell() {
   onMounted(() => {
     syncViewport();
     window.addEventListener("resize", syncViewport);
+    window.visualViewport?.addEventListener("resize", syncViewport);
     void refreshEndpointsAndPreload();
   });
   onUnmounted(() => {
     window.removeEventListener("resize", syncViewport);
+    window.visualViewport?.removeEventListener("resize", syncViewport);
     for (const cancel of navPreloadCancels.values()) {
       cancel();
     }
@@ -190,7 +201,7 @@ function useAppShell() {
   watch(
     () => route.fullPath,
     () => {
-      mobileNavOpen.value = false;
+      mobileMoreOpen.value = false;
       void refreshEndpointsAndPreload();
     }
   );
@@ -202,27 +213,23 @@ function useAppShell() {
     }
   );
 
-  function goTo(item) {
-    const nextPath = navTargetPath(item);
+  function goTo(item, restoreChatTopic = true) {
+    const nextPath = navTargetPath(item, restoreChatTopic);
     if (!nextPath) {
       return;
     }
-    mobileNavOpen.value = false;
+    mobileMoreOpen.value = false;
     if (route.path !== nextPath) {
       router.push(nextPath);
     }
   }
 
-  function openMobileNav() {
-    mobileNavOpen.value = true;
-  }
-
-  function closeMobileNav() {
-    mobileNavOpen.value = false;
+  function closeMobileMore() {
+    mobileMoreOpen.value = false;
   }
 
   function onEndpointChange(item) {
-    mobileNavOpen.value = false;
+    mobileMoreOpen.value = false;
     const targetRef = typeof item?.value === "string" ? item.value.trim() : "";
     const canSelect = visibleEndpoints(endpointState.items, { connectedOnly: true }).some(
       (endpoint) => endpoint.endpoint_ref === targetRef,
@@ -230,10 +237,13 @@ function useAppShell() {
     if (!canSelect) {
       return;
     }
+    const chatTopicID = mobileMode.value
+      ? ""
+      : lastTopicID(chatSubmitEndpointRef(targetRef));
     const nextPath = endpointSwitchPath(
       targetRef,
       route.path,
-      lastTopicID(chatSubmitEndpointRef(targetRef)),
+      chatTopicID,
     );
     if (nextPath && route.path !== nextPath) {
       router.push(nextPath);
@@ -241,7 +251,7 @@ function useAppShell() {
   }
 
   function goSettings() {
-    mobileNavOpen.value = false;
+    mobileMoreOpen.value = false;
     const nextPath = endpointRoutePath(endpointState.selectedRef, "/settings");
     if (nextPath && route.path !== nextPath) {
       router.push(nextPath);
@@ -261,10 +271,11 @@ function useAppShell() {
     navItems,
     goTo,
     preloadNavItem,
-    openMobileNav,
-    closeMobileNav,
+    closeMobileMore,
     mobileMode,
-    mobileNavOpen,
+    appViewportHeight,
+    mobileBottomNavVisible,
+    mobileMoreOpen,
     endpointItems,
     selectedEndpointItem,
     onEndpointChange,

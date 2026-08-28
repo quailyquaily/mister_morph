@@ -72,7 +72,7 @@ const AppNavList = {
     },
   },
   template: `
-    <div :class="mobile ? 'sidebar-nav mobile-drawer-nav' : 'sidebar-nav'">
+    <div :class="mobile ? 'sidebar-nav mobile-nav-list' : 'sidebar-nav'">
       <template v-for="item in navItems" :key="keyPrefix + item.id">
         <QDivider v-if="item.separator" class="nav-divider" aria-hidden="true" />
         <template v-else>

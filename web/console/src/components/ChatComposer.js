@@ -219,6 +219,10 @@ export default {
       type: String,
       default: "",
     },
+    submitOnEnter: {
+      type: Boolean,
+      default: true,
+    },
     disclaimer: {
       type: String,
       default: "",
@@ -678,6 +682,7 @@ export default {
         return;
       }
       if (
+        props.submitOnEnter &&
         event?.key === "Enter" &&
         !event.shiftKey &&
         !event.altKey &&
@@ -758,7 +763,11 @@ export default {
           if (!field || field.disabled) {
             return;
           }
-          field.focus({ preventScroll: true });
+          if (props.submitOnEnter) {
+            field.focus({ preventScroll: true });
+          } else {
+            field.focus();
+          }
           if (!preserveSelection) {
             const length = field.value.length;
             field.setSelectionRange(length, length);

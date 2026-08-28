@@ -32,22 +32,6 @@
   min-width: 0;
 }
 
-.page-bar-nav-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  min-width: 32px;
-  min-height: 32px;
-  padding: 0 6px !important;
-}
-
-.page-bar-nav-trigger .icon {
-  width: 13px;
-  min-width: 13px;
-  height: 13px;
-}
-
 .page-bar-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -103,6 +87,16 @@
 
   .page-bar-actions {
     max-width: 62%;
+  }
+}
+
+@media (max-width: 920px) {
+  .page-view.page-view-hide-mobile-bar {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .page-view.page-view-hide-mobile-bar > .page-bar {
+    display: none;
   }
 }
 

@@ -3506,7 +3506,7 @@ const SettingsView = {
     }
 
     function isSelectedSection(item) {
-      return String(item?.id || "") === selectedSectionID.value;
+      return !isMobile.value && String(item?.id || "") === selectedSectionID.value;
     }
 
     function sectionClass(item) {
@@ -3775,6 +3775,7 @@ const SettingsView = {
       selectedSection,
       selectedEndpointIsConsole,
       activeSaveKind,
+      isMobile,
       showIndexPane,
       showPanelPane,
       mobileShowBack,
@@ -3926,12 +3927,12 @@ const SettingsView = {
     };
   },
   template: `
-    <AppPage :title="t('settings_title')" :class="pageClass" :showMobileNavTrigger="!mobileShowBack">
+    <AppPage :title="t('settings_title')" :class="pageClass">
       <template #leading>
         <div class="settings-page-bar">
           <QButton
             v-if="mobileShowBack"
-            class="outlined xs icon settings-page-bar-back"
+            class="plain xs icon settings-page-bar-back"
             :title="t('settings_title')"
             :aria-label="t('settings_title')"
             @click="showIndexView"

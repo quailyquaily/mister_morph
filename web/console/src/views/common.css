@@ -358,6 +358,12 @@ body:has(.q-dropdown-menu.llm-profile-dropdown .q-dropdown-menu-action.expanded)
   background: color-mix(in srgb, var(--q-bg-paper) 92%, transparent);
 }
 
+@media (max-width: 920px) {
+  .page-view .workspace-sidebar-section {
+    --workspace-sidebar-list-pad: var(--workspace-sidebar-list-gutter) 0;
+  }
+}
+
 @media (max-width: 620px) {
   .workspace-sidebar-section {
     max-width: none;

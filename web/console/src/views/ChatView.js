@@ -540,7 +540,9 @@ const ChatView = {
     const route = useRoute();
     const router = useRouter();
     const mobileMode = ref(window.innerWidth <= 920);
-    const mobileTopicView = ref("chat");
+    const mobileTopicView = ref(
+      mobileMode.value && !normalizeTopicID(route.params.topic_id) ? "topics" : "chat",
+    );
     const chatHistoryItems = shallowRef([]);
     const copiedHistoryItemID = ref("");
     const historyLoading = ref(false);
@@ -744,9 +746,12 @@ const ChatView = {
         composerDisabled.value ||
         (!composerStopMode.value && (composerUploading.value || !composerHasInput.value))
     );
-    const composerActionLabel = computed(() =>
-      composerStopMode.value ? t("chat_action_stop") : `${t("chat_action_send")} (Enter)`
-    );
+    const composerActionLabel = computed(() => {
+      if (composerStopMode.value) {
+        return t("chat_action_stop");
+      }
+      return mobileMode.value ? t("chat_action_send") : `${t("chat_action_send")} (Enter)`;
+    });
     const composerPlaceholder = computed(() =>
       t("chat_input_placeholder", {
         name: displayAgentName.value,
@@ -914,16 +919,16 @@ const ChatView = {
       () => mobileTopicSplitEnabled.value && hasVisibleTopics.value && mobileTopicView.value === "chat"
     );
     const showTopicSidebar = computed(() => {
-      if (!consoleTopicsEnabled.value || !hasVisibleTopics.value) {
+      if (!consoleTopicsEnabled.value) {
         return false;
       }
       if (!mobileTopicSplitEnabled.value) {
-        return true;
+        return hasVisibleTopics.value;
       }
       return mobileTopicView.value === "topics";
     });
     const showChatPane = computed(() => {
-      if (!mobileTopicSplitEnabled.value || !hasVisibleTopics.value) {
+      if (!mobileTopicSplitEnabled.value) {
         return true;
       }
       return mobileTopicView.value === "chat";
@@ -2667,14 +2672,22 @@ const ChatView = {
 
     function topicItemClass(topic) {
       const classes = ["chat-topic-item", "workspace-sidebar-item"];
-      if (normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value) {
+      if (
+        !mobileMode.value &&
+        normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) &&
+        !creatingTopic.value
+      ) {
         classes.push("is-active");
       }
       return classes.join(" ");
     }
 
     function topicIsActive(topic) {
-      return normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value;
+      return (
+        !mobileMode.value &&
+        normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) &&
+        !creatingTopic.value
+      );
     }
 
     function pushHistoryItem(partial) {
@@ -3682,7 +3695,6 @@ const ChatView = {
     onMounted(() => {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
-      focusComposer();
       dialogShellPreloadCancel = scheduleIdleCallback(() => {
         dialogShellPreloadCancel = null;
         void loadAppDialogShell().catch(() => {});
@@ -4008,12 +4020,17 @@ const ChatView = {
     };
   },
   template: `
-    <AppPage :title="t('chat_title')" :class="pageClass" :hideDesktopBar="true" :showMobileNavTrigger="!mobileShowBack">
+    <AppPage
+      :title="t('chat_title')"
+      :class="pageClass"
+      :hideDesktopBar="true"
+      :hideMobileBar="showTopicSidebar"
+    >
       <template v-if="consoleTopicsEnabled" #leading>
         <div :class="mobileTopicSplitEnabled ? 'chat-page-bar-mobile' : 'chat-page-bar-desktop'">
           <QButton
             v-if="mobileShowBack"
-            class="outlined xs icon chat-page-bar-back"
+            class="plain xs icon chat-page-bar-back"
             :title="t('chat_topics_title')"
             :aria-label="t('chat_topics_title')"
             @click="showTopicsView"
@@ -4064,7 +4081,6 @@ const ChatView = {
                 <QIconPlus class="icon" />
               </QButton>
             </header>
-            <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
             <div :class="topicsLoading ? 'chat-topic-list workspace-sidebar-list is-busy' : 'chat-topic-list workspace-sidebar-list'">
               <button
                 v-for="topic in visibleTopics"
@@ -4137,6 +4153,7 @@ const ChatView = {
                 :file-items="composerFiles"
                 :file-labels="composerFileLabels"
                 :send-label="composerActionLabel"
+                :submit-on-enter="!mobileMode"
                 :disclaimer="composerDisclaimer"
                 :input-history="composerInputHistory"
                 :commands="composerCommands"
@@ -4219,6 +4236,7 @@ const ChatView = {
               :file-items="composerFiles"
               :file-labels="composerFileLabels"
               :send-label="composerActionLabel"
+              :submit-on-enter="!mobileMode"
               :disclaimer="composerDisclaimer"
               :input-history="composerInputHistory"
               :commands="composerCommands"

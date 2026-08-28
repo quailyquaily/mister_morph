@@ -1,5 +1,3 @@
-import { inject } from "vue";
-
 import "./AppPage.css";
 
 const AppPage = {
@@ -12,28 +10,23 @@ const AppPage = {
       type: Boolean,
       default: false,
     },
-    showMobileNavTrigger: {
+    hideMobileBar: {
       type: Boolean,
-      default: true,
+      default: false,
     },
   },
-  setup() {
-    const chrome = inject("app-shell-chrome", null);
-    return { chrome };
-  },
   template: `
-    <section :class="hideDesktopBar ? 'page-view page-view-hide-desktop-bar' : 'page-view'">
+    <section
+      :class="[
+        'page-view',
+        {
+          'page-view-hide-desktop-bar': hideDesktopBar,
+          'page-view-hide-mobile-bar': hideMobileBar,
+        },
+      ]"
+    >
       <header class="page-bar">
         <div class="page-bar-leading">
-          <QButton
-            v-if="chrome && showMobileNavTrigger && chrome.shouldShowMobileNavTrigger()"
-            class="outlined xs icon page-bar-nav-trigger"
-            :title="chrome.drawerNavLabel()"
-            :aria-label="chrome.drawerNavLabel()"
-            @click="chrome.openMobileNav"
-          >
-            <QIconMenu class="icon" />
-          </QButton>
           <slot name="leading">
             <h2 class="page-title page-bar-title workspace-section-title">{{ title }}</h2>
           </slot>

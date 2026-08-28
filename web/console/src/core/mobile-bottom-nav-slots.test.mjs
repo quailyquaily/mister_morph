@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const mobileDrawerSource = new URL("../components/AppMobileNavDrawer.js", import.meta.url);
+const mobileBottomNavSource = new URL("../components/AppMobileBottomNav.js", import.meta.url);
 
-test("mobile nav drawer renders the sidebar bottom-left extension slot", async () => {
-  const source = await readFile(mobileDrawerSource, "utf8");
+test("mobile More panel renders the sidebar bottom-left extension slot", async () => {
+  const source = await readFile(mobileBottomNavSource, "utf8");
 
   assert.match(source, /import\s+\{[^}]*\bcomputed\b[^}]*\}\s+from "vue";/);
   assert.match(source, /import\s+\{\s*uiSlots\s*\}\s+from "\.\.\/ext\/slots";/);

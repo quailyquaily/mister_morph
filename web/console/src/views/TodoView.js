@@ -1105,7 +1105,7 @@ const TodoView = {
 
     function taskClass(task) {
       const classes = ["todo-index-item", "workspace-sidebar-item"];
-      if (task?._key === selectedTaskKey.value) {
+      if (!isMobile.value && task?._key === selectedTaskKey.value) {
         classes.push("is-active");
       }
       return classes.join(" ");
@@ -1113,7 +1113,7 @@ const TodoView = {
 
     function heartbeatClass() {
       const classes = ["todo-index-item", "todo-heartbeat-item", "workspace-sidebar-item"];
-      if (heartbeatSelected.value) {
+      if (!isMobile.value && heartbeatSelected.value) {
         classes.push("is-active");
       }
       return classes.join(" ");
@@ -2355,6 +2355,7 @@ const TodoView = {
       calendarView,
       todoViewTabs,
       selectedTodoViewTab,
+      isMobile,
       showIndexPane,
       showEditorPane,
       mobileShowBack,
@@ -2430,12 +2431,17 @@ const TodoView = {
     };
   },
   template: `
-    <AppPage :title="t('todo_title')" :class="pageClass" :hideDesktopBar="true" :showMobileNavTrigger="!mobileShowBack">
+    <AppPage
+      :title="t('todo_title')"
+      :class="pageClass"
+      :hideDesktopBar="true"
+      :hideMobileBar="showIndexPane"
+    >
       <template #leading>
         <div class="todo-page-bar">
           <QButton
             v-if="mobileShowBack"
-            class="outlined xs icon todo-page-bar-back"
+            class="plain xs icon todo-page-bar-back"
             :title="t('todo_nav_title')"
             :aria-label="t('todo_nav_title')"
             @click="showIndexView"
@@ -2488,7 +2494,7 @@ const TodoView = {
                 <button
                   type="button"
                   :class="heartbeatClass()"
-                  :aria-pressed="heartbeatSelected"
+                  :aria-pressed="isMobile ? undefined : heartbeatSelected"
                   @click="selectHeartbeat"
                 >
                   <span class="workspace-sidebar-item-copy">
@@ -2505,14 +2511,18 @@ const TodoView = {
             </section>
 
             <section class="todo-index-group todo-task-group">
-              <div v-if="tasks.length > 0" class="todo-index-items workspace-sidebar-list" role="listbox">
+              <div
+                v-if="tasks.length > 0"
+                class="todo-index-items workspace-sidebar-list"
+                :role="isMobile ? undefined : 'listbox'"
+              >
                 <div
                   v-for="task in orderedTasks"
                   :key="task._key"
                   :class="taskClass(task)"
-                  role="option"
+                  :role="isMobile ? undefined : 'option'"
                   tabindex="0"
-                  :aria-selected="task._key === selectedTaskKey"
+                  :aria-selected="isMobile ? undefined : task._key === selectedTaskKey"
                   @click="selectTask(task)"
                   @keydown.enter.prevent="selectTask(task)"
                   @keydown.space.prevent="selectTask(task)"

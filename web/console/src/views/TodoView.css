@@ -937,6 +937,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   }
 
   .todo-index {
+    --workspace-sidebar-head-pad: 0 var(--content-gutter-x);
     position: static;
     height: 100%;
     min-height: 0;

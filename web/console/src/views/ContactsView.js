@@ -261,7 +261,7 @@ const ContactsView = {
 
     function contactItemClass(item) {
       const classes = ["contacts-index-item", "workspace-sidebar-item"];
-      if (String(item?.contact_id || "").trim() === selectedContactID.value) {
+      if (!isMobile.value && String(item?.contact_id || "").trim() === selectedContactID.value) {
         classes.push("is-active");
       }
       if (isAgent(item)) {
@@ -445,6 +445,7 @@ const ContactsView = {
       editorSaving,
       editorErr,
       saveDisabled,
+      isMobile,
       showIndexPane,
       showEditorPane,
       mobileShowBack,
@@ -476,13 +477,13 @@ const ContactsView = {
       :title="t('contacts_title')"
       :class="pageClass"
       :hideDesktopBar="true"
-      :showMobileNavTrigger="!mobileShowBack"
+      :hideMobileBar="showIndexPane"
     >
       <template #leading>
         <div class="contacts-page-bar">
           <QButton
             v-if="mobileShowBack"
-            class="outlined xs icon contacts-page-bar-back"
+            class="plain xs icon contacts-page-bar-back"
             :title="t('contacts_title')"
             :aria-label="t('contacts_title')"
             @click="showIndexView"
@@ -514,14 +515,18 @@ const ContactsView = {
             </div>
             <QFence v-else-if="err" class="contacts-index-error" type="danger" icon="QIconCloseCircle" :text="err" />
 
-            <div v-if="!loading && filteredItems.length > 0" class="contacts-index-list workspace-sidebar-list" role="listbox">
+            <div
+              v-if="!loading && filteredItems.length > 0"
+              class="contacts-index-list workspace-sidebar-list"
+              :role="isMobile ? undefined : 'listbox'"
+            >
               <button
                 v-for="item in filteredItems"
                 :key="item.contact_id"
                 type="button"
                 :class="contactItemClass(item)"
-                role="option"
-                :aria-selected="selectedContact?.contact_id === item.contact_id"
+                :role="isMobile ? undefined : 'option'"
+                :aria-selected="isMobile ? undefined : selectedContact?.contact_id === item.contact_id"
                 :aria-label="contactAriaLabel(item)"
                 @click="selectContact(item)"
               >

@@ -136,12 +136,6 @@
   height: 13px;
 }
 
-.chat-topic-loading {
-  margin: 0;
-  font-size: var(--font-size-ui);
-  line-height: 1.45;
-}
-
 .chat-topic-list {
   min-height: 0;
   overflow-x: hidden;

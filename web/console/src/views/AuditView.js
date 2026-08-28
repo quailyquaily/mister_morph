@@ -343,7 +343,11 @@ const AuditView = {
     }
 
     function isSelectedFileItem(item) {
-      return selectedStream.value === AUDIT_STREAM_VALUE && String(item?.value || "") === selectedFile.value;
+      return (
+        !isMobile.value &&
+        selectedStream.value === AUDIT_STREAM_VALUE &&
+        String(item?.value || "") === selectedFile.value
+      );
     }
 
     function auditFileClass(item) {
@@ -356,7 +360,7 @@ const AuditView = {
 
     function taskStreamClass() {
       const classes = ["audit-index-item", "workspace-sidebar-item"];
-      if (isTasksStreamSelected.value) {
+      if (!isMobile.value && isTasksStreamSelected.value) {
         classes.push("is-active");
       }
       return classes.join(" ");
@@ -924,12 +928,17 @@ const AuditView = {
       };
   },
   template: `
-    <AppPage :title="t('audit_title')" :class="pageClass" :hideDesktopBar="true" :showMobileNavTrigger="!mobileShowBack">
+    <AppPage
+      :title="t('audit_title')"
+      :class="pageClass"
+      :hideDesktopBar="true"
+      :hideMobileBar="showIndexPane"
+    >
       <template #leading>
         <div class="audit-page-bar">
           <QButton
             v-if="mobileShowBack"
-            class="outlined xs icon audit-page-bar-back"
+            class="plain xs icon audit-page-bar-back"
             :title="t('audit_title')"
             :aria-label="t('audit_title')"
             @click="showIndexView"
@@ -974,7 +983,7 @@ const AuditView = {
                     <span class="audit-index-item-name workspace-sidebar-item-title">{{ t("tasks_title") }}</span>
                   </span>
                   <span class="workspace-sidebar-item-marker" aria-hidden="true">
-                    <QBadge v-if="isTasksStreamSelected" dot type="primary" size="sm" />
+                    <QBadge v-if="!isMobile && isTasksStreamSelected" dot type="primary" size="sm" />
                   </span>
                 </button>
               </div>

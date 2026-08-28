@@ -350,7 +350,7 @@
   .todo-calendar-toolbar-primary {
     grid-column: 1 / -1;
     min-height: var(--workspace-head-height);
-    padding-left: var(--content-gutter-x);
+    padding: 0 var(--content-gutter-x);
   }
 
   .todo-calendar-month-nav {
