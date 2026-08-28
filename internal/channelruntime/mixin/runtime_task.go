@@ -168,7 +168,7 @@ func runMixinTask(ctx context.Context, rt *taskruntime.Runtime, toolAPI mixintoo
 		boundaries = []string{checkpoint.HistoryBoundary}
 	}
 	registry := buildMixinRegistry(rt.BaseRegistry, job.ChatType)
-	if err := registerMixinChannelTools(registry, toolAPI, job.ConversationID, job.FromUserID, job.FileCacheDir, mixinFileMaxBytes); err != nil {
+	if err := registerMixinChannelTools(registry, toolAPI, job.ConversationID, mixinReplyRecipient(job.ChatType, job.FromUserID), job.FileCacheDir, mixinFileMaxBytes); err != nil {
 		return nil, nil, nil, err
 	}
 	meta := taskruntime.ApplyObservationMeta(map[string]any{
@@ -384,8 +384,8 @@ func newMixinBusOutbound(conversationID, recipientID, text, quoteMessageID, corr
 	conversationID = strings.TrimSpace(conversationID)
 	recipientID = strings.TrimSpace(recipientID)
 	text = strings.TrimSpace(text)
-	if conversationID == "" || recipientID == "" || text == "" {
-		return busruntime.BusMessage{}, "", fmt.Errorf("conversation_id, recipient_id, and text are required")
+	if conversationID == "" || text == "" {
+		return busruntime.BusMessage{}, "", fmt.Errorf("conversation_id and text are required")
 	}
 	messageID := uuid.NewString()
 	now := time.Now().UTC()
@@ -417,6 +417,13 @@ func newMixinBusOutbound(conversationID, recipientID, text, quoteMessageID, corr
 
 func isMixinGroup(chatType string) bool {
 	return strings.EqualFold(strings.TrimSpace(chatType), "GROUP")
+}
+
+func mixinReplyRecipient(chatType, fromUserID string) string {
+	if isMixinGroup(chatType) {
+		return ""
+	}
+	return strings.TrimSpace(fromUserID)
 }
 
 func buildMixinRegistry(base *tools.Registry, chatType string) *tools.Registry {

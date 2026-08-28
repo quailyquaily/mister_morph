@@ -155,7 +155,8 @@ func TestSendMixinTextSplitsWithStableIDs(t *testing.T) {
 
 	api := &fakeMixinAPI{}
 	tracker := newRecentMessageTracker(4)
-	err := sendMixinText(context.Background(), api, tracker, testConversationID, testUserID, "hello", mixinbus.SendTextOptions{
+	sender := newMixinMessageSender(api, testBotID, tracker)
+	err := sendMixinText(context.Background(), sender, testConversationID, testUserID, "hello", mixinbus.SendTextOptions{
 		MessageID:      "44444444-4444-4444-4444-444444444444",
 		QuoteMessageID: "55555555-5555-5555-5555-555555555555",
 	})

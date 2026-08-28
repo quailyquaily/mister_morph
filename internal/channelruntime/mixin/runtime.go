@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,7 +57,14 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		return err
 	}
 
-	api, blaze, err := mixinProtocolClients(opts, logger)
+	var connected atomic.Bool
+	onConnectionChange := func(value bool) {
+		connected.Store(value)
+		if opts.OnConnectionChange != nil {
+			opts.OnConnectionChange(value)
+		}
+	}
+	api, blaze, err := mixinProtocolClients(opts, logger, onConnectionChange)
 	if err != nil {
 		return err
 	}
@@ -68,6 +76,8 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		return fmt.Errorf("load mixin bot profile: user_id is required")
 	}
 	logger.Info("mixin_profile_loaded", "user_id", bot.UserID, "identity_number", bot.IdentityNumber, "name", bot.FullName)
+	recentOutbound := newRecentMessageTracker(256)
+	messageSender := newMixinMessageSender(api, bot.UserID, recentOutbound)
 
 	var untriggeredRecorder *runtimecore.UntriggeredRecorder
 	if opts.RecordUntriggered {
@@ -135,10 +145,9 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if err != nil {
 		return err
 	}
-	recentOutbound := newRecentMessageTracker(256)
 	deliveryAdapter, err := mixinbus.NewDeliveryAdapter(mixinbus.DeliveryAdapterOptions{
 		SendText: func(sendCtx context.Context, target mixinbus.DeliveryTarget, text string, sendOpts mixinbus.SendTextOptions) error {
-			return sendMixinText(sendCtx, api, recentOutbound, target.ConversationID, target.RecipientID, text, sendOpts)
+			return sendMixinText(sendCtx, messageSender, target.ConversationID, target.RecipientID, text, sendOpts)
 		},
 	})
 	if err != nil {
@@ -197,10 +206,10 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			return
 		}
 		runCtx := taskruntime.WithContextCompactionNotification(lease.Context, logger, func(notifyCtx context.Context, event agent.Event, text string) error {
-			_, notifyErr := publishMixinBusOutbound(notifyCtx, bus, job.ConversationID, job.FromUserID, text, job.MessageID, fmt.Sprintf("mixin:context-compaction:%s:%d", job.TaskID, event.Step))
+			_, notifyErr := publishMixinBusOutbound(notifyCtx, bus, job.ConversationID, mixinReplyRecipient(job.ChatType, job.FromUserID), text, job.MessageID, fmt.Sprintf("mixin:context-compaction:%s:%d", job.TaskID, event.Step))
 			return notifyErr
 		})
-		final, _, loadedSkills, runErr := runMixinTask(runCtx, bundle.TaskRuntime, api, job, prior, skills, lease.SteerQueue)
+		final, _, loadedSkills, runErr := runMixinTask(runCtx, bundle.TaskRuntime, messageSender, job, prior, skills, lease.SteerQueue)
 		userStopped := lease.UserStopped()
 		lease.Finish()
 		if runErr != nil {
@@ -211,7 +220,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			markMixinTaskFailed(logger, daemonStore, job.TaskID, displayErr, userStopped)
 			logger.Warn("mixin_task_error", "conversation_id", job.ConversationID, "message_id", job.MessageID, "error", displayErr)
 			if !userStopped && workerCtx.Err() == nil {
-				_, _ = publishMixinBusOutbound(workerCtx, bus, job.ConversationID, job.FromUserID, "error: "+displayErr, job.MessageID, "mixin:error:"+job.TaskID)
+				_, _ = publishMixinBusOutbound(workerCtx, bus, job.ConversationID, mixinReplyRecipient(job.ChatType, job.FromUserID), "error: "+displayErr, job.MessageID, "mixin:error:"+job.TaskID)
 			}
 			return
 		}
@@ -246,7 +255,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				markMixinTaskFailed(logger, daemonStore, job.TaskID, err.Error(), true)
 				return
 			}
-			if _, err := publishMixinBusOutboundAndWait(workerCtx, bus, deliveryReceipts, job.ConversationID, job.FromUserID, output, job.MessageID, "mixin:message:"+job.TaskID); err != nil {
+			if _, err := publishMixinBusOutboundAndWait(workerCtx, bus, deliveryReceipts, job.ConversationID, mixinReplyRecipient(job.ChatType, job.FromUserID), output, job.MessageID, "mixin:message:"+job.TaskID); err != nil {
 				markMixinTaskFailed(logger, daemonStore, job.TaskID, "send mixin response: "+err.Error(), false)
 				return
 			}
@@ -305,9 +314,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 					Approve: approvals.approve, Deny: approvals.deny,
 				},
 				Overview: func(context.Context) (map[string]any, error) {
-					return map[string]any{"channel": map[string]any{
-						"configured": true, "running": "mixin", "mixin_configured": true, "mixin_running": true,
-					}}, nil
+					return map[string]any{"channel": mixinChannelOverview(connected.Load())}, nil
 				},
 				AgentSettingsEnabled: true, AgentSettingsOwner: d.AgentSettingsOwner, AgentSettingsReader: d.AgentSettingsReader, HealthEnabled: true,
 			},
@@ -341,7 +348,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			return true, nil
 		}
 		pairedAgent := false
-		if inbound.FromIsAgent && !isGroup {
+		if !isGroup {
 			peer := mixinInboundAgentPeer(mixinapi.User{
 				UserID: inbound.FromUserID, IdentityNumber: inbound.IdentityNumber, FullName: inbound.DisplayName, AppID: "agent",
 			}, inbound.ConversationID)
@@ -351,7 +358,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				logger.Warn("mixin_agent_pair_lookup_failed", "conversation_id", inbound.ConversationID, "message_id", inbound.MessageID, "peer_agent_id", peer.ID, "error", pairLookupErr.Error())
 			}
 		}
-		authorized := mixinConversationAuthorized(allowedConversations, inbound.ConversationID, isGroup, inbound.FromIsAgent, pairedAgent)
+		authorized := mixinConversationAuthorized(allowedConversations, inbound.ConversationID, isGroup, pairedAgent)
 		if !authorized {
 			logger.Debug("mixin_unauthorized_conversation", "conversation_id", inbound.ConversationID, "message_id", inbound.MessageID, "from_user_id", inbound.FromUserID, "from_is_agent", inbound.FromIsAgent)
 		}
@@ -359,6 +366,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 	ingress.onConversationInvalidated = func(conversationID string) {
 		savedChatProfiles.Delete(conversationID)
+		messageSender.InvalidateConversation(conversationID)
 	}
 	enqueueInbound := func(handlerCtx context.Context, message busruntime.BusMessage) error {
 		inbound, err := mixinbus.InboundMessageFromBusMessage(message)
@@ -413,7 +421,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		}
 		if isMixinStopCommand(text) {
 			result := runControl.Stop("mixin", conversationKey, "/stop")
-			_, err := publishMixinBusOutbound(handlerCtx, bus, inbound.ConversationID, inbound.FromUserID, runtimecontrol.StopFeedback(result.Found), inbound.MessageID, "mixin:stop:"+inbound.MessageID)
+			_, err := publishMixinBusOutbound(handlerCtx, bus, inbound.ConversationID, mixinReplyRecipient(inbound.ChatType, inbound.FromUserID), runtimecontrol.StopFeedback(result.Found), inbound.MessageID, "mixin:stop:"+inbound.MessageID)
 			return err
 		}
 		if approvalID, approved, ok := parseMixinApprovalCommand(text); ok {
@@ -425,7 +433,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				response = "Approval failed: " + strings.TrimSpace(decisionErr.Error())
 				logger.Warn("mixin_approval_decision_error", "approval_request_id", approvalID, "conversation_id", inbound.ConversationID, "user_id", inbound.FromUserID, "error", decisionErr.Error())
 			}
-			_, publishErr := publishMixinBusOutbound(handlerCtx, bus, inbound.ConversationID, inbound.FromUserID, response, inbound.MessageID, "mixin:approval-result:"+approvalID)
+			_, publishErr := publishMixinBusOutbound(handlerCtx, bus, inbound.ConversationID, mixinReplyRecipient(inbound.ChatType, inbound.FromUserID), response, inbound.MessageID, "mixin:approval-result:"+approvalID)
 			return publishErr
 		}
 		if handled, commandErr := maybeHandleMixinCommand(handlerCtx, d, bus, workspaceStore, conversationKey, inbound, currentSkills, func(resetCtx context.Context) error {
@@ -455,7 +463,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		}
 		if !chatcommands.IsContextCompactCommand(text) {
 			if result := runControl.Steer("mixin", conversationKey, text); result.Found {
-				_, err := publishMixinBusOutbound(handlerCtx, bus, inbound.ConversationID, inbound.FromUserID, runtimecontrol.SteerFeedback(result.Found, result.Queued), inbound.MessageID, "mixin:steer:"+inbound.MessageID)
+				_, err := publishMixinBusOutbound(handlerCtx, bus, inbound.ConversationID, mixinReplyRecipient(inbound.ChatType, inbound.FromUserID), runtimecontrol.SteerFeedback(result.Found, result.Queued), inbound.MessageID, "mixin:steer:"+inbound.MessageID)
 				return err
 			}
 		}
@@ -633,7 +641,7 @@ func sendMixinDirectText(ctx context.Context, api mixinAPI, conversationID, reci
 	}})
 }
 
-func mixinProtocolClients(opts RunOptions, logger *slog.Logger) (mixinAPI, mixinBlaze, error) {
+func mixinProtocolClients(opts RunOptions, logger *slog.Logger, onConnectionChange func(bool)) (mixinAPI, mixinBlaze, error) {
 	api := opts.api
 	blaze := opts.blaze
 	if api != nil && blaze != nil {
@@ -656,6 +664,9 @@ func mixinProtocolClients(opts RunOptions, logger *slog.Logger) (mixinAPI, mixin
 	if blaze == nil {
 		blaze, err = mixinapi.NewBlazeClient(credentials, mixinapi.BlazeOptions{
 			OnConnectionChange: func(connected bool) {
+				if onConnectionChange != nil {
+					onConnectionChange(connected)
+				}
 				if connected {
 					logger.Info("mixin_blaze_connected")
 				} else {
@@ -673,7 +684,14 @@ func mixinProtocolClients(opts RunOptions, logger *slog.Logger) (mixinAPI, mixin
 	return api, blaze, nil
 }
 
-func sendMixinText(ctx context.Context, api mixinAPI, recent *recentMessageTracker, conversationID, recipientID, text string, opts mixinbus.SendTextOptions) error {
+func mixinChannelOverview(connected bool) map[string]any {
+	return map[string]any{
+		"configured": true, "running": "mixin", "connected": connected,
+		"mixin_configured": true, "mixin_running": true, "mixin_connected": connected,
+	}
+}
+
+func sendMixinText(ctx context.Context, api mixinAPI, conversationID, recipientID, text string, opts mixinbus.SendTextOptions) error {
 	baseID, err := uuid.Parse(strings.TrimSpace(opts.MessageID))
 	if err != nil || baseID == uuid.Nil {
 		return fmt.Errorf("mixin outbound message_id is invalid")
@@ -695,7 +713,6 @@ func sendMixinText(ctx context.Context, api mixinAPI, recent *recentMessageTrack
 		if err := api.SendMessages(ctx, []mixinapi.MessageRequest{request}); err != nil {
 			return err
 		}
-		recent.Add(conversationID, messageID.String())
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package mixin
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -113,6 +114,46 @@ func TestInboundAdapterDedupesByConversationAndMessageID(t *testing.T) {
 	accepted, err = adapter.HandleInboundMessage(ctx, message)
 	if err != nil || accepted {
 		t.Fatalf("second accepted=%v err=%v", accepted, err)
+	}
+}
+
+func TestInboundAdapterDoesNotMarkFailedDeliverySeen(t *testing.T) {
+	ctx := context.Background()
+	store := contacts.NewFileStore(t.TempDir())
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bus, err := newTestBus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	wantErr := errors.New("task write failed")
+	if err := bus.Subscribe(busruntime.TopicChatMessage, func(context.Context, busruntime.BusMessage) error {
+		return wantErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewInboundAdapter(InboundAdapterOptions{Bus: bus, Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := InboundMessage{
+		ConversationID: "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34",
+		MessageID:      "a4ec1e53-f147-439a-82cd-2e5e4a95a152",
+		ChatType:       "CONTACT",
+		FromUserID:     "773e5e77-4107-45c2-b648-8fc722ed77f5",
+		Text:           "hello",
+	}
+
+	if _, err := adapter.HandleInboundMessage(ctx, message); !errors.Is(err, wantErr) {
+		t.Fatalf("HandleInboundMessage() error = %v, want %v", err, wantErr)
+	}
+	platformMessageID := message.ConversationID + ":" + message.MessageID
+	if _, found, err := store.GetBusInboxRecord(ctx, contacts.ChannelMixin, platformMessageID); err != nil {
+		t.Fatal(err)
+	} else if found {
+		t.Fatal("failed delivery was recorded as seen")
 	}
 }
 

@@ -35,6 +35,7 @@ type InprocOptions struct {
 type queuedDelivery struct {
 	message   BusMessage
 	ownsToken bool
+	result    chan error
 }
 
 type deliveryContextKey struct{}
@@ -149,6 +150,31 @@ func (b *Inproc) PublishValidated(ctx context.Context, msg BusMessage) error {
 }
 
 func (b *Inproc) Publish(ctx context.Context, msg BusMessage) error {
+	return b.publish(ctx, msg, nil)
+}
+
+// PublishValidatedAndWait returns only after the topic handler has completed.
+// It is intended for external transports that must not acknowledge a message
+// before its durable task handoff succeeds.
+func (b *Inproc) PublishValidatedAndWait(ctx context.Context, msg BusMessage) error {
+	if err := msg.Validate(); err != nil {
+		return wrapError(CodeInvalidMessage, err)
+	}
+	result := make(chan error, 1)
+	if err := b.publish(ctx, msg, result); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-b.done:
+		return wrapError(CodeBusClosed, ErrBusClosed)
+	case err := <-result:
+		return err
+	}
+}
+
+func (b *Inproc) publish(ctx context.Context, msg BusMessage, result chan error) error {
 	if ctx == nil {
 		return fmt.Errorf("context is required")
 	}
@@ -162,6 +188,9 @@ func (b *Inproc) Publish(ctx context.Context, msg BusMessage) error {
 	internal := deliveryScope != nil
 	if deliveryScope != nil {
 		defer deliveryScope.mu.Unlock()
+	}
+	if result != nil && internal {
+		return fmt.Errorf("synchronous bus publish from a handler is not supported")
 	}
 	if !internal && channelClosed(b.closing) {
 		return wrapError(CodeBusClosed, ErrBusClosed)
@@ -214,7 +243,7 @@ func (b *Inproc) Publish(ctx context.Context, msg BusMessage) error {
 		}
 	}
 
-	delivery := queuedDelivery{message: msg, ownsToken: ownsToken}
+	delivery := queuedDelivery{message: msg, ownsToken: ownsToken, result: result}
 	b.delivery.Add(1)
 	enqueued := false
 	defer func() {
@@ -351,7 +380,11 @@ func (b *Inproc) runShardWorker(index int, queue chan queuedDelivery) {
 				defer b.releaseToken()
 			}
 			msg := queued.message
-			if err := b.deliver(index, msg); err != nil {
+			err := b.deliver(index, msg)
+			if queued.result != nil {
+				queued.result <- err
+			}
+			if err != nil {
 				b.reportDeliveryError(msg, err)
 			}
 		}()

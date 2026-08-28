@@ -149,6 +149,88 @@ func TestBlazeRunDoesNotAcknowledgeFailedHandler(t *testing.T) {
 	}
 }
 
+func TestBlazeRunHandlesDifferentConversationsWhileOneIsBlocked(t *testing.T) {
+	const (
+		slowConversation = "11111111-1111-1111-1111-111111111111"
+		fastConversation = "12345678-1234-1234-1234-123456789abc"
+		slowMessage      = "33333333-3333-3333-3333-333333333333"
+		fastMessage      = "44444444-4444-4444-4444-444444444444"
+	)
+	if blazeMessageShard(slowConversation, defaultBlazeHandlerShards) == blazeMessageShard(fastConversation, defaultBlazeHandlerShards) {
+		t.Fatal("test conversations unexpectedly share a handler shard")
+	}
+	releaseSlow := make(chan struct{})
+	slowStarted := make(chan struct{})
+	fastAck := make(chan struct{})
+	upgrader := websocket.Upgrader{Subprotocols: []string{blazeSubprotocol}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var request BlazeEnvelope
+		if err := readBlazeEnvelope(conn, &request); err != nil {
+			return
+		}
+		for _, message := range []MessageView{
+			{ConversationID: slowConversation, MessageID: slowMessage, Category: MessageCategoryPlainText},
+			{ConversationID: fastConversation, MessageID: fastMessage, Category: MessageCategoryPlainText},
+		} {
+			if err := writeBlazeEnvelope(conn, BlazeEnvelope{ID: message.MessageID, Action: blazeActionCreateMessage, Data: mustJSONRaw(t, message)}); err != nil {
+				return
+			}
+		}
+		for {
+			if err := readBlazeEnvelope(conn, &request); err != nil {
+				return
+			}
+			if request.Action == blazeActionAcknowledge && request.Params["message_id"] == fastMessage {
+				close(fastAck)
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client, err := NewBlazeClient(testCredentials(), BlazeOptions{
+		URL: "ws" + strings.TrimPrefix(server.URL, "http"), MinBackoff: time.Second, MaxBackoff: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.Run(ctx, func(_ context.Context, message MessageView) error {
+			if message.MessageID == slowMessage {
+				close(slowStarted)
+				<-releaseSlow
+			}
+			return nil
+		})
+	}()
+	select {
+	case <-slowStarted:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("slow handler did not start")
+	}
+	select {
+	case <-fastAck:
+	case <-time.After(time.Second):
+		close(releaseSlow)
+		cancel()
+		<-errCh
+		t.Fatal("fast conversation was blocked by slow profile work")
+	}
+	close(releaseSlow)
+	cancel()
+	if err := <-errCh; err != nil && err != context.Canceled {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
 func TestBlazeRunStopsOnUnauthorizedHandshake(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)

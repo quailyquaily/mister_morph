@@ -40,6 +40,7 @@ type RunOptions struct {
 	InspectPrompt                 bool
 	InspectRequest                bool
 	TaskStore                     daemonruntime.TaskView
+	OnConnectionChange            func(bool)
 
 	api   mixinAPI
 	blaze mixinBlaze

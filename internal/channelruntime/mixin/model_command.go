@@ -48,7 +48,7 @@ func maybeHandleMixinCommand(ctx context.Context, d Dependencies, bus *busruntim
 	if output == "" {
 		return true, nil
 	}
-	_, publishErr := publishMixinBusOutbound(ctx, bus, inbound.ConversationID, inbound.FromUserID, output, inbound.MessageID, fmt.Sprintf("mixin:command:%s:%s", inbound.ConversationID, inbound.MessageID))
+	_, publishErr := publishMixinBusOutbound(ctx, bus, inbound.ConversationID, mixinReplyRecipient(inbound.ChatType, inbound.FromUserID), output, inbound.MessageID, fmt.Sprintf("mixin:command:%s:%s", inbound.ConversationID, inbound.MessageID))
 	return true, publishErr
 }
 

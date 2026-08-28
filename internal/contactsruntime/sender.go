@@ -33,8 +33,6 @@ const defaultTelegramBaseURL = "https://api.telegram.org"
 const defaultSlackBaseURL = "https://slack.com/api"
 const defaultLineBaseURL = "https://api.line.me"
 const defaultLarkBaseURL = "https://open.feishu.cn/open-apis"
-const mixinMessageBatchLimit = 100
-const mixinMessageRequestMaxBytes = 128 << 10
 
 type SenderOptions struct {
 	TelegramBotToken  string
@@ -69,6 +67,7 @@ type RoutingSender struct {
 	larkTokenClient   *larkapi.TenantTokenClient
 	mixinClient       mixinSenderClient
 	mixinBotID        string
+	mixinMessages     *mixinapi.MessageSender
 	mixinKeystoreFile string
 	mixinOnce         sync.Once
 	mixinInitErr      error
@@ -996,6 +995,9 @@ func (s *RoutingSender) sendMixinTarget(ctx context.Context, target mixinbus.Del
 	if s == nil {
 		return fmt.Errorf("mixin sender is not configured")
 	}
+	if err := s.ensureMixinClient(); err != nil {
+		return err
+	}
 	messageID, err := uuid.Parse(strings.TrimSpace(opts.MessageID))
 	if err != nil || messageID == uuid.Nil {
 		return fmt.Errorf("mixin message_id is invalid")
@@ -1015,104 +1017,37 @@ func (s *RoutingSender) sendMixinTarget(ctx context.Context, target mixinbus.Del
 		DataBase64:     base64.RawURLEncoding.EncodeToString([]byte(strings.TrimSpace(text))),
 		QuoteMessageID: quoteMessageID,
 	}
-	if message.RecipientID != "" {
-		return s.mixinClient.SendMessages(ctx, []mixinapi.MessageRequest{message})
+	if message.RecipientID == "" {
+		// Proactive sends do not receive conversation system events, so refresh
+		// group membership before each conversation-level delivery.
+		s.mixinMessages.InvalidateConversation(message.ConversationID)
 	}
-	botID := strings.TrimSpace(s.mixinBotID)
-	if botID == "" {
-		return fmt.Errorf("mixin bot user_id is required for conversation delivery")
-	}
-	conversation, err := s.mixinClient.ReadConversation(ctx, message.ConversationID)
-	if err != nil {
-		return fmt.Errorf("read mixin conversation: %w", err)
-	}
-	recipients := make([]string, 0, len(conversation.Participants))
-	seen := make(map[string]struct{}, len(conversation.Participants))
-	for _, participant := range conversation.Participants {
-		recipientID := strings.ToLower(strings.TrimSpace(participant.UserID))
-		parsed, parseErr := uuid.Parse(recipientID)
-		if parseErr != nil || parsed == uuid.Nil {
-			return fmt.Errorf("mixin conversation contains invalid participant user_id %q", participant.UserID)
-		}
-		recipientID = parsed.String()
-		if strings.EqualFold(recipientID, botID) {
-			continue
-		}
-		if _, exists := seen[recipientID]; exists {
-			continue
-		}
-		seen[recipientID] = struct{}{}
-		recipients = append(recipients, recipientID)
-	}
-	if len(recipients) == 0 {
-		return fmt.Errorf("mixin conversation has no recipients")
-	}
-	sort.Strings(recipients)
-	messages := make([]mixinapi.MessageRequest, 0, len(recipients))
-	for _, recipientID := range recipients {
-		item := message
-		item.RecipientID = recipientID
-		item.MessageID = uuid.NewSHA1(messageID, []byte(recipientID)).String()
-		messages = append(messages, item)
-	}
-	batches, err := mixinMessageBatches(messages)
-	if err != nil {
-		return err
-	}
-	for _, batch := range batches {
-		if err := s.mixinClient.SendMessages(ctx, batch); err != nil {
-			return fmt.Errorf("send mixin conversation batch: %w", err)
-		}
-	}
-	return nil
-}
-
-func mixinMessageBatches(messages []mixinapi.MessageRequest) ([][]mixinapi.MessageRequest, error) {
-	var batches [][]mixinapi.MessageRequest
-	current := make([]mixinapi.MessageRequest, 0, min(len(messages), mixinMessageBatchLimit))
-	for _, message := range messages {
-		candidate := append(current, message)
-		raw, err := json.Marshal(candidate)
-		if err != nil {
-			return nil, fmt.Errorf("encode mixin message batch: %w", err)
-		}
-		if len(candidate) <= mixinMessageBatchLimit && len(raw) <= mixinMessageRequestMaxBytes {
-			current = candidate
-			continue
-		}
-		if len(current) == 0 {
-			return nil, fmt.Errorf("%w: one mixin message exceeds %d bytes", mixinapi.ErrRequestTooLarge, mixinMessageRequestMaxBytes)
-		}
-		batches = append(batches, current)
-		current = []mixinapi.MessageRequest{message}
-		raw, err = json.Marshal(current)
-		if err != nil {
-			return nil, fmt.Errorf("encode mixin message batch: %w", err)
-		}
-		if len(raw) > mixinMessageRequestMaxBytes {
-			return nil, fmt.Errorf("%w: one mixin message exceeds %d bytes", mixinapi.ErrRequestTooLarge, mixinMessageRequestMaxBytes)
-		}
-	}
-	if len(current) > 0 {
-		batches = append(batches, current)
-	}
-	return batches, nil
+	return s.mixinMessages.SendMessages(ctx, []mixinapi.MessageRequest{message})
 }
 
 func (s *RoutingSender) ensureMixinClient() error {
 	s.mixinOnce.Do(func() {
-		if s.mixinKeystoreFile == "" {
+		if s.mixinClient == nil && s.mixinKeystoreFile == "" {
 			s.mixinInitErr = fmt.Errorf("mixin sender is not configured")
 			return
 		}
-		credentials, err := mixinapi.LoadKeystore(s.mixinKeystoreFile)
-		if err != nil {
-			s.mixinInitErr = err
-			return
+		if s.mixinClient == nil {
+			credentials, err := mixinapi.LoadKeystore(s.mixinKeystoreFile)
+			if err != nil {
+				s.mixinInitErr = err
+				return
+			}
+			s.mixinClient, s.mixinInitErr = mixinapi.NewClient(credentials, mixinapi.ClientOptions{})
+			if s.mixinInitErr == nil {
+				s.mixinBotID = credentials.ClientID
+			}
 		}
-		s.mixinClient, s.mixinInitErr = mixinapi.NewClient(credentials, mixinapi.ClientOptions{})
 		if s.mixinInitErr == nil {
-			s.mixinBotID = credentials.ClientID
+			if strings.TrimSpace(s.mixinBotID) == "" {
+				s.mixinInitErr = fmt.Errorf("mixin bot user_id is required for conversation delivery")
+				return
+			}
+			s.mixinMessages = mixinapi.NewMessageSender(s.mixinClient, s.mixinBotID, nil)
 		}
 	})
 	return s.mixinInitErr

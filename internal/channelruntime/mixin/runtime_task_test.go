@@ -36,6 +36,24 @@ func TestPublishMixinBusOutboundAndWaitReturnsDeliveryError(t *testing.T) {
 	}
 }
 
+func TestMixinReplyRecipientLeavesGroupUnaddressed(t *testing.T) {
+	t.Parallel()
+
+	if got := mixinReplyRecipient(mixinapi.ConversationCategoryGroup, testUserID); got != "" {
+		t.Fatalf("group recipient = %q, want empty conversation delivery", got)
+	}
+	if got := mixinReplyRecipient(mixinapi.ConversationCategoryContact, testUserID); got != testUserID {
+		t.Fatalf("contact recipient = %q, want %q", got, testUserID)
+	}
+	message, _, err := newMixinBusOutbound(testConversationID, "", "hello", "", "test:group-delivery")
+	if err != nil {
+		t.Fatalf("newMixinBusOutbound(group) error = %v", err)
+	}
+	if message.ParticipantKey != "" {
+		t.Fatalf("group participant_key = %q, want empty", message.ParticipantKey)
+	}
+}
+
 type stubMixinAttachmentAPI struct{}
 
 func (stubMixinAttachmentAPI) CreateAttachment(context.Context) (mixinapi.Attachment, error) {

@@ -70,11 +70,11 @@ func mixinPairSendUserID(peer agentpair.Peer) (string, error) {
 	return "", fmt.Errorf("Mixin pair target requires a user UUID")
 }
 
-func mixinConversationAuthorized(allowed map[string]bool, conversationID string, isGroup, fromAgent, pairedAgent bool) bool {
+func mixinConversationAuthorized(allowed map[string]bool, conversationID string, isGroup, pairedAgent bool) bool {
 	if len(allowed) == 0 || allowed[strings.TrimSpace(conversationID)] {
 		return true
 	}
-	return !isGroup && fromAgent && pairedAgent
+	return !isGroup && pairedAgent
 }
 
 func mixinPairReplyText(status agentpair.Status, err error) string {

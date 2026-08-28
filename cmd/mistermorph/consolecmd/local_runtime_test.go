@@ -659,6 +659,7 @@ func TestConsoleLocalRoutesOptionsOverviewOmitsAwarenessRunning(t *testing.T) {
 		awarenessPokeRequests: make(chan awarenessloop.PokeRequest),
 	}
 	rt.SetManagedRuntimeRunning("mixin", true)
+	rt.mixinConnected.Store(true)
 
 	payload, err := rt.routesOptions("token").Overview(context.Background())
 	if err != nil {
@@ -676,6 +677,9 @@ func TestConsoleLocalRoutesOptionsOverviewOmitsAwarenessRunning(t *testing.T) {
 	}
 	if running, _ := channel["mixin_running"].(bool); !running {
 		t.Fatalf("mixin_running = %#v, want true", channel["mixin_running"])
+	}
+	if connected, _ := channel["mixin_connected"].(bool); !connected {
+		t.Fatalf("mixin_connected = %#v, want true", channel["mixin_connected"])
 	}
 }
 

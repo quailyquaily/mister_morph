@@ -40,13 +40,13 @@ func TestMixinInboundAgentPeerAndAuthorization(t *testing.T) {
 		t.Fatalf("peer = %#v", peer)
 	}
 	allowed := map[string]bool{"44444444-4444-4444-4444-444444444444": true}
-	if !mixinConversationAuthorized(allowed, "44444444-4444-4444-4444-444444444444", true, false, false) {
+	if !mixinConversationAuthorized(allowed, "44444444-4444-4444-4444-444444444444", true, false) {
 		t.Fatal("allowlisted group was rejected")
 	}
-	if !mixinConversationAuthorized(allowed, "33333333-3333-3333-3333-333333333333", false, true, true) {
-		t.Fatal("paired private Agent was rejected")
+	if !mixinConversationAuthorized(allowed, "33333333-3333-3333-3333-333333333333", false, true) {
+		t.Fatal("paired private Agent was rejected after transient profile failure")
 	}
-	if mixinConversationAuthorized(allowed, "33333333-3333-3333-3333-333333333333", false, true, false) {
+	if mixinConversationAuthorized(allowed, "33333333-3333-3333-3333-333333333333", false, false) {
 		t.Fatal("unpaired private Agent bypassed allowlist")
 	}
 }

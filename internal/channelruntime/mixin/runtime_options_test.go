@@ -26,6 +26,19 @@ func TestNormalizeRunOptionsDefaults(t *testing.T) {
 	}
 }
 
+func TestMixinChannelOverviewIncludesConnectionState(t *testing.T) {
+	t.Parallel()
+
+	channel := mixinChannelOverview(true)
+	if channel["configured"] != true || channel["mixin_running"] != true || channel["connected"] != true || channel["mixin_connected"] != true {
+		t.Fatalf("mixinChannelOverview(true) = %#v", channel)
+	}
+	channel = mixinChannelOverview(false)
+	if channel["connected"] != false || channel["mixin_connected"] != false {
+		t.Fatalf("mixinChannelOverview(false) = %#v", channel)
+	}
+}
+
 func TestNormalizeRunOptionsDoesNotEnableServerWithInjectedTaskStore(t *testing.T) {
 	t.Parallel()
 

@@ -207,7 +207,7 @@ func (m *mixinApprovalManager) notify(ctx context.Context, approvalID string, jo
 	if !found {
 		return guard.ErrApprovalNotFound
 	}
-	_, err = publishMixinBusOutbound(ctx, m.bus, job.ConversationID, job.FromUserID, mixinApprovalRequestText(rec), job.MessageID, "mixin:approval:"+rec.ID)
+	_, err = publishMixinBusOutbound(ctx, m.bus, job.ConversationID, mixinReplyRecipient(job.ChatType, job.FromUserID), mixinApprovalRequestText(rec), job.MessageID, "mixin:approval:"+rec.ID)
 	return err
 }
 

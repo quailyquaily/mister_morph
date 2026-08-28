@@ -7,28 +7,32 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 const (
-	DefaultBlazeURL          = "wss://blaze.mixin.one/"
-	blazeSubprotocol         = "Mixin-Blaze-1"
-	blazeActionListPending   = "LIST_PENDING_MESSAGES"
-	blazeActionCreateMessage = "CREATE_MESSAGE"
-	blazeActionAcknowledge   = "ACKNOWLEDGE_MESSAGE_RECEIPT"
-	maxBlazeFrameBytes       = 4 << 20
-	defaultBlazeMinBackoff   = time.Second
-	defaultBlazeMaxBackoff   = 30 * time.Second
-	defaultBlazeWriteTimeout = 10 * time.Second
-	defaultBlazePongWait     = 10 * time.Second
-	defaultBlazePingPeriod   = 9 * time.Second
+	DefaultBlazeURL           = "wss://blaze.mixin.one/"
+	blazeSubprotocol          = "Mixin-Blaze-1"
+	blazeActionListPending    = "LIST_PENDING_MESSAGES"
+	blazeActionCreateMessage  = "CREATE_MESSAGE"
+	blazeActionAcknowledge    = "ACKNOWLEDGE_MESSAGE_RECEIPT"
+	maxBlazeFrameBytes        = 4 << 20
+	defaultBlazeMinBackoff    = time.Second
+	defaultBlazeMaxBackoff    = 30 * time.Second
+	defaultBlazeWriteTimeout  = 10 * time.Second
+	defaultBlazePongWait      = 10 * time.Second
+	defaultBlazePingPeriod    = 9 * time.Second
+	defaultBlazeHandlerShards = 8
+	defaultBlazeShardQueue    = 32
 )
 
 type BlazeError struct {
@@ -216,14 +220,18 @@ func (c *BlazeClient) runConnection(ctx context.Context, handler MessageHandler)
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(c.pongWait))
 	})
-	connectionDone := make(chan struct{})
-	defer close(connectionDone)
+	connectionCtx, cancelConnection := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	defer func() {
+		cancelConnection()
+		workers.Wait()
+	}()
 	go func() {
 		ticker := time.NewTicker(c.pingPeriod)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-connectionDone:
+			case <-connectionCtx.Done():
 				return
 			case <-ticker.C:
 				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(defaultBlazeWriteTimeout)); err != nil {
@@ -237,15 +245,61 @@ func (c *BlazeClient) runConnection(ctx context.Context, handler MessageHandler)
 		select {
 		case <-ctx.Done():
 			_ = conn.Close()
-		case <-connectionDone:
+		case <-connectionCtx.Done():
 		}
 	}()
 	if err := writeBlazeEnvelope(conn, BlazeEnvelope{ID: c.newRequestID(), Action: blazeActionListPending}); err != nil {
 		return fmt.Errorf("list mixin pending messages: %w", err)
 	}
+	queues := make([]chan MessageView, defaultBlazeHandlerShards)
+	handlerFailure := make(chan error, 1)
+	var (
+		writeMu  sync.Mutex
+		failOnce sync.Once
+	)
+	fail := func(err error) {
+		failOnce.Do(func() {
+			handlerFailure <- err
+			_ = conn.Close()
+		})
+	}
+	for index := range queues {
+		queues[index] = make(chan MessageView, defaultBlazeShardQueue)
+		workers.Add(1)
+		go func(queue <-chan MessageView) {
+			defer workers.Done()
+			for {
+				select {
+				case <-connectionCtx.Done():
+					return
+				case message := <-queue:
+					if err := handler(connectionCtx, message); err != nil {
+						fail(fmt.Errorf("handle mixin message: %w", err))
+						return
+					}
+					writeMu.Lock()
+					err := writeBlazeEnvelope(conn, BlazeEnvelope{
+						ID:     c.newRequestID(),
+						Action: blazeActionAcknowledge,
+						Params: map[string]any{"message_id": message.MessageID, "status": "READ"},
+					})
+					writeMu.Unlock()
+					if err != nil {
+						fail(fmt.Errorf("acknowledge mixin message: %w", err))
+						return
+					}
+				}
+			}
+		}(queues[index])
+	}
 	for {
 		var envelope BlazeEnvelope
 		if err := readBlazeEnvelope(conn, &envelope); err != nil {
+			select {
+			case handlerErr := <-handlerFailure:
+				return handlerErr
+			default:
+			}
 			return fmt.Errorf("read mixin blaze: %w", err)
 		}
 		if envelope.Error != nil {
@@ -262,17 +316,24 @@ func (c *BlazeClient) runConnection(ctx context.Context, handler MessageHandler)
 		if err := json.Unmarshal(envelope.Data, &message); err != nil {
 			return fmt.Errorf("decode mixin message: %w", err)
 		}
-		if err := handler(ctx, message); err != nil {
-			return fmt.Errorf("handle mixin message: %w", err)
-		}
-		if err := writeBlazeEnvelope(conn, BlazeEnvelope{
-			ID:     c.newRequestID(),
-			Action: blazeActionAcknowledge,
-			Params: map[string]any{"message_id": message.MessageID, "status": "READ"},
-		}); err != nil {
-			return fmt.Errorf("acknowledge mixin message: %w", err)
+		queue := queues[blazeMessageShard(message.ConversationID, len(queues))]
+		select {
+		case queue <- message:
+		case handlerErr := <-handlerFailure:
+			return handlerErr
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
+}
+
+func blazeMessageShard(conversationID string, count int) int {
+	if count <= 1 {
+		return 0
+	}
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(strings.TrimSpace(conversationID)))
+	return int(hash.Sum32() % uint32(count))
 }
 
 func retryAfter(err error) time.Duration {

@@ -309,6 +309,9 @@ func stopManagedRuntimeExecution(active *managedRuntimeExecution, localRuntime *
 	if localRuntime != nil {
 		for _, kind := range kinds {
 			localRuntime.SetManagedRuntimeRunning(kind, false)
+			if kind == managedRuntimeMixin {
+				localRuntime.mixinConnected.Store(false)
+			}
 		}
 	}
 }
@@ -439,6 +442,11 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 		})
 		runOpts.ServerListen = ""
 		runOpts.ServerAuthToken = ""
+		runOpts.OnConnectionChange = func(connected bool) {
+			if s.localRuntime != nil {
+				s.localRuntime.mixinConnected.Store(connected)
+			}
+		}
 		runOpts.TaskStore, err = newManagedRuntimeTaskStore(kind, runOpts.ServerMaxQueue, deps)
 		if err != nil {
 			cleanup()

@@ -149,7 +149,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			ImageAttachments:  imageAttachments,
 		},
 	}
-	return a.flow.PublishValidatedInbound(ctx, platformMessageID, message)
+	return a.flow.PublishValidatedInboundAndWait(ctx, platformMessageID, message)
 }
 
 func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, error) {
