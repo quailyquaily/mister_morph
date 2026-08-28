@@ -26,31 +26,35 @@ const (
 	ChannelSlack    = channels.Slack
 	ChannelLine     = channels.Line
 	ChannelLark     = channels.Lark
+	ChannelMixin    = channels.Mixin
 	ShareTopic      = "chat.message"
 )
 
 type Contact struct {
-	ContactID         string     `json:"contact_id"`
-	Synthetic         bool       `json:"-" yaml:"-"`
-	Kind              Kind       `json:"kind"`
-	Paired            bool       `json:"paired,omitempty"`
-	Channel           string     `json:"channel"`
-	ContactNickname   string     `json:"nickname,omitempty"`
-	TGUsername        string     `json:"tg_username,omitempty"`
-	TGPrivateChatID   int64      `json:"tg_private_chat_id,omitempty"`
-	TGGroupChatIDs    []int64    `json:"tg_group_chat_ids,omitempty"`
-	LineUserID        string     `json:"line_user_id,omitempty"`
-	LineChatIDs       []string   `json:"line_chat_ids,omitempty"`
-	LarkOpenID        string     `json:"lark_open_id,omitempty"`
-	LarkChatIDs       []string   `json:"lark_chat_ids,omitempty"`
-	SlackTeamID       string     `json:"slack_team_id,omitempty"`
-	SlackUserID       string     `json:"slack_user_id,omitempty"`
-	SlackDMChannelID  string     `json:"slack_dm_channel_id,omitempty"`
-	SlackChannelIDs   []string   `json:"slack_channel_ids,omitempty"`
-	PersonaBrief      string     `json:"persona_brief,omitempty"`
-	TopicPreferences  []string   `json:"topic_preferences,omitempty"`
-	CooldownUntil     *time.Time `json:"cooldown_until,omitempty"`
-	LastInteractionAt *time.Time `json:"last_interaction_at,omitempty"`
+	ContactID           string     `json:"contact_id"`
+	Synthetic           bool       `json:"-" yaml:"-"`
+	Kind                Kind       `json:"kind"`
+	Paired              bool       `json:"paired,omitempty"`
+	Channel             string     `json:"channel"`
+	ContactNickname     string     `json:"nickname,omitempty"`
+	TGUsername          string     `json:"tg_username,omitempty"`
+	TGPrivateChatID     int64      `json:"tg_private_chat_id,omitempty"`
+	TGGroupChatIDs      []int64    `json:"tg_group_chat_ids,omitempty"`
+	LineUserID          string     `json:"line_user_id,omitempty"`
+	LineChatIDs         []string   `json:"line_chat_ids,omitempty"`
+	LarkOpenID          string     `json:"lark_open_id,omitempty"`
+	LarkChatIDs         []string   `json:"lark_chat_ids,omitempty"`
+	MixinUserID         string     `json:"mixin_user_id,omitempty"`
+	MixinIdentityNumber string     `json:"mixin_identity_number,omitempty"`
+	MixinChatIDs        []string   `json:"mixin_chat_ids,omitempty"`
+	SlackTeamID         string     `json:"slack_team_id,omitempty"`
+	SlackUserID         string     `json:"slack_user_id,omitempty"`
+	SlackDMChannelID    string     `json:"slack_dm_channel_id,omitempty"`
+	SlackChannelIDs     []string   `json:"slack_channel_ids,omitempty"`
+	PersonaBrief        string     `json:"persona_brief,omitempty"`
+	TopicPreferences    []string   `json:"topic_preferences,omitempty"`
+	CooldownUntil       *time.Time `json:"cooldown_until,omitempty"`
+	LastInteractionAt   *time.Time `json:"last_interaction_at,omitempty"`
 }
 
 type ShareDecision struct {

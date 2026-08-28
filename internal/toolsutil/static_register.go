@@ -8,6 +8,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/caprefs"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/shellenv"
 	"github.com/quailyquaily/mistermorph/secrets"
@@ -114,18 +115,19 @@ type StaticWebSearchConfig struct {
 }
 
 type StaticContactsSendConfig struct {
-	Enabled          bool
-	ContactsDir      string
-	TelegramBotToken string
-	TelegramBaseURL  string
-	SlackBotToken    string
-	SlackBaseURL     string
-	LineChannelToken string
-	LineBaseURL      string
-	LarkAppID        string
-	LarkAppSecret    string
-	LarkBaseURL      string
-	FailureCooldown  time.Duration
+	Enabled           bool
+	ContactsDir       string
+	TelegramBotToken  string
+	TelegramBaseURL   string
+	SlackBotToken     string
+	SlackBaseURL      string
+	LineChannelToken  string
+	LineBaseURL       string
+	LarkAppID         string
+	LarkAppSecret     string
+	LarkBaseURL       string
+	MixinKeystoreFile string
+	FailureCooldown   time.Duration
 }
 
 type StaticRegistryConfigReader interface {
@@ -236,18 +238,19 @@ func StaticRegistryConfigFromReader(reader StaticRegistryConfigReader) (StaticRe
 			BaseURL:    strings.TrimSpace(reader.GetString("tools.web_search.base_url")),
 		},
 		ContactsSend: StaticContactsSendConfig{
-			Enabled:          reader.GetBool("tools.contacts_send.enabled"),
-			ContactsDir:      paths.ContactsDir,
-			TelegramBotToken: strings.TrimSpace(reader.GetString("telegram.bot_token")),
-			TelegramBaseURL:  "https://api.telegram.org",
-			SlackBotToken:    strings.TrimSpace(reader.GetString("slack.bot_token")),
-			SlackBaseURL:     strings.TrimSpace(reader.GetString("slack.base_url")),
-			LineChannelToken: strings.TrimSpace(reader.GetString("line.channel_access_token")),
-			LineBaseURL:      strings.TrimSpace(reader.GetString("line.base_url")),
-			LarkAppID:        strings.TrimSpace(reader.GetString("lark.app_id")),
-			LarkAppSecret:    strings.TrimSpace(reader.GetString("lark.app_secret")),
-			LarkBaseURL:      strings.TrimSpace(reader.GetString("lark.base_url")),
-			FailureCooldown:  failureCooldown,
+			Enabled:           reader.GetBool("tools.contacts_send.enabled"),
+			ContactsDir:       paths.ContactsDir,
+			TelegramBotToken:  strings.TrimSpace(reader.GetString("telegram.bot_token")),
+			TelegramBaseURL:   "https://api.telegram.org",
+			SlackBotToken:     strings.TrimSpace(reader.GetString("slack.bot_token")),
+			SlackBaseURL:      strings.TrimSpace(reader.GetString("slack.base_url")),
+			LineChannelToken:  strings.TrimSpace(reader.GetString("line.channel_access_token")),
+			LineBaseURL:       strings.TrimSpace(reader.GetString("line.base_url")),
+			LarkAppID:         strings.TrimSpace(reader.GetString("lark.app_id")),
+			LarkAppSecret:     strings.TrimSpace(reader.GetString("lark.app_secret")),
+			LarkBaseURL:       strings.TrimSpace(reader.GetString("lark.base_url")),
+			MixinKeystoreFile: pathutil.ResolveConfigRelativePath(reader.GetString("mixin.keystore_file"), reader.GetString("config")),
+			FailureCooldown:   failureCooldown,
 		},
 	}, nil
 }
@@ -385,18 +388,19 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 	}
 
 	contactSendOpts := builtin.ContactsSendToolOptions{
-		Enabled:          true,
-		ContactsDir:      cfg.ContactsSend.ContactsDir,
-		TelegramBotToken: strings.TrimSpace(cfg.ContactsSend.TelegramBotToken),
-		TelegramBaseURL:  strings.TrimSpace(cfg.ContactsSend.TelegramBaseURL),
-		SlackBotToken:    strings.TrimSpace(cfg.ContactsSend.SlackBotToken),
-		SlackBaseURL:     strings.TrimSpace(cfg.ContactsSend.SlackBaseURL),
-		LineChannelToken: strings.TrimSpace(cfg.ContactsSend.LineChannelToken),
-		LineBaseURL:      strings.TrimSpace(cfg.ContactsSend.LineBaseURL),
-		LarkAppID:        strings.TrimSpace(cfg.ContactsSend.LarkAppID),
-		LarkAppSecret:    strings.TrimSpace(cfg.ContactsSend.LarkAppSecret),
-		LarkBaseURL:      strings.TrimSpace(cfg.ContactsSend.LarkBaseURL),
-		FailureCooldown:  cfg.ContactsSend.FailureCooldown,
+		Enabled:           true,
+		ContactsDir:       cfg.ContactsSend.ContactsDir,
+		TelegramBotToken:  strings.TrimSpace(cfg.ContactsSend.TelegramBotToken),
+		TelegramBaseURL:   strings.TrimSpace(cfg.ContactsSend.TelegramBaseURL),
+		SlackBotToken:     strings.TrimSpace(cfg.ContactsSend.SlackBotToken),
+		SlackBaseURL:      strings.TrimSpace(cfg.ContactsSend.SlackBaseURL),
+		LineChannelToken:  strings.TrimSpace(cfg.ContactsSend.LineChannelToken),
+		LineBaseURL:       strings.TrimSpace(cfg.ContactsSend.LineBaseURL),
+		LarkAppID:         strings.TrimSpace(cfg.ContactsSend.LarkAppID),
+		LarkAppSecret:     strings.TrimSpace(cfg.ContactsSend.LarkAppSecret),
+		LarkBaseURL:       strings.TrimSpace(cfg.ContactsSend.LarkBaseURL),
+		MixinKeystoreFile: strings.TrimSpace(cfg.ContactsSend.MixinKeystoreFile),
+		FailureCooldown:   cfg.ContactsSend.FailureCooldown,
 	}
 	if isSelected(BuiltinAgentSend) {
 		available, err := builtin.AgentSendAvailable(context.Background(), cfg.ContactsSend.ContactsDir)

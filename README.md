@@ -89,6 +89,7 @@ Channel setup:
 - [Slack](docs/slack.md)
 - [LINE](docs/line.md)
 - [Lark](docs/lark.md)
+- [Mixin Messenger](docs/mixin.md)
 
 Full docs index: [docs/README.md](docs/README.md)
 

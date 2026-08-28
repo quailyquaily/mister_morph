@@ -14,11 +14,13 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	mixinruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/mixin"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/mixinapi"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -54,6 +56,18 @@ type SlackOptions struct {
 	AddressingConfidenceThreshold float64
 	AddressingInterjectThreshold  float64
 	Hooks                         SlackHooks
+}
+
+type MixinOptions struct {
+	ClientID                      string
+	SessionID                     string
+	PrivateKey                    string
+	AllowedConversationIDs        []string
+	TaskTimeout                   time.Duration
+	MaxConcurrency                int
+	GroupTriggerMode              string
+	AddressingConfidenceThreshold float64
+	AddressingInterjectThreshold  float64
 }
 
 type TelegramHooks struct {
@@ -103,6 +117,20 @@ func (rt *Runtime) NewSlackBot(opts SlackOptions) (BotRunner, error) {
 		return nil, fmt.Errorf("slack app token is required")
 	}
 	return &slackBotRunner{rt: rt, opts: opts}, nil
+}
+
+func (rt *Runtime) NewMixinBot(opts MixinOptions) (BotRunner, error) {
+	if rt == nil {
+		return nil, fmt.Errorf("runtime is nil")
+	}
+	if err := rt.snapshot().InitErr; err != nil {
+		return nil, err
+	}
+	credentials, err := mixinapi.ParseCredentials(opts.ClientID, opts.SessionID, opts.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("mixin credentials: %w", err)
+	}
+	return &mixinBotRunner{rt: rt, opts: opts, credentials: credentials}, nil
 }
 
 type telegramBotRunner struct {
@@ -210,6 +238,50 @@ func runChannelLoop(ctx context.Context, state *runState, name string, rt *Runti
 }
 
 func (r *slackBotRunner) Close() error {
+	if r == nil {
+		return nil
+	}
+	return r.state.close()
+}
+
+type mixinBotRunner struct {
+	rt          *Runtime
+	opts        MixinOptions
+	credentials mixinapi.Credentials
+	state       runState
+}
+
+func (r *mixinBotRunner) Run(ctx context.Context) error {
+	if r == nil {
+		return fmt.Errorf("mixin runner is nil")
+	}
+	return runChannelLoop(ctx, &r.state, "mixin", r.rt, func(runCtx context.Context, snap runtimeSnapshot) (runErr error) {
+		common, cleanup, err := r.rt.prepareChannelDependencies(runCtx, snap)
+		if err != nil {
+			return err
+		}
+		defer func() { runErr = errors.Join(runErr, cleanup()) }()
+		runOpts := channelopts.BuildMixinRunOptions(snap.Mixin, channelopts.MixinInput{
+			AllowedConversationIDs:        append([]string(nil), r.opts.AllowedConversationIDs...),
+			GroupTriggerMode:              strings.TrimSpace(r.opts.GroupTriggerMode),
+			AddressingConfidenceThreshold: r.opts.AddressingConfidenceThreshold,
+			AddressingInterjectThreshold:  r.opts.AddressingInterjectThreshold,
+			TaskTimeout:                   r.opts.TaskTimeout,
+			MaxConcurrency:                r.opts.MaxConcurrency,
+			InspectPrompt:                 r.rt.inspect.Prompt,
+			InspectRequest:                r.rt.inspect.Request,
+		})
+		runOpts.Credentials = r.credentials
+		runOpts.EngineToolsConfig.SpawnEnabled = runOpts.EngineToolsConfig.SpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)
+		runOpts.EngineToolsConfig.ACPSpawnEnabled = runOpts.EngineToolsConfig.ACPSpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn)
+		runOpts.EngineToolsConfig.CoderEnabled = runOpts.EngineToolsConfig.CoderEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinCoder)
+		deps := r.rt.mixinDependencies(snap)
+		deps.CommonDependencies = common
+		return mixinruntime.Run(runCtx, deps, runOpts)
+	})
+}
+
+func (r *mixinBotRunner) Close() error {
 	if r == nil {
 		return nil
 	}
@@ -430,6 +502,19 @@ func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependen
 		CommonDependencies: base,
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(snap.LLMValues, rt.selection, text)
+		},
+	}
+}
+
+func (rt *Runtime) mixinDependencies(snap runtimeSnapshot) mixinruntime.Dependencies {
+	base := rt.sharedDependencies(snap)
+	return mixinruntime.Dependencies{
+		CommonDependencies: base,
+		HandleModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(snap.LLMValues, rt.selection, text)
+		},
+		HandleSkillCommand: func(currentLoaded []string) (string, error) {
+			return skillsutil.RenderSkillStatus(snap.SkillsConfig, currentLoaded)
 		},
 	}
 }

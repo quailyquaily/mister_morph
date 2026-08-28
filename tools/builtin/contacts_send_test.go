@@ -241,6 +241,14 @@ func TestContactsSendMentionSyntaxForSlackAndLark(t *testing.T) {
 	if lark != `<at user_id="ou_123">Ada</at>` {
 		t.Fatalf("lark mention = %q", lark)
 	}
+
+	mixin := contactsSendMentionForContact(contacts.Contact{
+		ContactID:           "mixin:773e5e77-4107-45c2-b648-8fc722ed77f5",
+		MixinIdentityNumber: "7000123456",
+	}, contacts.ChannelMixin)
+	if mixin != "@7000123456" {
+		t.Fatalf("mixin mention = %q", mixin)
+	}
 }
 
 func TestPlanContactsSendBatchUsesSharedSlackChatAndMentions(t *testing.T) {

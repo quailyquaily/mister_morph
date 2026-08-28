@@ -39,7 +39,7 @@ func NewInboundFlow(opts InboundFlowOptions) (*InboundFlow, error) {
 	}
 	channel := strings.ToLower(strings.TrimSpace(opts.Channel))
 	switch channel {
-	case channels.Telegram, channels.Slack, channels.Line, channels.Lark, channels.Discord:
+	case channels.Telegram, channels.Slack, channels.Line, channels.Lark, channels.Discord, channels.Mixin:
 	default:
 		return nil, fmt.Errorf("unsupported channel: %q", opts.Channel)
 	}
@@ -58,6 +58,16 @@ func NewInboundFlow(opts InboundFlowOptions) (*InboundFlow, error) {
 // PublishValidatedInbound applies the shared inbound path:
 // validate+publish via bus, inbox dedupe by (channel, platform_message_id), and persist seen record.
 func (f *InboundFlow) PublishValidatedInbound(ctx context.Context, platformMessageID string, msg busruntime.BusMessage) (bool, error) {
+	return f.publishValidatedInbound(ctx, platformMessageID, msg, false)
+}
+
+// PublishValidatedInboundAndWait persists the seen record only after the bus
+// subscriber has accepted the message.
+func (f *InboundFlow) PublishValidatedInboundAndWait(ctx context.Context, platformMessageID string, msg busruntime.BusMessage) (bool, error) {
+	return f.publishValidatedInbound(ctx, platformMessageID, msg, true)
+}
+
+func (f *InboundFlow) publishValidatedInbound(ctx context.Context, platformMessageID string, msg busruntime.BusMessage, wait bool) (bool, error) {
 	if f == nil {
 		return false, fmt.Errorf("inbound flow is not initialized")
 	}
@@ -80,8 +90,14 @@ func (f *InboundFlow) PublishValidatedInbound(ctx context.Context, platformMessa
 		return false, nil
 	}
 
-	if err := f.bus.PublishValidated(ctx, msg); err != nil {
-		return false, err
+	var publishErr error
+	if wait {
+		publishErr = f.bus.PublishValidatedAndWait(ctx, msg)
+	} else {
+		publishErr = f.bus.PublishValidated(ctx, msg)
+	}
+	if publishErr != nil {
+		return false, publishErr
 	}
 
 	seenAt := f.nowFn().UTC()

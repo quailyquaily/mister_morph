@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // Admins contains platform identities and Contact references allowed to start Agent pairing.
@@ -69,6 +71,13 @@ func normalizeStableIdentity(raw string) (string, error) {
 			return "", fmt.Errorf("Lark identity must be lark_user:<open_id>")
 		}
 		return "lark_user:" + openID, nil
+	case strings.HasPrefix(lower, "mixin:"):
+		userID := strings.TrimSpace(value[len("mixin:"):])
+		id, err := uuid.Parse(userID)
+		if err != nil || id == uuid.Nil {
+			return "", fmt.Errorf("Mixin identity must be mixin:<user_uuid>")
+		}
+		return "mixin:" + id.String(), nil
 	default:
 		return "", fmt.Errorf("unsupported platform identity")
 	}

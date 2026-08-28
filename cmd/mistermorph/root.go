@@ -13,6 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/larkcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/linecmd"
+	"github.com/quailyquaily/mistermorph/cmd/mistermorph/mixincmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/runcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/skillscmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/slackcmd"
@@ -149,6 +150,13 @@ func newRootRuntime() *rootRuntime {
 		Dependencies:       larkRuntime.Dependencies(registryResolver, guardResolver),
 		HandleModelCommand: larkRuntime.HandleModelCommand,
 		HandleSkillCommand: larkRuntime.HandleSkillCommand,
+	}))
+
+	mixinRuntime := newChannelCommandRuntime()
+	cmd.AddCommand(mixincmd.NewCommand(mixincmd.Dependencies{
+		Dependencies:       mixinRuntime.Dependencies(registryResolver, guardResolver),
+		HandleModelCommand: mixinRuntime.HandleModelCommand,
+		HandleSkillCommand: mixinRuntime.HandleSkillCommand,
 	}))
 	cmd.AddCommand(newToolsCmd(registryResolver.Registry))
 	cmd.AddCommand(newAuthCmd())
@@ -513,7 +521,7 @@ func shouldPrepareRootRegistry(cmd *cobra.Command) bool {
 		return false
 	}
 	switch cmd.CommandPath() {
-	case "mistermorph run", "mistermorph chat", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark", "mistermorph tools":
+	case "mistermorph run", "mistermorph chat", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark", "mistermorph mixin", "mistermorph tools":
 		return true
 	default:
 		return false

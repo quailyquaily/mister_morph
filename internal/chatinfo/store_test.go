@@ -228,3 +228,19 @@ func TestStoreReadMigratesLegacyChatIDInfoFile(t *testing.T) {
 		t.Fatalf("new chat profile file should be written: %v", err)
 	}
 }
+
+func TestStorePutMixinChatProfile(t *testing.T) {
+	store := NewStore(t.TempDir())
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	chatID := "mixin:11111111-1111-1111-1111-111111111111"
+	if err := store.Put(context.Background(), Info{ChatID: chatID, Type: "group", Name: "Morphs", FetchedAt: now}); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	items, exists, err := store.Read(context.Background())
+	if err != nil || !exists || len(items) != 1 {
+		t.Fatalf("Read() = %#v, %v, %v", items, exists, err)
+	}
+	if items[0].ChatID != chatID || items[0].Platform != "mixin" || items[0].Name != "Morphs" {
+		t.Fatalf("item = %#v", items[0])
+	}
+}

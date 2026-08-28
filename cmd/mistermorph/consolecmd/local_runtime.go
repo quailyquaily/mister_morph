@@ -137,6 +137,7 @@ type consoleLocalRuntime struct {
 	nextGeneration        uint64
 	managedRuntimeMu      sync.RWMutex
 	managedRuntimeRunning map[string]bool
+	mixinConnected        atomic.Bool
 	awarenessMu           sync.Mutex
 	streamHub             *consoleStreamHub
 	notificationHub       *consoleNotificationHub
@@ -1231,10 +1232,13 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 						strings.TrimSpace(reader.GetString("slack.app_token")) != "",
 					"lark_configured": strings.TrimSpace(reader.GetString("lark.app_id")) != "" &&
 						strings.TrimSpace(reader.GetString("lark.app_secret")) != "",
+					"mixin_configured": strings.TrimSpace(reader.GetString("mixin.keystore_file")) != "",
 					"running":          "console",
 					"telegram_running": r.isManagedRuntimeRunning("telegram"),
 					"slack_running":    r.isManagedRuntimeRunning("slack"),
 					"lark_running":     r.isManagedRuntimeRunning("lark"),
+					"mixin_running":    r.isManagedRuntimeRunning("mixin"),
+					"mixin_connected":  r.mixinConnected.Load(),
 				},
 				"poke_enabled":     r.canPokeAwareness(),
 				"cron_run_enabled": r.canRunCron(),

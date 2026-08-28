@@ -138,6 +138,18 @@ description: mistermorph 的命令行参数总览。
 - `--lark-max-concurrency`：同时处理的 Lark 会话最大数量。
 - `--lark-task-timeout`：单条消息的 agent 超时。
 
+## `mixin`
+
+- `--inspect-prompt`：把 prompt messages dump 到 `./dump`。
+- `--inspect-request`：把 LLM request/response payload dump 到 `./dump`。
+- `--mixin-keystore-file`：Mixin Messenger Ed25519 keystore 文件。
+- `--mixin-allowed-conversation-id`：允许的 Mixin conversation UUID，可重复。
+- `--mixin-group-trigger-mode`：群组触发模式，`strict|smart|talkative`。
+- `--mixin-addressing-confidence-threshold`：接受 addressing 判定所需的最小 confidence。
+- `--mixin-addressing-interject-threshold`：接受 addressing 判定所需的最小 interject 分数。
+- `--mixin-task-timeout`：单条消息的 agent 超时。
+- `--mixin-max-concurrency`：同时处理的 Mixin conversation 最大数量。
+
 ## `install`
 
 - `-y, --yes`：跳过确认提示。

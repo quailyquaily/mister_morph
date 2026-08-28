@@ -23,18 +23,19 @@ const (
 )
 
 type ContactsSendToolOptions struct {
-	Enabled          bool
-	ContactsDir      string
-	TelegramBotToken string
-	TelegramBaseURL  string
-	SlackBotToken    string
-	SlackBaseURL     string
-	LineChannelToken string
-	LineBaseURL      string
-	LarkAppID        string
-	LarkAppSecret    string
-	LarkBaseURL      string
-	FailureCooldown  time.Duration
+	Enabled           bool
+	ContactsDir       string
+	TelegramBotToken  string
+	TelegramBaseURL   string
+	SlackBotToken     string
+	SlackBaseURL      string
+	LineChannelToken  string
+	LineBaseURL       string
+	LarkAppID         string
+	LarkAppSecret     string
+	LarkBaseURL       string
+	MixinKeystoreFile string
+	FailureCooldown   time.Duration
 }
 
 type ContactsSendTool struct {
@@ -50,7 +51,7 @@ func (t *ContactsSendTool) Name() string { return "contacts_send" }
 func (t *ContactsSendTool) Description() string {
 	return `Sends a message to one or more contacts.
 		IF sending to multiple contacts THEN pass comma-separated contact_id values.
-	  Message routes automatically across Slack, Telegram, LINE, and Lark based on chat_id/contact reachability.
+	  Message routes automatically across Slack, Telegram, LINE, Lark, and Mixin based on chat_id/contact reachability.
 		NEVER send message to people who is talking with you, or the people in the chat history.`
 }
 
@@ -64,7 +65,7 @@ func contactSendParameterSchema() string {
 		"properties": map[string]any{
 			"contact_id": map[string]any{
 				"type":        "string",
-				"description": "Target contact_id. Multiple contacts may be provided as a comma-separated list. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>, lark_user:<open_id>, lark:<chat_id>.",
+				"description": "Target contact_id. Multiple contacts may be provided as a comma-separated list. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>, lark_user:<open_id>, lark:<chat_id>, mixin:<user_uuid>.",
 			},
 			"message_text": map[string]any{
 				"type":        "string",
@@ -76,7 +77,7 @@ func contactSendParameterSchema() string {
 			},
 			"chat_id": map[string]any{
 				"type":        "string",
-				"description": "Optional chat id hint. e.g. slack:<team_id>:<channel_id>, tg:<chat_id>, line:<chat_id>, or lark:<chat_id>.",
+				"description": "Optional chat id hint. e.g. slack:<team_id>:<channel_id>, tg:<chat_id>, line:<chat_id>, lark:<chat_id>, or mixin:<conversation_uuid>.",
 			},
 			"content_type": map[string]any{
 				"type":        "string",
@@ -149,15 +150,16 @@ func executeContactSendTool(ctx context.Context, params map[string]any, opts Con
 	}
 
 	sender, err := contactsruntime.NewRoutingSender(ctx, contactsruntime.SenderOptions{
-		TelegramBotToken: strings.TrimSpace(opts.TelegramBotToken),
-		TelegramBaseURL:  strings.TrimSpace(opts.TelegramBaseURL),
-		SlackBotToken:    strings.TrimSpace(opts.SlackBotToken),
-		SlackBaseURL:     strings.TrimSpace(opts.SlackBaseURL),
-		LineChannelToken: strings.TrimSpace(opts.LineChannelToken),
-		LineBaseURL:      strings.TrimSpace(opts.LineBaseURL),
-		LarkAppID:        strings.TrimSpace(opts.LarkAppID),
-		LarkAppSecret:    strings.TrimSpace(opts.LarkAppSecret),
-		LarkBaseURL:      strings.TrimSpace(opts.LarkBaseURL),
+		TelegramBotToken:  strings.TrimSpace(opts.TelegramBotToken),
+		TelegramBaseURL:   strings.TrimSpace(opts.TelegramBaseURL),
+		SlackBotToken:     strings.TrimSpace(opts.SlackBotToken),
+		SlackBaseURL:      strings.TrimSpace(opts.SlackBaseURL),
+		LineChannelToken:  strings.TrimSpace(opts.LineChannelToken),
+		LineBaseURL:       strings.TrimSpace(opts.LineBaseURL),
+		LarkAppID:         strings.TrimSpace(opts.LarkAppID),
+		LarkAppSecret:     strings.TrimSpace(opts.LarkAppSecret),
+		LarkBaseURL:       strings.TrimSpace(opts.LarkBaseURL),
+		MixinKeystoreFile: strings.TrimSpace(opts.MixinKeystoreFile),
 	})
 	if err != nil {
 		return "", err
@@ -442,6 +444,8 @@ func validateContactsSendDefaultRoute(contact contacts.Contact) error {
 		_, err = contactsruntime.ResolveLineTarget(contact)
 	case contacts.ChannelLark:
 		_, err = contactsruntime.ResolveLarkTarget(contact)
+	case contacts.ChannelMixin:
+		_, err = contactsruntime.ResolveMixinTarget(contact)
 	default:
 		err = fmt.Errorf("unsupported delivery channel: %s", channel)
 	}
@@ -680,6 +684,16 @@ func contactsSendRouteCandidates(contact contacts.Contact) []contactsSendRouteCa
 		}
 	}
 
+	if mention := contactsSendMentionForContact(contact, contacts.ChannelMixin); mention != "" {
+		chatIDs := append([]string(nil), contact.MixinChatIDs...)
+		sort.Strings(chatIDs)
+		for _, raw := range chatIDs {
+			if chatID := refid.NormalizeMixinID(raw); chatID != "" {
+				add(contacts.ChannelMixin, "mixin:"+chatID, mention)
+			}
+		}
+	}
+
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
 }
@@ -726,6 +740,12 @@ func contactsSendMentionForContact(contact contacts.Contact, channel string) str
 			name = openID
 		}
 		return `<at user_id="` + contactsSendEscapeLarkText(openID) + `">` + contactsSendEscapeLarkText(name) + `</at>`
+	case contacts.ChannelMixin:
+		identity := strings.TrimPrefix(strings.TrimSpace(contact.MixinIdentityNumber), "@")
+		if identity == "" || strings.ContainsAny(identity, " \t\r\n") {
+			return ""
+		}
+		return "@" + identity
 	default:
 		return ""
 	}

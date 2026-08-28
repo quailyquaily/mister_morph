@@ -187,6 +187,7 @@ func parseHealthResponse(statusCode int, raw []byte) (runtimeEndpointHealth, err
 	var out struct {
 		Mode          string `json:"mode"`
 		AgentName     string `json:"agent_name"`
+		AvatarURL     string `json:"agent_avatar_url"`
 		SubmitEnabled bool   `json:"submit_enabled"`
 		InstanceID    string `json:"instance_id"`
 	}
@@ -196,6 +197,7 @@ func parseHealthResponse(statusCode int, raw []byte) (runtimeEndpointHealth, err
 	return runtimeEndpointHealth{
 		Mode:       strings.ToLower(strings.TrimSpace(out.Mode)),
 		AgentName:  strings.TrimSpace(out.AgentName),
+		AvatarURL:  strings.TrimSpace(out.AvatarURL),
 		CanSubmit:  out.SubmitEnabled,
 		InstanceID: strings.TrimSpace(out.InstanceID),
 	}, nil

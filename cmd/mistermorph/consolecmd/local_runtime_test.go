@@ -643,6 +643,7 @@ func TestConsoleLocalRoutesOptionsOverviewOmitsAwarenessRunning(t *testing.T) {
 	reader.Set("telegram.bot_token", "tg-token")
 	reader.Set("slack.bot_token", "slack-bot")
 	reader.Set("slack.app_token", "slack-app")
+	reader.Set("mixin.keystore_file", "mixin.json")
 	paths := runtimepaths.FromReader(reader)
 	rt := &consoleLocalRuntime{
 		generation: &consoleLocalRuntimeGeneration{
@@ -657,6 +658,8 @@ func TestConsoleLocalRoutesOptionsOverviewOmitsAwarenessRunning(t *testing.T) {
 		runtimePaths:          paths,
 		awarenessPokeRequests: make(chan awarenessloop.PokeRequest),
 	}
+	rt.SetManagedRuntimeRunning("mixin", true)
+	rt.mixinConnected.Store(true)
 
 	payload, err := rt.routesOptions("token").Overview(context.Background())
 	if err != nil {
@@ -667,6 +670,16 @@ func TestConsoleLocalRoutesOptionsOverviewOmitsAwarenessRunning(t *testing.T) {
 	}
 	if _, ok := payload["heartbeat_running"]; ok {
 		t.Fatalf("heartbeat_running exists, want omitted")
+	}
+	channel, _ := payload["channel"].(map[string]any)
+	if configured, _ := channel["mixin_configured"].(bool); !configured {
+		t.Fatalf("mixin_configured = %#v, want true", channel["mixin_configured"])
+	}
+	if running, _ := channel["mixin_running"].(bool); !running {
+		t.Fatalf("mixin_running = %#v, want true", channel["mixin_running"])
+	}
+	if connected, _ := channel["mixin_connected"].(bool); !connected {
+		t.Fatalf("mixin_connected = %#v, want true", channel["mixin_connected"])
 	}
 }
 

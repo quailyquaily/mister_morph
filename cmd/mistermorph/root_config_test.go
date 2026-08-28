@@ -29,6 +29,7 @@ func TestShouldPrepareRootRegistry(t *testing.T) {
 		{path: "mistermorph slack", want: true},
 		{path: "mistermorph line", want: true},
 		{path: "mistermorph lark", want: true},
+		{path: "mistermorph mixin", want: true},
 		{path: "mistermorph tools", want: true},
 		{path: "mistermorph console serve", want: false},
 		{path: "mistermorph version", want: false},

@@ -55,12 +55,14 @@ func TestOverviewAddsVersionAndRuntimeWhenMissing(t *testing.T) {
 
 func TestHealthAndOverviewResolveAgentNamePerRequest(t *testing.T) {
 	currentName := "Morph"
+	currentAvatarURL := "https://example.test/avatar-a.png"
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:          "serve",
-		AuthToken:     "token",
-		HealthEnabled: true,
-		AgentNameFunc: func() string { return currentName },
+		Mode:               "serve",
+		AuthToken:          "token",
+		HealthEnabled:      true,
+		AgentNameFunc:      func() string { return currentName },
+		AgentAvatarURLFunc: func() string { return currentAvatarURL },
 	})
 
 	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -76,8 +78,12 @@ func TestHealthAndOverviewResolveAgentNamePerRequest(t *testing.T) {
 	if got, _ := healthPayload["agent_name"].(string); got != "Morph" {
 		t.Fatalf("health agent_name = %q, want %q", got, "Morph")
 	}
+	if got, _ := healthPayload["agent_avatar_url"].(string); got != currentAvatarURL {
+		t.Fatalf("health agent_avatar_url = %q, want %q", got, currentAvatarURL)
+	}
 
 	currentName = "Momo"
+	currentAvatarURL = "https://example.test/avatar-b.png"
 
 	overviewReq := httptest.NewRequest(http.MethodGet, "/overview", nil)
 	overviewReq.Header.Set("Authorization", "Bearer token")
@@ -92,6 +98,16 @@ func TestHealthAndOverviewResolveAgentNamePerRequest(t *testing.T) {
 	}
 	if got, _ := overviewPayload["agent_name"].(string); got != "Momo" {
 		t.Fatalf("overview agent_name = %q, want %q", got, "Momo")
+	}
+	if got, _ := overviewPayload["agent_avatar_url"].(string); got != currentAvatarURL {
+		t.Fatalf("overview agent_avatar_url = %q, want %q", got, currentAvatarURL)
+	}
+}
+
+func TestChannelOverviewRecognizesMixinMode(t *testing.T) {
+	channel := channelOverviewFromMode("mixin")
+	if channel["configured"] != true || channel["mixin_configured"] != true || channel["mixin_running"] != true {
+		t.Fatalf("channelOverviewFromMode(mixin) = %#v", channel)
 	}
 }
 

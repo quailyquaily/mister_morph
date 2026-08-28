@@ -81,6 +81,7 @@ type runtimeEndpointClient interface {
 type runtimeEndpointHealth struct {
 	Mode       string
 	AgentName  string
+	AvatarURL  string
 	CanSubmit  bool
 	InstanceID string
 }
@@ -1036,6 +1037,10 @@ func (s *server) refreshEndpointHealth(ctx context.Context) {
 			state.Health = health
 			state.Connected = err == nil
 			state.HealthReady = true
+			if strings.TrimSpace(health.AvatarURL) != "" {
+				state.AvatarURL = strings.TrimSpace(health.AvatarURL)
+				state.AvatarReady = true
+			}
 			s.endpointStates[i] = state
 			s.endpointStateMu.Unlock()
 		}(i, endpoint)

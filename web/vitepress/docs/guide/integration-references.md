@@ -271,6 +271,20 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | `AddressingInterjectThreshold` | `float64` | Interject threshold. |
 | `Hooks` | `integration.SlackHooks` | Event callbacks. |
 
+### `type MixinOptions struct`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `ClientID` | `string` | Mixin Bot user UUID. |
+| `SessionID` | `string` | Mixin Ed25519 session UUID. |
+| `PrivateKey` | `string` | Mixin Ed25519 private key from the keystore. |
+| `AllowedConversationIDs` | `[]string` | Allowed conversation UUIDs. |
+| `TaskTimeout` | `time.Duration` | Per-task run timeout. |
+| `MaxConcurrency` | `int` | Maximum concurrent conversation count. |
+| `GroupTriggerMode` | `string` | Group trigger mode. |
+| `AddressingConfidenceThreshold` | `float64` | Addressing hit threshold. |
+| `AddressingInterjectThreshold` | `float64` | Interject threshold. |
+
 ### `type TelegramHooks struct`
 
 | Field | Type | Description |
@@ -302,6 +316,14 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | Parameters | `opts integration.SlackOptions` |
 | Returns | `integration.BotRunner`, `error` |
 | Description | Builds a Slack runner. Returns an error immediately if `BotToken` or `AppToken` is empty. |
+
+### `(*Runtime).NewMixinBot(opts MixinOptions) (BotRunner, error)`
+
+| Item | Value |
+| --- | --- |
+| Parameters | `opts integration.MixinOptions` |
+| Returns | `integration.BotRunner`, `error` |
+| Description | Builds a Mixin Messenger runner. Returns an error immediately if the client ID, session ID, or Ed25519 private key is invalid. |
 
 ## Event Alias Types
 

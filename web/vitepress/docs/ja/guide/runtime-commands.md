@@ -10,10 +10,12 @@ description: chat、Console、channel runtime で使えるコマンド。
 > Slack では `/` が Slack 自身の command system を起動するため、`/` の前に空白を入れます。例: ` /models`
 >
 > Slack の group chat では bot を明示してコマンドを送る必要があります。Telegram の group chat では `/models@BotName` のような通常の bot command を使えます。
+>
+> Mixin の group chat では、`@7000123456 /models` のように bot の Mixin ID mention をコマンドの前に付けます。
 
 ## 共通コマンド
 
-次のコマンドは CLI chat、Console Web、Telegram、Slack、LINE、Lark で使えます。
+次のコマンドは CLI chat、Console Web、Telegram、Slack、LINE、Lark、Mixin Messenger で使えます。
 
 | コマンド | 内容 |
 |---|---|
@@ -77,3 +79,10 @@ task の実行中に通常の non-command message を送ると、新しい task 
 |---|---|
 | `/id` | 現在の Telegram chat id と chat type を表示します。 |
 | `/reset` | その chat の履歴、sticky skills、known mentions、init state を消します。 |
+
+## Mixin Messenger 専用コマンド
+
+| コマンド | 内容 |
+|---|---|
+| `/id` | 現在の Mixin conversation UUID と type を表示します。 |
+| `/reset` | conversation history、sticky skills、checkpoint state を消します。 |

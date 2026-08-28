@@ -7,6 +7,7 @@ const (
 	ChannelSlack    = "slack"
 	ChannelLine     = "line"
 	ChannelLark     = "lark"
+	ChannelMixin    = "mixin"
 
 	KindInboundUser      = "inbound_user"
 	KindInboundReaction  = "inbound_reaction"

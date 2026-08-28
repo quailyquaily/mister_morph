@@ -149,10 +149,12 @@ const RuntimePanel = {
       channel_slack_configured: false,
       channel_line_configured: false,
       channel_lark_configured: false,
+	  channel_mixin_configured: false,
       channel_running_telegram: false,
       channel_running_slack: false,
       channel_running_line: false,
       channel_running_lark: false,
+	  channel_running_mixin: false,
       runtime_go_version: "-",
       runtime_goroutines: 0,
       runtime_heap_alloc_bytes: 0,
@@ -246,6 +248,12 @@ const RuntimePanel = {
         configured: overview.channel_lark_configured,
         running: overview.channel_running_lark,
       },
+	  {
+		key: "mixin",
+		title: t("endpoint_channel_mixin"),
+		configured: overview.channel_mixin_configured,
+		running: overview.channel_running_mixin,
+	  },
     ]);
     const runtimeMetrics = computed(() => runtimeRows(t, overview));
     const canPoke = computed(() => toBool(overview.poke_enabled, false));
@@ -295,14 +303,17 @@ const RuntimePanel = {
         const slackRunning = toBool(channel.slack_running, false) || runningChannel === "slack";
         const lineRunning = toBool(channel.line_running, false) || runningChannel === "line";
         const larkRunning = toBool(channel.lark_running, false) || runningChannel === "lark";
+		const mixinRunning = toBool(channel.mixin_running, false) || runningChannel === "mixin";
         overview.channel_running_telegram = telegramRunning;
         overview.channel_running_slack = slackRunning;
         overview.channel_running_line = lineRunning;
         overview.channel_running_lark = larkRunning;
+		overview.channel_running_mixin = mixinRunning;
         overview.channel_telegram_configured = toBool(channel.telegram_configured, false) || telegramRunning;
         overview.channel_slack_configured = toBool(channel.slack_configured, false) || slackRunning;
         overview.channel_line_configured = toBool(channel.line_configured, false) || lineRunning;
         overview.channel_lark_configured = toBool(channel.lark_configured, false) || larkRunning;
+		overview.channel_mixin_configured = toBool(channel.mixin_configured, false) || mixinRunning;
         const rt = data && typeof data.runtime === "object" ? data.runtime : {};
         overview.runtime_go_version = rt.go_version || "-";
         overview.runtime_goroutines = toInt(rt.goroutines, 0);

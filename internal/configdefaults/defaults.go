@@ -160,6 +160,16 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("lark.addressing_interject_threshold", DefaultAddressingThreshold)
 	v.SetDefault("lark.serve_listen", "")
 
+	v.SetDefault("mixin.keystore_file", "")
+	v.SetDefault("mixin.allowed_conversation_ids", []string{})
+	v.SetDefault("mixin.task_timeout", 0*time.Second)
+	v.SetDefault("mixin.max_concurrency", DefaultChannelMaxConcurrency)
+	v.SetDefault("mixin.group_trigger_mode", "talkative")
+	v.SetDefault("mixin.record_untriggered", false)
+	v.SetDefault("mixin.addressing_confidence_threshold", DefaultAddressingThreshold)
+	v.SetDefault("mixin.addressing_interject_threshold", DefaultAddressingThreshold)
+	v.SetDefault("mixin.serve_listen", "")
+
 	v.SetDefault("heartbeat.enabled", true)
 	v.SetDefault("heartbeat.interval", DefaultHeartbeatInterval)
 	v.SetDefault("cron.enabled", true)

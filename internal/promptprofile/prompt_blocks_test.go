@@ -147,6 +147,20 @@ func TestAppendLarkRuntimeBlocks_Private(t *testing.T) {
 	}
 }
 
+func TestAppendMixinRuntimeBlocks(t *testing.T) {
+	for _, isGroup := range []bool{false, true} {
+		spec := agent.PromptSpec{}
+		AppendMixinRuntimeBlocks(&spec, isGroup)
+		if len(spec.Blocks) != 1 || !strings.Contains(spec.Blocks[0].Content, "[[ Mixin Policies ]]") {
+			t.Fatalf("isGroup=%v blocks = %#v", isGroup, spec.Blocks)
+		}
+		groupPolicy := strings.Contains(spec.Blocks[0].Content, "[[ Mixin Group Policies ]]")
+		if groupPolicy != isGroup {
+			t.Fatalf("isGroup=%v group policy present=%v", isGroup, groupPolicy)
+		}
+	}
+}
+
 func TestAppendTodoWorkflowBlock_RequiresTodoUpdateTool(t *testing.T) {
 	spec := agent.PromptSpec{}
 	reg := tools.NewRegistry()

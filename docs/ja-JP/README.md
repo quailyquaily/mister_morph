@@ -90,6 +90,7 @@ CLI モードと設定の詳細は [../modes.md](../modes.md) と [../configurat
 - [Slack](../slack.md)
 - [LINE](../line.md)
 - [Lark](../lark.md)
+- [Mixin Messenger](../mixin.md)
 
 完全なドキュメント一覧は [../README.md](../README.md) を参照してください。
 

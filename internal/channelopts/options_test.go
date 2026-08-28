@@ -76,6 +76,7 @@ func TestConfigReadersKeepServeListenAsExplicitOverride(t *testing.T) {
 		{name: "slack", read: func(r ConfigReader) string { return SlackConfigFromReader(r).ServerListen }},
 		{name: "line", read: func(r ConfigReader) string { return LineConfigFromReader(r).ServerListen }},
 		{name: "lark", read: func(r ConfigReader) string { return LarkConfigFromReader(r).ServerListen }},
+		{name: "mixin", read: func(r ConfigReader) string { return MixinConfigFromReader(r).ServerListen }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,6 +99,7 @@ func TestRecordUntriggeredConfigIsPerChannel(t *testing.T) {
 		{name: "slack", key: "slack.record_untriggered"},
 		{name: "line", key: "line.record_untriggered"},
 		{name: "lark", key: "lark.record_untriggered"},
+		{name: "mixin", key: "mixin.record_untriggered"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -106,12 +108,14 @@ func TestRecordUntriggeredConfigIsPerChannel(t *testing.T) {
 			slackCfg := SlackConfigFromReader(r)
 			lineCfg := LineConfigFromReader(r)
 			larkCfg := LarkConfigFromReader(r)
+			mixinCfg := MixinConfigFromReader(r)
 
 			got := map[string]bool{
 				"telegram": telegramCfg.RecordUntriggered,
 				"slack":    slackCfg.RecordUntriggered,
 				"line":     lineCfg.RecordUntriggered,
 				"lark":     larkCfg.RecordUntriggered,
+				"mixin":    mixinCfg.RecordUntriggered,
 			}
 			for channel, enabled := range got {
 				if enabled != (channel == tt.name) {
@@ -128,6 +132,7 @@ func TestRecordUntriggeredConfigIsPerChannel(t *testing.T) {
 				"slack":    BuildSlackRunOptions(slackCfg, SlackInput{}).RecordUntriggered,
 				"line":     BuildLineRunOptions(lineCfg, LineInput{}).RecordUntriggered,
 				"lark":     BuildLarkRunOptions(larkCfg, LarkInput{}).RecordUntriggered,
+				"mixin":    BuildMixinRunOptions(mixinCfg, MixinInput{}).RecordUntriggered,
 			}
 			for channel, enabled := range built {
 				if enabled != (channel == tt.name) {
@@ -171,6 +176,7 @@ func TestConfigReadersShareEngineToolsConfig(t *testing.T) {
 		SlackConfigFromReader(r).EngineToolsConfig,
 		LineConfigFromReader(r).EngineToolsConfig,
 		LarkConfigFromReader(r).EngineToolsConfig,
+		MixinConfigFromReader(r).EngineToolsConfig,
 	}
 	for i, got := range configs {
 		if got.SpawnEnabled != want.SpawnEnabled || got.ACPSpawnEnabled != want.ACPSpawnEnabled || got.CoderEnabled != want.CoderEnabled || len(got.CoderPathExtra) != 1 || got.CoderPathExtra[0] != want.CoderPathExtra[0] {
@@ -393,5 +399,41 @@ func TestBuildLarkRunOptionsInputOverridesAndDedupesChats(t *testing.T) {
 	)
 	if len(opts.AllowedChatIDs) != 2 || opts.AllowedChatIDs[0] != "oc_groupB" || opts.AllowedChatIDs[1] != "oc_groupC" {
 		t.Fatalf("allowed chats = %#v, want [oc_groupB oc_groupC]", opts.AllowedChatIDs)
+	}
+}
+
+func TestBuildMixinRunOptions(t *testing.T) {
+	opts := BuildMixinRunOptions(
+		MixinConfig{
+			AllowedConversationIDs:               []string{"conversation-a"},
+			TaskTimeout:                          0,
+			GlobalTaskTimeout:                    6 * time.Minute,
+			MaxConcurrency:                       3,
+			FileCacheDir:                         "/tmp/morph-cache",
+			DefaultGroupTriggerMode:              "smart",
+			DefaultAddressingConfidenceThreshold: 0.6,
+			DefaultAddressingInterjectThreshold:  0.7,
+			AgentLimits:                          agent.Limits{ToolRepeatLimit: 15},
+		},
+		MixinInput{
+			KeystoreFile:           " mixin-keystore.json ",
+			AllowedConversationIDs: []string{" conversation-b ", "conversation-b", "conversation-c"},
+		},
+	)
+
+	if opts.KeystoreFile != "mixin-keystore.json" {
+		t.Fatalf("keystore file = %q, want mixin-keystore.json", opts.KeystoreFile)
+	}
+	if opts.TaskTimeout != 6*time.Minute {
+		t.Fatalf("task timeout = %v, want 6m", opts.TaskTimeout)
+	}
+	if len(opts.AllowedConversationIDs) != 2 || opts.AllowedConversationIDs[0] != "conversation-b" || opts.AllowedConversationIDs[1] != "conversation-c" {
+		t.Fatalf("allowed conversations = %#v, want [conversation-b conversation-c]", opts.AllowedConversationIDs)
+	}
+	if opts.GroupTriggerMode != "smart" || opts.AddressingConfidenceThreshold != 0.6 || opts.AddressingInterjectThreshold != 0.7 {
+		t.Fatalf("trigger options = %+v", opts)
+	}
+	if opts.AgentLimits.ToolRepeatLimit != 15 || opts.FileCacheDir != "/tmp/morph-cache" {
+		t.Fatalf("shared runtime options = %+v", opts)
 	}
 }

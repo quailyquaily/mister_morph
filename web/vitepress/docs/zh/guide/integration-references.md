@@ -271,6 +271,20 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | `AddressingInterjectThreshold` | `float64` | interject 阈值。 |
 | `Hooks` | `integration.SlackHooks` | 事件回调。 |
 
+### `type MixinOptions struct`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `ClientID` | `string` | Mixin Bot user UUID。 |
+| `SessionID` | `string` | Mixin Ed25519 session UUID。 |
+| `PrivateKey` | `string` | keystore 中的 Mixin Ed25519 私钥。 |
+| `AllowedConversationIDs` | `[]string` | 允许的 conversation UUID。 |
+| `TaskTimeout` | `time.Duration` | 单个 task 的执行超时。 |
+| `MaxConcurrency` | `int` | conversation 最大并发数。 |
+| `GroupTriggerMode` | `string` | 群聊 trigger mode。 |
+| `AddressingConfidenceThreshold` | `float64` | addressing 判定阈值。 |
+| `AddressingInterjectThreshold` | `float64` | interject 判定阈值。 |
+
 ### `type TelegramHooks struct`
 
 | 字段 | 类型 | 说明 |
@@ -302,6 +316,14 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | 参数 | `opts integration.SlackOptions` |
 | 返回值 | `integration.BotRunner`、`error` |
 | 说明 | 构造 Slack runner。`BotToken` 或 `AppToken` 为空会直接返回错误。 |
+
+### `(*Runtime).NewMixinBot(opts MixinOptions) (BotRunner, error)`
+
+| 项目 | 内容 |
+| --- | --- |
+| 参数 | `opts integration.MixinOptions` |
+| 返回值 | `integration.BotRunner`、`error` |
+| 说明 | 构造 Mixin Messenger runner。client ID、session ID 或 Ed25519 私钥无效时会直接返回错误。 |
 
 ## 事件别名类型
 

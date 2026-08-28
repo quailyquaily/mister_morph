@@ -63,6 +63,24 @@ func TestInprocPublishSubscribe(t *testing.T) {
 	}
 }
 
+func TestInprocPublishValidatedAndWaitReturnsHandlerError(t *testing.T) {
+	b, err := NewInproc(InprocOptions{MaxInFlight: 2, Logger: newTestLogger()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	wantErr := errors.New("task enqueue failed")
+	if err := b.Subscribe(TopicChatMessage, func(context.Context, BusMessage) error {
+		return wantErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := b.PublishValidatedAndWait(context.Background(), validMessage(t)); !errors.Is(err, wantErr) {
+		t.Fatalf("PublishValidatedAndWait() error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestInprocConversationOrder(t *testing.T) {
 	b, err := NewInproc(InprocOptions{MaxInFlight: 16, Logger: newTestLogger()})
 	if err != nil {

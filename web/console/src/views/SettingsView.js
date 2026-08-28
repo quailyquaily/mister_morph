@@ -96,6 +96,7 @@ const MANAGED_RUNTIME_ITEMS = [
   { id: "telegram", titleKey: "settings_console_runtime_telegram", noteKey: "settings_console_runtime_note_telegram" },
   { id: "slack", titleKey: "settings_console_runtime_slack", noteKey: "settings_console_runtime_note_slack" },
   { id: "lark", titleKey: "settings_console_runtime_lark", noteKey: "settings_console_runtime_note_lark" },
+  { id: "mixin", titleKey: "settings_console_runtime_mixin", noteKey: "settings_console_runtime_note_mixin" },
 ];
 
 const CHANNEL_GROUP_TRIGGER_VALUES = ["smart", "strict", "talkative"];
@@ -186,6 +187,14 @@ function buildEmptyLarkConsoleState() {
     app_secret: "",
     allowed_chat_ids_text: "",
     group_trigger_mode: "smart",
+  };
+}
+
+function buildEmptyMixinConsoleState() {
+  return {
+    keystore_file: "",
+    allowed_conversation_ids_text: "",
+    group_trigger_mode: "talkative",
   };
 }
 
@@ -478,6 +487,7 @@ function buildConsoleManagedRuntimeSnapshot(state) {
     telegram: !!state.managedRuntimes.telegram,
     slack: !!state.managedRuntimes.slack,
     lark: !!state.managedRuntimes.lark,
+    mixin: !!state.managedRuntimes.mixin,
   });
 }
 
@@ -518,6 +528,15 @@ function buildConsoleLarkSnapshot(state) {
     app_secret: trimText(state.lark.app_secret),
     allowed_chat_ids: parseConfigListText(state.lark.allowed_chat_ids_text),
     group_trigger_mode: normalizeConsoleGroupTriggerMode(state.lark.group_trigger_mode),
+  });
+}
+
+function buildConsoleMixinSnapshot(state) {
+  recordSnapshotBuild("settings.console.mixin");
+  return JSON.stringify({
+    keystore_file: trimText(state.mixin.keystore_file),
+    allowed_conversation_ids: parseConfigListText(state.mixin.allowed_conversation_ids_text),
+    group_trigger_mode: normalizeConsoleGroupTriggerMode(state.mixin.group_trigger_mode),
   });
 }
 
@@ -606,12 +625,14 @@ const SettingsView = {
     const loadedConsoleSlackSnapshot = ref("");
     const loadedConsoleLineSnapshot = ref("");
     const loadedConsoleLarkSnapshot = ref("");
+    const loadedConsoleMixinSnapshot = ref("");
     const loadedConsoleGuardSnapshot = ref("");
     const consoleManagedDirty = ref(false);
     const consoleTelegramDirty = ref(false);
     const consoleSlackDirty = ref(false);
     const consoleLineDirty = ref(false);
     const consoleLarkDirty = ref(false);
+    const consoleMixinDirty = ref(false);
     const consoleGuardDirty = ref(false);
     const consoleSettingsLoaded = ref(false);
     const consoleEnvManaged = ref({});
@@ -709,11 +730,13 @@ const SettingsView = {
         telegram: false,
         slack: false,
         lark: false,
+        mixin: false,
       },
       telegram: buildEmptyTelegramConsoleState(),
       slack: buildEmptySlackConsoleState(),
       line: buildEmptyLineConsoleState(),
       lark: buildEmptyLarkConsoleState(),
+      mixin: buildEmptyMixinConsoleState(),
       guard: buildEmptyGuardConsoleState(),
     });
 
@@ -810,12 +833,14 @@ const SettingsView = {
       loadedConsoleSlackSnapshot.value = buildConsoleSlackSnapshot(state);
       loadedConsoleLineSnapshot.value = buildConsoleLineSnapshot(state);
       loadedConsoleLarkSnapshot.value = buildConsoleLarkSnapshot(state);
+      loadedConsoleMixinSnapshot.value = buildConsoleMixinSnapshot(state);
       loadedConsoleGuardSnapshot.value = buildConsoleGuardSnapshot(state);
       consoleManagedDirty.value = false;
       consoleTelegramDirty.value = false;
       consoleSlackDirty.value = false;
       consoleLineDirty.value = false;
       consoleLarkDirty.value = false;
+      consoleMixinDirty.value = false;
       consoleGuardDirty.value = false;
     }
 
@@ -825,12 +850,14 @@ const SettingsView = {
       loadedConsoleSlackSnapshot.value = "";
       loadedConsoleLineSnapshot.value = "";
       loadedConsoleLarkSnapshot.value = "";
+      loadedConsoleMixinSnapshot.value = "";
       loadedConsoleGuardSnapshot.value = "";
       consoleManagedDirty.value = false;
       consoleTelegramDirty.value = false;
       consoleSlackDirty.value = false;
       consoleLineDirty.value = false;
       consoleLarkDirty.value = false;
+      consoleMixinDirty.value = false;
       consoleGuardDirty.value = false;
       consoleSettingsLoaded.value = false;
     }
@@ -853,6 +880,10 @@ const SettingsView = {
 
     function updateConsoleLarkDirty() {
       consoleLarkDirty.value = buildConsoleLarkSnapshot(state) !== loadedConsoleLarkSnapshot.value;
+    }
+
+    function updateConsoleMixinDirty() {
+      consoleMixinDirty.value = buildConsoleMixinSnapshot(state) !== loadedConsoleMixinSnapshot.value;
     }
 
     function updateConsoleGuardDirty() {
@@ -1298,6 +1329,7 @@ const SettingsView = {
         consoleSlackDirty.value ||
         consoleLineDirty.value ||
         consoleLarkDirty.value ||
+        consoleMixinDirty.value ||
         consoleGuardDirty.value
     );
     const consoleSaveDisabled = computed(
@@ -1314,6 +1346,9 @@ const SettingsView = {
     );
     const larkSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleLarkDirty.value
+    );
+    const mixinSaveDisabled = computed(
+      () => consoleLoading.value || consoleSaving.value || !consoleMixinDirty.value
     );
     const guardSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleGuardDirty.value
@@ -2212,6 +2247,7 @@ const SettingsView = {
       const slack = data?.slack && typeof data.slack === "object" ? data.slack : {};
       const line = data?.line && typeof data.line === "object" ? data.line : {};
       const lark = data?.lark && typeof data.lark === "object" ? data.lark : {};
+      const mixin = data?.mixin && typeof data.mixin === "object" ? data.mixin : {};
       const guard = data?.guard && typeof data.guard === "object" ? data.guard : {};
       const guardNetwork = guard?.network && typeof guard.network === "object" ? guard.network : {};
       const guardURLFetch =
@@ -2238,6 +2274,9 @@ const SettingsView = {
       state.lark.app_secret = typeof lark.app_secret === "string" ? lark.app_secret : "";
       state.lark.allowed_chat_ids_text = formatConfigList(lark.allowed_chat_ids);
       state.lark.group_trigger_mode = normalizeConsoleGroupTriggerMode(lark.group_trigger_mode);
+      state.mixin.keystore_file = typeof mixin.keystore_file === "string" ? mixin.keystore_file : "";
+      state.mixin.allowed_conversation_ids_text = formatConfigList(mixin.allowed_conversation_ids);
+      state.mixin.group_trigger_mode = normalizeConsoleGroupTriggerMode(mixin.group_trigger_mode || "talkative");
       state.guard.enabled = typeof guard.enabled === "boolean" ? guard.enabled : true;
       state.guard.url_fetch_allowed_url_prefixes_text = formatConfigList(guardURLFetch.allowed_url_prefixes);
       state.guard.deny_private_ips =
@@ -2260,10 +2299,12 @@ const SettingsView = {
       state.managedRuntimes.telegram = false;
       state.managedRuntimes.slack = false;
       state.managedRuntimes.lark = false;
+      state.managedRuntimes.mixin = false;
       Object.assign(state.telegram, buildEmptyTelegramConsoleState());
       Object.assign(state.slack, buildEmptySlackConsoleState());
       Object.assign(state.line, buildEmptyLineConsoleState());
       Object.assign(state.lark, buildEmptyLarkConsoleState());
+      Object.assign(state.mixin, buildEmptyMixinConsoleState());
       Object.assign(state.guard, buildEmptyGuardConsoleState());
       consoleEnvManaged.value = {};
       consoleConfigPath.value = "";
@@ -2815,6 +2856,10 @@ const SettingsView = {
         consoleEnvManaged.value?.lark && typeof consoleEnvManaged.value.lark === "object"
           ? consoleEnvManaged.value.lark
           : {};
+      const mixinEnv =
+        consoleEnvManaged.value?.mixin && typeof consoleEnvManaged.value.mixin === "object"
+          ? consoleEnvManaged.value.mixin
+          : {};
       const managed_runtimes = MANAGED_RUNTIME_ITEMS.filter((item) => state.managedRuntimes[item.id]).map((item) => item.id);
       const telegram = {
         bot_token: consoleFieldRawValue(telegramEnv, "bot_token") || trimText(state.telegram.bot_token),
@@ -2840,6 +2885,11 @@ const SettingsView = {
         app_secret: consoleFieldRawValue(larkEnv, "app_secret") || trimText(state.lark.app_secret),
         allowed_chat_ids: parseConfigListText(state.lark.allowed_chat_ids_text),
         group_trigger_mode: normalizeConsoleGroupTriggerMode(state.lark.group_trigger_mode),
+      };
+      const mixin = {
+        keystore_file: consoleFieldRawValue(mixinEnv, "keystore_file") || trimText(state.mixin.keystore_file),
+        allowed_conversation_ids: parseConfigListText(state.mixin.allowed_conversation_ids_text),
+        group_trigger_mode: normalizeConsoleGroupTriggerMode(state.mixin.group_trigger_mode),
       };
       const guard = {
         enabled: !!state.guard.enabled,
@@ -2873,10 +2923,13 @@ const SettingsView = {
       if (target === "lark") {
         return { lark };
       }
+      if (target === "mixin") {
+        return { mixin };
+      }
       if (target === "guard") {
         return { guard };
       }
-      return { managed_runtimes, telegram, slack, line, lark, guard };
+      return { managed_runtimes, telegram, slack, line, lark, mixin, guard };
     }
 
     function consoleFieldEntry(kind, field) {
@@ -2964,6 +3017,19 @@ const SettingsView = {
 
     function updateLarkGroupTrigger(item) {
       updateLarkField("group_trigger_mode", item?.value || "smart");
+    }
+
+    function updateMixinField(field, value) {
+      const key = String(field || "").trim();
+      if (!key || !Object.prototype.hasOwnProperty.call(state.mixin, key)) {
+        return;
+      }
+      state.mixin[key] = String(value || "");
+      updateConsoleMixinDirty();
+    }
+
+    function updateMixinGroupTrigger(item) {
+      updateMixinField("group_trigger_mode", item?.value || "talkative");
     }
 
     function updateGuardField(field, value) {
@@ -3116,7 +3182,7 @@ const SettingsView = {
     }
 
     async function saveConsoleSettings(target = "all") {
-      const normalizedTarget = ["all", "runtimes", "telegram", "slack", "line", "lark", "guard"].includes(String(target))
+      const normalizedTarget = ["all", "runtimes", "telegram", "slack", "line", "lark", "mixin", "guard"].includes(String(target))
         ? String(target)
         : "all";
       if (!selectedEndpointIsConsole.value) {
@@ -3137,6 +3203,9 @@ const SettingsView = {
       if (normalizedTarget === "lark" && larkSaveDisabled.value) {
         return;
       }
+	  if (normalizedTarget === "mixin" && mixinSaveDisabled.value) {
+		return;
+	  }
       if (normalizedTarget === "guard" && guardSaveDisabled.value) {
         return;
       }
@@ -3789,6 +3858,7 @@ const SettingsView = {
       slackSaveDisabled,
       lineSaveDisabled,
       larkSaveDisabled,
+      mixinSaveDisabled,
       guardSaveDisabled,
       personaDirty,
       personaSaveDisabled,
@@ -3903,10 +3973,12 @@ const SettingsView = {
       updateSlackField,
       updateLineField,
       updateLarkField,
+      updateMixinField,
       updateTelegramGroupTrigger,
       updateSlackGroupTrigger,
       updateLineGroupTrigger,
       updateLarkGroupTrigger,
+      updateMixinGroupTrigger,
       updateGuardField,
       selectSection,
       isSelectedSection,
@@ -4542,6 +4614,70 @@ const SettingsView = {
                         @change="updateLarkGroupTrigger"
                       />
                       <p class="settings-field-note">{{ t("settings_console_lark_group_trigger_note") }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_mixin_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_mixin_note") }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="consoleSaving && consoleSavingTarget === 'mixin'"
+                      :disabled="mixinSaveDisabled"
+                      @click="saveConsoleSettings('mixin')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-body">
+                  <div class="settings-form-grid">
+                    <div class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_mixin_keystore_file_label") }}</span>
+                      <div v-if="consoleFieldEnvManaged('mixin', 'keystore_file')" class="settings-env-managed">
+                        <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("mixin", "keystore_file") }}</code>
+                        <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+                      </div>
+                      <QInput
+                        v-else
+                        :modelValue="state.mixin.keystore_file"
+                        :placeholder="t('settings_console_mixin_keystore_file_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateMixinField('keystore_file', $event)"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_mixin_keystore_file_note") }}</p>
+                    </div>
+
+                    <div class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_mixin_allowed_conversation_ids_label") }}</span>
+                      <QTextarea
+                        :modelValue="state.mixin.allowed_conversation_ids_text"
+                        :rows="4"
+                        :placeholder="t('settings_console_mixin_allowed_conversation_ids_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateMixinField('allowed_conversation_ids_text', $event)"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_mixin_allowed_conversation_ids_note") }}</p>
+                    </div>
+
+                    <div class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
+                      <QDropdownMenu
+                        :key="state.mixin.group_trigger_mode || 'mixin-group-trigger'"
+                        :items="groupTriggerItems"
+                        :initialItem="groupTriggerItems.find((item) => item.value === state.mixin.group_trigger_mode) || groupTriggerItems[2]"
+                        @change="updateMixinGroupTrigger"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_mixin_group_trigger_note") }}</p>
                     </div>
                   </div>
                 </div>

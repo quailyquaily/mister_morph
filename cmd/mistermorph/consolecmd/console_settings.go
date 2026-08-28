@@ -54,6 +54,12 @@ type consoleLarkSettingsPayload struct {
 	GroupTriggerMode string   `json:"group_trigger_mode"`
 }
 
+type consoleMixinSettingsPayload struct {
+	KeystoreFile           string   `json:"keystore_file"`
+	AllowedConversationIDs []string `json:"allowed_conversation_ids"`
+	GroupTriggerMode       string   `json:"group_trigger_mode"`
+}
+
 type consoleGuardURLFetchSettingsPayload struct {
 	AllowedURLPrefixes []string `json:"allowed_url_prefixes"`
 	DenyPrivateIPs     bool     `json:"deny_private_ips"`
@@ -86,6 +92,7 @@ type consoleSettingsPayload struct {
 	Slack           consoleSlackSettingsPayload    `json:"slack"`
 	Line            consoleLineSettingsPayload     `json:"line"`
 	Lark            consoleLarkSettingsPayload     `json:"lark"`
+	Mixin           consoleMixinSettingsPayload    `json:"mixin"`
 	Guard           consoleGuardSettingsPayload    `json:"guard"`
 }
 
@@ -115,6 +122,12 @@ type consoleLarkSettingsUpdatePayload struct {
 	AppSecret        *string   `json:"app_secret,omitempty"`
 	AllowedChatIDs   *[]string `json:"allowed_chat_ids,omitempty"`
 	GroupTriggerMode *string   `json:"group_trigger_mode,omitempty"`
+}
+
+type consoleMixinSettingsUpdatePayload struct {
+	KeystoreFile           *string   `json:"keystore_file,omitempty"`
+	AllowedConversationIDs *[]string `json:"allowed_conversation_ids,omitempty"`
+	GroupTriggerMode       *string   `json:"group_trigger_mode,omitempty"`
 }
 
 type consoleGuardURLFetchSettingsUpdatePayload struct {
@@ -149,6 +162,7 @@ type consoleSettingsUpdatePayload struct {
 	Slack           *consoleSlackSettingsUpdatePayload    `json:"slack,omitempty"`
 	Line            *consoleLineSettingsUpdatePayload     `json:"line,omitempty"`
 	Lark            *consoleLarkSettingsUpdatePayload     `json:"lark,omitempty"`
+	Mixin           *consoleMixinSettingsUpdatePayload    `json:"mixin,omitempty"`
 	Guard           *consoleGuardSettingsUpdatePayload    `json:"guard,omitempty"`
 }
 
@@ -157,6 +171,7 @@ type consoleSettingsEnvManagedPayload struct {
 	Slack    map[string]agentsettings.EnvManagedField `json:"slack,omitempty"`
 	Line     map[string]agentsettings.EnvManagedField `json:"line,omitempty"`
 	Lark     map[string]agentsettings.EnvManagedField `json:"lark,omitempty"`
+	Mixin    map[string]agentsettings.EnvManagedField `json:"mixin,omitempty"`
 }
 
 func (s *server) handleConsoleSettings(w http.ResponseWriter, r *http.Request) {
@@ -196,6 +211,7 @@ func (s *server) handleConsoleSettingsGet(w http.ResponseWriter, _ *http.Request
 		"slack":            settings.Slack,
 		"line":             settings.Line,
 		"lark":             settings.Lark,
+		"mixin":            settings.Mixin,
 		"guard":            settings.Guard,
 		"env_managed":      envManaged,
 		"config_path":      configPath,
@@ -251,6 +267,7 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		"slack":            next.Slack,
 		"line":             next.Line,
 		"lark":             next.Lark,
+		"mixin":            next.Mixin,
 		"guard":            next.Guard,
 		"env_managed":      envManaged,
 		"config_path":      configPath,
@@ -319,6 +336,11 @@ func writeConsoleSettings(configPath string, values consoleSettingsPayload) ([]b
 	setMappingOrderedStringList(larkNode, "allowed_chat_ids", normalizeConsoleStringList(values.Lark.AllowedChatIDs))
 	configbootstrap.SetOrDeleteMappingScalar(larkNode, "group_trigger_mode", strings.TrimSpace(values.Lark.GroupTriggerMode))
 
+	mixinNode := configbootstrap.EnsureMappingValue(root, "mixin")
+	configbootstrap.SetOrDeleteMappingScalar(mixinNode, "keystore_file", strings.TrimSpace(values.Mixin.KeystoreFile))
+	setMappingOrderedStringList(mixinNode, "allowed_conversation_ids", normalizeConsoleStringList(values.Mixin.AllowedConversationIDs))
+	configbootstrap.SetOrDeleteMappingScalar(mixinNode, "group_trigger_mode", strings.TrimSpace(values.Mixin.GroupTriggerMode))
+
 	guardNode := configbootstrap.EnsureMappingValue(root, "guard")
 	configbootstrap.SetMappingBoolValue(guardNode, "enabled", values.Guard.Enabled)
 	networkNode := configbootstrap.EnsureMappingValue(guardNode, "network")
@@ -369,6 +391,11 @@ func readConsoleSettingsFromReader(r interface {
 			AppSecret:        strings.TrimSpace(r.GetString("lark.app_secret")),
 			AllowedChatIDs:   normalizeConsoleStringList(r.GetStringSlice("lark.allowed_chat_ids")),
 			GroupTriggerMode: normalizeConsoleGroupTriggerMode(strings.TrimSpace(r.GetString("lark.group_trigger_mode"))),
+		},
+		Mixin: consoleMixinSettingsPayload{
+			KeystoreFile:           strings.TrimSpace(r.GetString("mixin.keystore_file")),
+			AllowedConversationIDs: normalizeConsoleStringList(r.GetStringSlice("mixin.allowed_conversation_ids")),
+			GroupTriggerMode:       normalizeConsoleGroupTriggerMode(strings.TrimSpace(r.GetString("mixin.group_trigger_mode"))),
 		},
 		Guard: consoleGuardSettingsPayload{
 			Enabled: r.GetBool("guard.enabled"),
@@ -424,6 +451,11 @@ func normalizeConsoleSettingsPayload(in consoleSettingsPayload) (consoleSettings
 			AppSecret:        strings.TrimSpace(in.Lark.AppSecret),
 			AllowedChatIDs:   normalizeConsoleStringList(in.Lark.AllowedChatIDs),
 			GroupTriggerMode: normalizeConsoleGroupTriggerMode(strings.TrimSpace(in.Lark.GroupTriggerMode)),
+		},
+		Mixin: consoleMixinSettingsPayload{
+			KeystoreFile:           strings.TrimSpace(in.Mixin.KeystoreFile),
+			AllowedConversationIDs: normalizeConsoleStringList(in.Mixin.AllowedConversationIDs),
+			GroupTriggerMode:       normalizeConsoleGroupTriggerMode(strings.TrimSpace(in.Mixin.GroupTriggerMode)),
 		},
 		Guard: consoleGuardSettingsPayload{
 			Enabled: in.Guard.Enabled,
@@ -511,6 +543,17 @@ func normalizeConsoleSettingsUpdatePayload(
 		}
 		if in.Lark.GroupTriggerMode != nil {
 			next.Lark.GroupTriggerMode = normalizeConsoleGroupTriggerMode(*in.Lark.GroupTriggerMode)
+		}
+	}
+	if in.Mixin != nil {
+		if in.Mixin.KeystoreFile != nil {
+			next.Mixin.KeystoreFile = strings.TrimSpace(*in.Mixin.KeystoreFile)
+		}
+		if in.Mixin.AllowedConversationIDs != nil {
+			next.Mixin.AllowedConversationIDs = normalizeConsoleStringList(*in.Mixin.AllowedConversationIDs)
+		}
+		if in.Mixin.GroupTriggerMode != nil {
+			next.Mixin.GroupTriggerMode = normalizeConsoleGroupTriggerMode(*in.Mixin.GroupTriggerMode)
 		}
 	}
 	if in.Guard != nil {
@@ -602,6 +645,11 @@ func buildConsoleSettingsResponseView(
 		configbootstrap.FindMappingValue(root, "lark"),
 		envManaged.Lark,
 	)
+	settings.Mixin, envManaged.Mixin = buildConsoleMixinSettingsResponseView(
+		settings.Mixin,
+		configbootstrap.FindMappingValue(root, "mixin"),
+		envManaged.Mixin,
+	)
 	if len(envManaged.Telegram) == 0 {
 		envManaged.Telegram = nil
 	}
@@ -613,6 +661,9 @@ func buildConsoleSettingsResponseView(
 	}
 	if len(envManaged.Lark) == 0 {
 		envManaged.Lark = nil
+	}
+	if len(envManaged.Mixin) == 0 {
+		envManaged.Mixin = nil
 	}
 	return settings, envManaged
 }
@@ -679,6 +730,21 @@ func buildConsoleLarkSettingsResponseView(
 	}
 	if _, ok := envManaged["app_secret"]; ok && consoleSettingsShouldHideSensitiveField(node, "app_secret") {
 		settings.AppSecret = ""
+	}
+	if len(envManaged) == 0 {
+		return settings, nil
+	}
+	return settings, envManaged
+}
+
+func buildConsoleMixinSettingsResponseView(
+	settings consoleMixinSettingsPayload,
+	node *yaml.Node,
+	envManaged map[string]agentsettings.EnvManagedField,
+) (consoleMixinSettingsPayload, map[string]agentsettings.EnvManagedField) {
+	envManaged = applyConsoleSettingsYAMLEnvManaged(node, envManaged, "keystore_file")
+	if field, ok := envManaged["keystore_file"]; ok && strings.TrimSpace(field.Value) != "" {
+		settings.KeystoreFile = strings.TrimSpace(field.Value)
 	}
 	if len(envManaged) == 0 {
 		return settings, nil
@@ -793,6 +859,9 @@ func currentConsoleSettingsEnvManaged() consoleSettingsEnvManagedPayload {
 			out.Lark = map[string]agentsettings.EnvManagedField{}
 		}
 		out.Lark["app_secret"] = field
+	}
+	if field, ok := agentsettings.ManagedEnvField(false, "MISTER_MORPH_MIXIN_KEYSTORE_FILE"); ok {
+		out.Mixin = map[string]agentsettings.EnvManagedField{"keystore_file": field}
 	}
 	return out
 }

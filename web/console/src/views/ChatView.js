@@ -500,6 +500,8 @@ function kickerChannelLabel(mode) {
       return "LINE";
     case "lark":
       return "Lark";
+	case "mixin":
+	  return "Mixin";
     default:
       return "Endpoint";
   }

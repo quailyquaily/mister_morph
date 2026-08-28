@@ -474,6 +474,13 @@ func normalizeReference(raw string) (string, error) {
 		}
 		return "tg:@" + username, nil
 	}
+	if strings.HasPrefix(lower, "mixin:@") {
+		identityNumber := strings.TrimSpace(value[len("mixin:@"):])
+		if identityNumber == "" || strings.ContainsAny(identityNumber, " \t\r\n:@()") {
+			return "", fmt.Errorf("invalid Mixin identity number reference")
+		}
+		return "mixin:@" + identityNumber, nil
+	}
 	return normalizeStableIdentity(value)
 }
 
@@ -528,6 +535,12 @@ func contactReferences(contact contacts.Contact) []string {
 	if openID := strings.TrimSpace(contact.LarkOpenID); openID != "" {
 		refs = append(refs, "lark_user:"+openID)
 	}
+	if userID := strings.TrimSpace(contact.MixinUserID); userID != "" {
+		refs = append(refs, "mixin:"+userID)
+	}
+	if identityNumber := strings.TrimSpace(contact.MixinIdentityNumber); identityNumber != "" {
+		refs = append(refs, "mixin:@"+identityNumber)
+	}
 	return refs
 }
 
@@ -546,6 +559,8 @@ func channelForReference(ref string) string {
 		return contacts.ChannelLine
 	case strings.HasPrefix(lower, "lark_user:"):
 		return contacts.ChannelLark
+	case strings.HasPrefix(lower, "mixin:"):
+		return contacts.ChannelMixin
 	default:
 		return ""
 	}

@@ -71,6 +71,18 @@ func DefaultConfigPath() string {
 	return ResolveStateFile("", "config.yaml")
 }
 
+func ResolveConfigRelativePath(path, configPath string) string {
+	path = ExpandHomePath(path)
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	configPath = ExpandHomePath(configPath)
+	if configPath == "" {
+		return path
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(configPath), path))
+}
+
 func IsWithinDir(baseAbs string, candAbs string) bool {
 	baseAbs = filepath.Clean(baseAbs)
 	candAbs = filepath.Clean(candAbs)
