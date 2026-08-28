@@ -84,6 +84,19 @@ func TestManagersPairAfterReciprocalAdminRequests(t *testing.T) {
 	assertEventTypes(t, journalA, []string{"agent_pair_requested", "agent_pair_completed"})
 }
 
+func TestMixinPeerReferencesUseUserIDAndIdentityNumber(t *testing.T) {
+	peer := Peer{
+		ID: "mixin:11111111-1111-1111-1111-111111111111",
+		Contact: contacts.Contact{
+			ContactID: "mixin:11111111-1111-1111-1111-111111111111", Channel: contacts.ChannelMixin,
+			MixinUserID: "11111111-1111-1111-1111-111111111111", MixinIdentityNumber: "7000123456",
+		},
+	}
+	if !peerHasReference(peer, "mixin:@7000123456") || channelForReference(peer.ID) != contacts.ChannelMixin {
+		t.Fatalf("Mixin peer references = %#v", peerKeys(peer))
+	}
+}
+
 func TestManagerReportsCompletedWhenCompletionJournalFails(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 8, 30, 0, 0, time.UTC)

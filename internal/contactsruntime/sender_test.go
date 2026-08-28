@@ -5,14 +5,38 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/contacts"
+	mixinbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/mixin"
+	"github.com/quailyquaily/mistermorph/internal/mixinapi"
 	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
+
+type fakeMixinSenderClient struct {
+	conversation mixinapi.Conversation
+	readCalls    int
+	batches      [][]mixinapi.MessageRequest
+}
+
+func (f *fakeMixinSenderClient) ReadConversation(context.Context, string) (mixinapi.Conversation, error) {
+	f.readCalls++
+	return f.conversation, nil
+}
+
+func (f *fakeMixinSenderClient) CreateContactConversation(context.Context, string) (mixinapi.Conversation, error) {
+	return mixinapi.Conversation{}, nil
+}
+
+func (f *fakeMixinSenderClient) SendMessages(_ context.Context, messages []mixinapi.MessageRequest) error {
+	f.batches = append(f.batches, append([]mixinapi.MessageRequest(nil), messages...))
+	return nil
+}
 
 func TestBuildEnvelopePayload_RequiresSessionID(t *testing.T) {
 	now := time.Date(2026, 2, 7, 4, 31, 30, 0, time.UTC)
@@ -138,6 +162,108 @@ func TestResolveLarkTargetWithChatIDHint(t *testing.T) {
 	}
 }
 
+func TestResolveMixinTarget(t *testing.T) {
+	const userID = "773e5e77-4107-45c2-b648-8fc722ed77f5"
+	const chatID = "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34"
+	contact := contacts.Contact{
+		ContactID: "mixin:" + userID, Channel: contacts.ChannelMixin,
+		MixinUserID: userID, MixinChatIDs: []string{chatID},
+	}
+	target, err := ResolveMixinTarget(contact)
+	if err != nil || target.UserID != userID || target.ConversationID != "" {
+		t.Fatalf("ResolveMixinTarget() = %#v, %v", target, err)
+	}
+	target, err = ResolveMixinTargetWithChatID(contact, "mixin:"+chatID)
+	if err != nil || target.ConversationID != chatID || target.UserID != "" {
+		t.Fatalf("ResolveMixinTargetWithChatID() = %#v, %v", target, err)
+	}
+}
+
+func TestNewRoutingSenderDefersMixinKeystoreLoad(t *testing.T) {
+	sender, err := NewRoutingSender(context.Background(), SenderOptions{MixinKeystoreFile: "/missing/mixin-keystore.json"})
+	if err != nil {
+		t.Fatalf("NewRoutingSender() error = %v", err)
+	}
+	defer sender.Close()
+}
+
+func TestSendMixinTargetExpandsConversationParticipants(t *testing.T) {
+	const conversationID = "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34"
+	const botID = "773e5e77-4107-45c2-b648-8fc722ed77f5"
+	const messageID = "7ea3356d-3c57-4ef5-a49c-71f2ba7cb312"
+	participants := []mixinapi.ConversationParticipant{{UserID: botID}}
+	for index := range 205 {
+		participants = append(participants, mixinapi.ConversationParticipant{
+			UserID: uuid.NewSHA1(uuid.NameSpaceOID, []byte(strconv.Itoa(index))).String(),
+		})
+	}
+	participants = append(participants, participants[1])
+	client := &fakeMixinSenderClient{conversation: mixinapi.Conversation{
+		ConversationID: conversationID,
+		Category:       mixinapi.ConversationCategoryGroup,
+		Participants:   participants,
+	}}
+	sender := &RoutingSender{mixinClient: client, mixinBotID: botID}
+
+	if err := sender.sendMixinTarget(context.Background(), mixinbus.DeliveryTarget{
+		ConversationID: conversationID,
+	}, "hello", mixinbus.SendTextOptions{MessageID: messageID}); err != nil {
+		t.Fatalf("sendMixinTarget() error = %v", err)
+	}
+	if client.readCalls != 1 {
+		t.Fatalf("ReadConversation() calls = %d, want 1", client.readCalls)
+	}
+	if len(client.batches) != 3 || len(client.batches[0]) != 100 || len(client.batches[1]) != 100 || len(client.batches[2]) != 5 {
+		t.Fatalf("batch sizes = %d/%d/%d", len(client.batches[0]), len(client.batches[1]), len(client.batches[2]))
+	}
+	seenRecipients := make(map[string]struct{}, 205)
+	seenMessages := make(map[string]struct{}, 205)
+	for _, batch := range client.batches {
+		for _, message := range batch {
+			if message.ConversationID != conversationID || message.RecipientID == "" || message.RecipientID == botID {
+				t.Fatalf("message target = %#v", message)
+			}
+			if _, found := seenRecipients[message.RecipientID]; found {
+				t.Fatalf("duplicate recipient_id %q", message.RecipientID)
+			}
+			seenRecipients[message.RecipientID] = struct{}{}
+			if _, found := seenMessages[message.MessageID]; found {
+				t.Fatalf("duplicate message_id %q", message.MessageID)
+			}
+			seenMessages[message.MessageID] = struct{}{}
+		}
+	}
+}
+
+func TestSendMixinTargetSplitsConversationBatchByRequestSize(t *testing.T) {
+	const conversationID = "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34"
+	const botID = "773e5e77-4107-45c2-b648-8fc722ed77f5"
+	client := &fakeMixinSenderClient{conversation: mixinapi.Conversation{
+		ConversationID: conversationID,
+		Category:       mixinapi.ConversationCategoryGroup,
+		Participants: []mixinapi.ConversationParticipant{
+			{UserID: botID},
+			{UserID: "0fd3794c-a497-4c5b-8845-c82c9d7814d1"},
+			{UserID: "6c12f32e-07bf-4a9a-bb39-a8c08886f608"},
+		},
+	}}
+	sender := &RoutingSender{mixinClient: client, mixinBotID: botID}
+
+	if err := sender.sendMixinTarget(context.Background(), mixinbus.DeliveryTarget{
+		ConversationID: conversationID,
+	}, strings.Repeat("x", 60<<10), mixinbus.SendTextOptions{
+		MessageID: "7ea3356d-3c57-4ef5-a49c-71f2ba7cb312",
+	}); err != nil {
+		t.Fatalf("sendMixinTarget() error = %v", err)
+	}
+	if len(client.batches) != 2 {
+		t.Fatalf("batch count = %d, want 2", len(client.batches))
+	}
+	if len(client.batches[0]) != 1 || len(client.batches[1]) != 1 {
+		t.Fatalf("batch sizes = %d/%d, want 1/1", len(client.batches[0]), len(client.batches[1]))
+	}
+}
+
 func TestRoutingSenderSendLarkDirect(t *testing.T) {
 	ctx := context.Background()
 
@@ -175,9 +301,10 @@ func TestRoutingSenderSendLarkDirect(t *testing.T) {
 	}))
 
 	sender, err := NewRoutingSender(ctx, SenderOptions{
-		LarkAppID:     "cli_test",
-		LarkAppSecret: "secret_test",
-		LarkBaseURL:   serverURL,
+		LarkAppID:         "cli_test",
+		LarkAppSecret:     "secret_test",
+		LarkBaseURL:       serverURL,
+		MixinKeystoreFile: "/missing/mixin-keystore.json",
 	})
 	if err != nil {
 		t.Fatalf("NewRoutingSender() error = %v", err)

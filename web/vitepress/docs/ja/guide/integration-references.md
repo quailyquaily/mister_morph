@@ -271,6 +271,20 @@ description: integration パッケージの公開関数、メソッド、構造�
 | `AddressingInterjectThreshold` | `float64` | interject 判定の閾値。 |
 | `Hooks` | `integration.SlackHooks` | イベント callback。 |
 
+### `type MixinOptions struct`
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `ClientID` | `string` | Mixin Bot user UUID。 |
+| `SessionID` | `string` | Mixin Ed25519 session UUID。 |
+| `PrivateKey` | `string` | keystore に含まれる Mixin Ed25519 private key。 |
+| `AllowedConversationIDs` | `[]string` | 許可する conversation UUID。 |
+| `TaskTimeout` | `time.Duration` | 1 task あたりの実行 timeout。 |
+| `MaxConcurrency` | `int` | conversation の最大同時実行数。 |
+| `GroupTriggerMode` | `string` | グループ trigger mode。 |
+| `AddressingConfidenceThreshold` | `float64` | addressing 判定の閾値。 |
+| `AddressingInterjectThreshold` | `float64` | interject 判定の閾値。 |
+
 ### `type TelegramHooks struct`
 
 | フィールド | 型 | 説明 |
@@ -302,6 +316,14 @@ description: integration パッケージの公開関数、メソッド、構造�
 | 引数 | `opts integration.SlackOptions` |
 | 戻り値 | `integration.BotRunner`、`error` |
 | 説明 | Slack runner を構築します。`BotToken` または `AppToken` が空なら即座に error を返します。 |
+
+### `(*Runtime).NewMixinBot(opts MixinOptions) (BotRunner, error)`
+
+| 項目 | 内容 |
+| --- | --- |
+| 引数 | `opts integration.MixinOptions` |
+| 戻り値 | `integration.BotRunner`、`error` |
+| 説明 | Mixin Messenger runner を構築します。client ID、session ID、Ed25519 private key が無効なら即座に error を返します。 |
 
 ## イベント alias 型
 

@@ -51,6 +51,8 @@ function fallbackHandleFromContactID(item, channel) {
       return prefix === "line" ? parts[parts.length - 1] : "";
     case "lark":
       return prefix === "lark" || prefix === "lark_user" ? parts[parts.length - 1] : "";
+	case "mixin":
+	  return prefix === "mixin" ? parts[parts.length - 1] : "";
     default:
       return "";
   }
@@ -68,6 +70,8 @@ function channelLabel(t, raw) {
       return t("endpoint_channel_line");
     case "lark":
       return t("endpoint_channel_lark");
+	case "mixin":
+	  return t("endpoint_channel_mixin");
     case "console":
       return t("endpoint_channel_console");
     default:
@@ -102,6 +106,8 @@ function channelHandles(t, item) {
   push("slack", String(item?.slack_user_id || "").trim() || fallbackHandleFromContactID(item, "slack"));
   push("line", String(item?.line_user_id || "").trim() || fallbackHandleFromContactID(item, "line"));
   push("lark", String(item?.lark_open_id || "").trim() || fallbackHandleFromContactID(item, "lark"));
+	const mixinIdentity = String(item?.mixin_identity_number || "").trim();
+	push("mixin", mixinIdentity ? `@${mixinIdentity}` : String(item?.mixin_user_id || "").trim() || fallbackHandleFromContactID(item, "mixin"));
 
   return out;
 }

@@ -20,10 +20,12 @@ import (
 	"github.com/quailyquaily/mistermorph/contacts"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
+	mixinbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/mixin"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
 	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 	larkapi "github.com/quailyquaily/mistermorph/internal/larkapi"
+	"github.com/quailyquaily/mistermorph/internal/mixinapi"
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
 )
 
@@ -31,40 +33,49 @@ const defaultTelegramBaseURL = "https://api.telegram.org"
 const defaultSlackBaseURL = "https://slack.com/api"
 const defaultLineBaseURL = "https://api.line.me"
 const defaultLarkBaseURL = "https://open.feishu.cn/open-apis"
+const mixinMessageBatchLimit = 100
+const mixinMessageRequestMaxBytes = 128 << 10
 
 type SenderOptions struct {
-	TelegramBotToken string
-	TelegramBaseURL  string
-	SlackBotToken    string
-	SlackBaseURL     string
-	LineChannelToken string
-	LineBaseURL      string
-	LarkAppID        string
-	LarkAppSecret    string
-	LarkBaseURL      string
-	BusMaxInFlight   int
-	Logger           *slog.Logger
+	TelegramBotToken  string
+	TelegramBaseURL   string
+	SlackBotToken     string
+	SlackBaseURL      string
+	LineChannelToken  string
+	LineBaseURL       string
+	LarkAppID         string
+	LarkAppSecret     string
+	LarkBaseURL       string
+	MixinKeystoreFile string
+	BusMaxInFlight    int
+	Logger            *slog.Logger
 }
 
 type RoutingSender struct {
-	bus              *busruntime.Inproc
-	telegramDelivery *telegrambus.DeliveryAdapter
-	slackDelivery    *slackbus.DeliveryAdapter
-	lineDelivery     *linebus.DeliveryAdapter
-	telegramClient   *http.Client
-	lineClient       *http.Client
-	larkClient       *http.Client
-	slackPoster      *slackclient.Client
-	telegramBaseURL  string
-	telegramBotToken string
-	lineBaseURL      string
-	lineToken        string
-	larkBaseURL      string
-	larkTokenClient  *larkapi.TenantTokenClient
-	logger           *slog.Logger
-	pendingMu        sync.Mutex
-	pending          map[string]chan deliveryResult
-	closeOnce        sync.Once
+	bus               *busruntime.Inproc
+	telegramDelivery  *telegrambus.DeliveryAdapter
+	slackDelivery     *slackbus.DeliveryAdapter
+	lineDelivery      *linebus.DeliveryAdapter
+	mixinDelivery     *mixinbus.DeliveryAdapter
+	telegramClient    *http.Client
+	lineClient        *http.Client
+	larkClient        *http.Client
+	slackPoster       *slackclient.Client
+	telegramBaseURL   string
+	telegramBotToken  string
+	lineBaseURL       string
+	lineToken         string
+	larkBaseURL       string
+	larkTokenClient   *larkapi.TenantTokenClient
+	mixinClient       mixinSenderClient
+	mixinBotID        string
+	mixinKeystoreFile string
+	mixinOnce         sync.Once
+	mixinInitErr      error
+	logger            *slog.Logger
+	pendingMu         sync.Mutex
+	pending           map[string]chan deliveryResult
+	closeOnce         sync.Once
 }
 
 type deliveryResult struct {
@@ -76,6 +87,17 @@ type deliveryResult struct {
 type larkSendTarget struct {
 	ReceiveIDType string
 	ReceiveID     string
+}
+
+type mixinSendTarget struct {
+	UserID         string
+	ConversationID string
+}
+
+type mixinSenderClient interface {
+	ReadConversation(context.Context, string) (mixinapi.Conversation, error)
+	CreateContactConversation(context.Context, string) (mixinapi.Conversation, error)
+	SendMessages(context.Context, []mixinapi.MessageRequest) error
 }
 
 type larkSendMessageRequest struct {
@@ -137,18 +159,19 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 	}
 
 	sender := &RoutingSender{
-		bus:              inprocBus,
-		telegramClient:   &http.Client{Timeout: 30 * time.Second},
-		lineClient:       &http.Client{Timeout: 30 * time.Second},
-		larkClient:       &http.Client{Timeout: 30 * time.Second},
-		telegramBaseURL:  baseURL,
-		telegramBotToken: strings.TrimSpace(opts.TelegramBotToken),
-		lineBaseURL:      lineBaseURL,
-		lineToken:        strings.TrimSpace(opts.LineChannelToken),
-		larkBaseURL:      larkBaseURL,
-		slackPoster:      slackclient.New(&http.Client{Timeout: 30 * time.Second}, slackBaseURL, strings.TrimSpace(opts.SlackBotToken)),
-		logger:           logger,
-		pending:          make(map[string]chan deliveryResult),
+		bus:               inprocBus,
+		telegramClient:    &http.Client{Timeout: 30 * time.Second},
+		lineClient:        &http.Client{Timeout: 30 * time.Second},
+		larkClient:        &http.Client{Timeout: 30 * time.Second},
+		telegramBaseURL:   baseURL,
+		telegramBotToken:  strings.TrimSpace(opts.TelegramBotToken),
+		lineBaseURL:       lineBaseURL,
+		lineToken:         strings.TrimSpace(opts.LineChannelToken),
+		larkBaseURL:       larkBaseURL,
+		slackPoster:       slackclient.New(&http.Client{Timeout: 30 * time.Second}, slackBaseURL, strings.TrimSpace(opts.SlackBotToken)),
+		logger:            logger,
+		pending:           make(map[string]chan deliveryResult),
+		mixinKeystoreFile: strings.TrimSpace(opts.MixinKeystoreFile),
 	}
 	sender.larkTokenClient = larkapi.NewTenantTokenClient(sender.larkClient, larkBaseURL, strings.TrimSpace(opts.LarkAppID), strings.TrimSpace(opts.LarkAppSecret))
 	sender.telegramDelivery, err = telegrambus.NewDeliveryAdapter(telegrambus.DeliveryAdapterOptions{
@@ -168,6 +191,11 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 	sender.lineDelivery, err = linebus.NewDeliveryAdapter(linebus.DeliveryAdapterOptions{
 		SendText: sender.sendLineTarget,
 	})
+	if err != nil {
+		_ = sender.Close()
+		return nil, err
+	}
+	sender.mixinDelivery, err = mixinbus.NewDeliveryAdapter(mixinbus.DeliveryAdapterOptions{SendText: sender.sendMixinTarget})
 	if err != nil {
 		_ = sender.Close()
 		return nil, err
@@ -195,6 +223,8 @@ func NewRoutingSender(ctx context.Context, opts SenderOptions) (*RoutingSender, 
 			accepted, deduped, deliverErr = sender.slackDelivery.Deliver(deliverCtx, msg)
 		case busruntime.ChannelLine:
 			accepted, deduped, deliverErr = sender.lineDelivery.Deliver(deliverCtx, msg)
+		case busruntime.ChannelMixin:
+			accepted, deduped, deliverErr = sender.mixinDelivery.Deliver(deliverCtx, msg)
 		default:
 			deliverErr = fmt.Errorf("unsupported outbound channel: %s", msg.Channel)
 		}
@@ -285,6 +315,12 @@ func (s *RoutingSender) Send(ctx context.Context, contact contacts.Contact, deci
 			return false, false, resolveErr
 		}
 		return s.publishLark(ctx, target, decision)
+	case contacts.ChannelMixin:
+		target, resolveErr := ResolveMixinTargetWithChatID(contact, decision.ChatID)
+		if resolveErr != nil {
+			return false, false, resolveErr
+		}
+		return s.publishMixin(ctx, target, decision)
 	default:
 		return false, false, fmt.Errorf("unsupported delivery channel: %s", channel)
 	}
@@ -440,6 +476,64 @@ func (s *RoutingSender) publishLark(ctx context.Context, target larkSendTarget, 
 		return false, false, err
 	}
 	return true, false, nil
+}
+
+func (s *RoutingSender) publishMixin(ctx context.Context, target mixinSendTarget, decision contacts.ShareDecision) (bool, bool, error) {
+	if s == nil || s.bus == nil {
+		return false, false, fmt.Errorf("mixin sender is not configured")
+	}
+	if err := s.ensureMixinClient(); err != nil {
+		return false, false, err
+	}
+	idempotencyKey := strings.TrimSpace(decision.IdempotencyKey)
+	if idempotencyKey == "" {
+		return false, false, fmt.Errorf("idempotency_key is required")
+	}
+	conversationID := strings.TrimSpace(target.ConversationID)
+	if userID := strings.TrimSpace(target.UserID); conversationID == "" && userID != "" {
+		conversation, err := s.mixinClient.CreateContactConversation(ctx, userID)
+		if err != nil {
+			return false, false, err
+		}
+		conversationID = strings.TrimSpace(conversation.ConversationID)
+	}
+	if conversationID == "" {
+		return false, false, fmt.Errorf("mixin conversation_id is required")
+	}
+	payloadRaw, err := buildEnvelopePayload(decision, decision.ContentType, decision.PayloadBase64, time.Now().UTC())
+	if err != nil {
+		return false, false, err
+	}
+	var envelope busruntime.MessageEnvelope
+	if err := json.Unmarshal(payloadRaw, &envelope); err != nil {
+		return false, false, err
+	}
+	envelope.MessageID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(idempotencyKey)).String()
+	payloadRaw, err = json.Marshal(envelope)
+	if err != nil {
+		return false, false, err
+	}
+	conversationKey, err := busruntime.BuildMixinConversationKey(conversationID)
+	if err != nil {
+		return false, false, err
+	}
+	message := busruntime.BusMessage{
+		ID:              "bus_" + uuid.NewString(),
+		Direction:       busruntime.DirectionOutbound,
+		Channel:         busruntime.ChannelMixin,
+		Topic:           contacts.ShareTopic,
+		ConversationKey: conversationKey,
+		ParticipantKey:  strings.TrimSpace(target.UserID),
+		IdempotencyKey:  idempotencyKey,
+		CorrelationID:   "contactsruntime:mixin:" + idempotencyKey,
+		PayloadBase64:   base64.RawURLEncoding.EncodeToString(payloadRaw),
+		CreatedAt:       time.Now().UTC(),
+		Extensions: busruntime.MessageExtensions{
+			ChannelID: conversationID,
+			ReplyTo:   strings.TrimSpace(envelope.ReplyTo),
+		},
+	}
+	return s.publishAndAwait(ctx, message)
 }
 
 func (s *RoutingSender) publishAndAwait(ctx context.Context, msg busruntime.BusMessage) (bool, bool, error) {
@@ -898,6 +992,132 @@ func (s *RoutingSender) sendSlackTarget(ctx context.Context, target any, text st
 	return s.slackPoster.PostMessage(ctx, resolvedTarget.ChannelID, text, strings.TrimSpace(opts.ThreadTS))
 }
 
+func (s *RoutingSender) sendMixinTarget(ctx context.Context, target mixinbus.DeliveryTarget, text string, opts mixinbus.SendTextOptions) error {
+	if s == nil {
+		return fmt.Errorf("mixin sender is not configured")
+	}
+	messageID, err := uuid.Parse(strings.TrimSpace(opts.MessageID))
+	if err != nil || messageID == uuid.Nil {
+		return fmt.Errorf("mixin message_id is invalid")
+	}
+	quoteMessageID := strings.TrimSpace(opts.QuoteMessageID)
+	if quoteMessageID != "" {
+		quoteID, parseErr := uuid.Parse(quoteMessageID)
+		if parseErr != nil || quoteID == uuid.Nil {
+			return fmt.Errorf("mixin quote_message_id is invalid")
+		}
+	}
+	message := mixinapi.MessageRequest{
+		ConversationID: target.ConversationID,
+		RecipientID:    strings.TrimSpace(target.RecipientID),
+		MessageID:      messageID.String(),
+		Category:       mixinapi.MessageCategoryPlainText,
+		DataBase64:     base64.RawURLEncoding.EncodeToString([]byte(strings.TrimSpace(text))),
+		QuoteMessageID: quoteMessageID,
+	}
+	if message.RecipientID != "" {
+		return s.mixinClient.SendMessages(ctx, []mixinapi.MessageRequest{message})
+	}
+	botID := strings.TrimSpace(s.mixinBotID)
+	if botID == "" {
+		return fmt.Errorf("mixin bot user_id is required for conversation delivery")
+	}
+	conversation, err := s.mixinClient.ReadConversation(ctx, message.ConversationID)
+	if err != nil {
+		return fmt.Errorf("read mixin conversation: %w", err)
+	}
+	recipients := make([]string, 0, len(conversation.Participants))
+	seen := make(map[string]struct{}, len(conversation.Participants))
+	for _, participant := range conversation.Participants {
+		recipientID := strings.ToLower(strings.TrimSpace(participant.UserID))
+		parsed, parseErr := uuid.Parse(recipientID)
+		if parseErr != nil || parsed == uuid.Nil {
+			return fmt.Errorf("mixin conversation contains invalid participant user_id %q", participant.UserID)
+		}
+		recipientID = parsed.String()
+		if strings.EqualFold(recipientID, botID) {
+			continue
+		}
+		if _, exists := seen[recipientID]; exists {
+			continue
+		}
+		seen[recipientID] = struct{}{}
+		recipients = append(recipients, recipientID)
+	}
+	if len(recipients) == 0 {
+		return fmt.Errorf("mixin conversation has no recipients")
+	}
+	sort.Strings(recipients)
+	messages := make([]mixinapi.MessageRequest, 0, len(recipients))
+	for _, recipientID := range recipients {
+		item := message
+		item.RecipientID = recipientID
+		item.MessageID = uuid.NewSHA1(messageID, []byte(recipientID)).String()
+		messages = append(messages, item)
+	}
+	batches, err := mixinMessageBatches(messages)
+	if err != nil {
+		return err
+	}
+	for _, batch := range batches {
+		if err := s.mixinClient.SendMessages(ctx, batch); err != nil {
+			return fmt.Errorf("send mixin conversation batch: %w", err)
+		}
+	}
+	return nil
+}
+
+func mixinMessageBatches(messages []mixinapi.MessageRequest) ([][]mixinapi.MessageRequest, error) {
+	var batches [][]mixinapi.MessageRequest
+	current := make([]mixinapi.MessageRequest, 0, min(len(messages), mixinMessageBatchLimit))
+	for _, message := range messages {
+		candidate := append(current, message)
+		raw, err := json.Marshal(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("encode mixin message batch: %w", err)
+		}
+		if len(candidate) <= mixinMessageBatchLimit && len(raw) <= mixinMessageRequestMaxBytes {
+			current = candidate
+			continue
+		}
+		if len(current) == 0 {
+			return nil, fmt.Errorf("%w: one mixin message exceeds %d bytes", mixinapi.ErrRequestTooLarge, mixinMessageRequestMaxBytes)
+		}
+		batches = append(batches, current)
+		current = []mixinapi.MessageRequest{message}
+		raw, err = json.Marshal(current)
+		if err != nil {
+			return nil, fmt.Errorf("encode mixin message batch: %w", err)
+		}
+		if len(raw) > mixinMessageRequestMaxBytes {
+			return nil, fmt.Errorf("%w: one mixin message exceeds %d bytes", mixinapi.ErrRequestTooLarge, mixinMessageRequestMaxBytes)
+		}
+	}
+	if len(current) > 0 {
+		batches = append(batches, current)
+	}
+	return batches, nil
+}
+
+func (s *RoutingSender) ensureMixinClient() error {
+	s.mixinOnce.Do(func() {
+		if s.mixinKeystoreFile == "" {
+			s.mixinInitErr = fmt.Errorf("mixin sender is not configured")
+			return
+		}
+		credentials, err := mixinapi.LoadKeystore(s.mixinKeystoreFile)
+		if err != nil {
+			s.mixinInitErr = err
+			return
+		}
+		s.mixinClient, s.mixinInitErr = mixinapi.NewClient(credentials, mixinapi.ClientOptions{})
+		if s.mixinInitErr == nil {
+			s.mixinBotID = credentials.ClientID
+		}
+	})
+	return s.mixinInitErr
+}
+
 type lineTextMessage struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
@@ -1204,6 +1424,42 @@ func ResolveLarkTargetWithChatID(contact contacts.Contact, chatIDHint string) (l
 		return larkSendTarget{}, fmt.Errorf("lark chat_id %q not found in lark_chat_ids and no lark_open_id fallback", chatID)
 	}
 	return ResolveLarkTarget(contact)
+}
+
+func ResolveMixinTarget(contact contacts.Contact) (mixinSendTarget, error) {
+	if userID := refid.NormalizeMixinID(contact.MixinUserID); userID != "" {
+		return mixinSendTarget{UserID: userID}, nil
+	}
+	chatIDs := append([]string(nil), contact.MixinChatIDs...)
+	sort.Strings(chatIDs)
+	for _, raw := range chatIDs {
+		if chatID := refid.NormalizeMixinID(raw); chatID != "" {
+			return mixinSendTarget{ConversationID: chatID}, nil
+		}
+	}
+	if id, ok := refid.ParseMixinContactID(contact.ContactID); ok {
+		return mixinSendTarget{UserID: id}, nil
+	}
+	return mixinSendTarget{}, fmt.Errorf("mixin target not found in mixin_user_id/mixin_chat_ids/contact_id")
+}
+
+func ResolveMixinTargetWithChatID(contact contacts.Contact, chatIDHint string) (mixinSendTarget, error) {
+	chatID, hasHint, err := refid.ParseMixinChatIDHint(chatIDHint)
+	if err != nil {
+		return mixinSendTarget{}, err
+	}
+	if !hasHint {
+		return ResolveMixinTarget(contact)
+	}
+	for _, raw := range contact.MixinChatIDs {
+		if refid.NormalizeMixinID(raw) == chatID {
+			return mixinSendTarget{ConversationID: chatID}, nil
+		}
+	}
+	if userID := refid.NormalizeMixinID(contact.MixinUserID); userID != "" {
+		return mixinSendTarget{UserID: userID}, nil
+	}
+	return mixinSendTarget{}, fmt.Errorf("mixin chat_id %q not found in mixin_chat_ids and no mixin_user_id fallback", chatID)
 }
 
 func ResolveSlackTarget(contact contacts.Contact) (slackbus.DeliveryTarget, string, error) {

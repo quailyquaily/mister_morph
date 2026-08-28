@@ -1,7 +1,10 @@
 package integration
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"testing"
 
@@ -28,6 +31,29 @@ func TestNewSlackBotRequiresTokens(t *testing.T) {
 	}
 }
 
+func TestNewMixinBotValidatesCredentials(t *testing.T) {
+	rt := New(DefaultConfig())
+	if _, err := rt.NewMixinBot(MixinOptions{}); err == nil {
+		t.Fatal("expected error when Mixin credentials are missing")
+	}
+	opts := validMixinOptions()
+	runner, err := rt.NewMixinBot(opts)
+	if err != nil {
+		t.Fatalf("NewMixinBot() error = %v", err)
+	}
+	if runner == nil {
+		t.Fatal("NewMixinBot() runner = nil")
+	}
+}
+
+func validMixinOptions() MixinOptions {
+	return MixinOptions{
+		ClientID:   "773e5e77-4107-45c2-b648-8fc722ed77f5",
+		SessionID:  "a34c07a9-755d-4b54-94c5-e45e9a2dd43e",
+		PrivateKey: hex.EncodeToString(bytes.Repeat([]byte{0x42}, ed25519.SeedSize)),
+	}
+}
+
 func TestNewChannelBotRejectsInvalidRuntime(t *testing.T) {
 	initErr := errors.New("invalid runtime config")
 	rt := New(DefaultConfig())
@@ -47,6 +73,12 @@ func TestNewChannelBotRejectsInvalidRuntime(t *testing.T) {
 			name: "slack",
 			new: func() (BotRunner, error) {
 				return rt.NewSlackBot(SlackOptions{BotToken: "xoxb-test", AppToken: "xapp-test"})
+			},
+		},
+		{
+			name: "mixin",
+			new: func() (BotRunner, error) {
+				return rt.NewMixinBot(validMixinOptions())
 			},
 		},
 	}

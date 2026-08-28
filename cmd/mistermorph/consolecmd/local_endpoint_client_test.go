@@ -15,9 +15,10 @@ import (
 
 func TestInProcessRuntimeEndpointClientHealth(t *testing.T) {
 	handler := daemonruntime.NewHandler(daemonruntime.RoutesOptions{
-		Mode:      "console",
-		AgentName: "Morph",
-		AuthToken: "dev-token", TaskTopic: daemonruntime.TaskTopicRoutes{Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
+		Mode:           "console",
+		AgentName:      "Morph",
+		AgentAvatarURL: "https://example.test/avatar.png",
+		AuthToken:      "dev-token", TaskTopic: daemonruntime.TaskTopicRoutes{Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
 			return daemonruntime.SubmitTaskResponse{}, nil
 		}}, HealthEnabled: true,
 	})
@@ -37,6 +38,9 @@ func TestInProcessRuntimeEndpointClientHealth(t *testing.T) {
 	}
 	if health.AgentName != "Morph" {
 		t.Fatalf("Health().AgentName = %q, want %q", health.AgentName, "Morph")
+	}
+	if health.AvatarURL != "https://example.test/avatar.png" {
+		t.Fatalf("Health().AvatarURL = %q", health.AvatarURL)
 	}
 	if !health.CanSubmit {
 		t.Fatal("Health().CanSubmit = false, want true")

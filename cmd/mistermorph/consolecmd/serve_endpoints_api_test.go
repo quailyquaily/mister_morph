@@ -145,6 +145,24 @@ func TestHandleEndpointsReturnsEmptyAgentNameWhenHealthDoesNotProvideIt(t *testi
 	}
 }
 
+func TestEndpointHealthAvatarSkipsPersonaDownload(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		health: runtimeEndpointHealth{
+			Mode: "mixin", AgentName: "Mixin Agent", AvatarURL: "https://example.test/mixin-avatar.png",
+		},
+	}
+	s := &server{endpoints: []runtimeEndpoint{{Ref: "ep_mixin", Client: client}}}
+	s.refreshEndpointHealth(context.Background())
+	s.refreshEndpointAvatars(context.Background())
+
+	if client.downloadCalls != 0 {
+		t.Fatalf("persona avatar downloads = %d, want 0", client.downloadCalls)
+	}
+	if got := s.endpointStates[0].AvatarURL; got != "https://example.test/mixin-avatar.png" {
+		t.Fatalf("avatar url = %q", got)
+	}
+}
+
 func TestHandleEndpointsIncludesPerEndpointAvatarURL(t *testing.T) {
 	s := &server{
 		endpoints: []runtimeEndpoint{

@@ -39,6 +39,12 @@ For the other runtime modes, use the docs below.
 - Purpose: Lark webhook runtime
 - Docs: [lark.md](./lark.md)
 
+## Mixin Messenger
+
+- Command: `mistermorph mixin`
+- Purpose: Mixin Blaze WebSocket bot runtime
+- Docs: [mixin.md](./mixin.md)
+
 ## Note
 
 Legacy standalone daemon mode (`mistermorph serve`) has been removed.

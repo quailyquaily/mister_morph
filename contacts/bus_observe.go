@@ -25,6 +25,9 @@ type observedContactCandidate struct {
 	LineChatIDs         []string
 	LarkOpenID          string
 	LarkChatIDs         []string
+	MixinUserID         string
+	MixinIdentityNumber string
+	MixinChatIDs        []string
 	SlackTeamID         string
 	SlackUserID         string
 	SlackDMChannelID    string
@@ -56,6 +59,8 @@ func (s *Service) ObserveInboundBusMessage(ctx context.Context, msg busruntime.B
 		return s.observeLineInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelLark:
 		return s.observeLarkInboundBusMessage(ctx, msg, now)
+	case busruntime.ChannelMixin:
+		return s.observeMixinInboundBusMessage(ctx, msg, now)
 	default:
 		return nil
 	}
@@ -285,6 +290,38 @@ func (s *Service) observeLarkInboundBusMessage(ctx context.Context, msg busrunti
 	return s.applyObservedCandidates(ctx, candidates, now)
 }
 
+func (s *Service) observeMixinInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) error {
+	conversationID, err := busruntime.ParseMixinConversationKey(msg.ConversationKey)
+	if err != nil {
+		return err
+	}
+	userID := refid.NormalizeMixinID(msg.Extensions.FromUserRef)
+	if userID == "" {
+		userID = refid.NormalizeMixinID(msg.ParticipantKey)
+	}
+	if userID == "" {
+		return nil
+	}
+	identityNumber := strings.TrimSpace(msg.Extensions.FromUsername)
+	nickname := strings.TrimSpace(msg.Extensions.FromDisplayName)
+	if nickname == "" && identityNumber != "" {
+		nickname = "@" + strings.TrimPrefix(identityNumber, "@")
+	}
+	kind := KindHuman
+	if msg.Extensions.FromIsAgent {
+		kind = KindAgent
+	}
+	return s.applyObservedCandidates(ctx, []observedContactCandidate{{
+		PrimaryContactID:    "mixin:" + userID,
+		Kind:                kind,
+		Channel:             ChannelMixin,
+		Nickname:            nickname,
+		MixinUserID:         userID,
+		MixinIdentityNumber: identityNumber,
+		MixinChatIDs:        []string{conversationID},
+	}}, now)
+}
+
 func slackContactIDFromUser(teamID, userID string) string {
 	teamID = strings.TrimSpace(teamID)
 	userID = strings.TrimSpace(userID)
@@ -391,6 +428,7 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 		applyObservedTelegramMerge(&existing, candidate)
 		applyObservedLineMerge(&existing, candidate)
 		applyObservedLarkMerge(&existing, candidate)
+		applyObservedMixinMerge(&existing, candidate)
 		applyObservedSlackMerge(&existing, candidate)
 		existing.LastInteractionAt = &lastInteraction
 		_, err := s.UpsertContact(ctx, existing, now)
@@ -398,24 +436,28 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 	}
 
 	contact := Contact{
-		ContactID:         strings.TrimSpace(candidate.PrimaryContactID),
-		Kind:              candidate.Kind,
-		Channel:           strings.TrimSpace(candidate.Channel),
-		ContactNickname:   strings.TrimSpace(candidate.Nickname),
-		TGUsername:        normalizeTelegramUsername(candidate.TGUsername),
-		LineUserID:        refid.NormalizeLineID(candidate.LineUserID),
-		LineChatIDs:       normalizeStringSlice(candidate.LineChatIDs),
-		LarkOpenID:        refid.NormalizeLarkID(candidate.LarkOpenID),
-		LarkChatIDs:       normalizeStringSlice(candidate.LarkChatIDs),
-		SlackTeamID:       strings.TrimSpace(candidate.SlackTeamID),
-		SlackUserID:       strings.TrimSpace(candidate.SlackUserID),
-		SlackDMChannelID:  strings.TrimSpace(candidate.SlackDMChannelID),
-		SlackChannelIDs:   normalizeStringSlice(candidate.SlackChannelIDs),
-		LastInteractionAt: &lastInteraction,
+		ContactID:           strings.TrimSpace(candidate.PrimaryContactID),
+		Kind:                candidate.Kind,
+		Channel:             strings.TrimSpace(candidate.Channel),
+		ContactNickname:     strings.TrimSpace(candidate.Nickname),
+		TGUsername:          normalizeTelegramUsername(candidate.TGUsername),
+		LineUserID:          refid.NormalizeLineID(candidate.LineUserID),
+		LineChatIDs:         normalizeStringSlice(candidate.LineChatIDs),
+		LarkOpenID:          refid.NormalizeLarkID(candidate.LarkOpenID),
+		LarkChatIDs:         normalizeStringSlice(candidate.LarkChatIDs),
+		MixinUserID:         refid.NormalizeMixinID(candidate.MixinUserID),
+		MixinIdentityNumber: strings.TrimSpace(candidate.MixinIdentityNumber),
+		MixinChatIDs:        normalizeMixinIDs(candidate.MixinChatIDs),
+		SlackTeamID:         strings.TrimSpace(candidate.SlackTeamID),
+		SlackUserID:         strings.TrimSpace(candidate.SlackUserID),
+		SlackDMChannelID:    strings.TrimSpace(candidate.SlackDMChannelID),
+		SlackChannelIDs:     normalizeStringSlice(candidate.SlackChannelIDs),
+		LastInteractionAt:   &lastInteraction,
 	}
 	applyObservedTelegramMerge(&contact, candidate)
 	applyObservedLineMerge(&contact, candidate)
 	applyObservedLarkMerge(&contact, candidate)
+	applyObservedMixinMerge(&contact, candidate)
 	applyObservedSlackMerge(&contact, candidate)
 	_, err = s.UpsertContact(ctx, contact, now)
 	return err
@@ -524,6 +566,19 @@ func applyObservedLarkMerge(contact *Contact, candidate observedContactCandidate
 	}
 }
 
+func applyObservedMixinMerge(contact *Contact, candidate observedContactCandidate) {
+	if contact == nil {
+		return
+	}
+	if userID := refid.NormalizeMixinID(candidate.MixinUserID); userID != "" && contact.MixinUserID == "" {
+		contact.MixinUserID = userID
+	}
+	if identity := strings.TrimSpace(candidate.MixinIdentityNumber); identity != "" && contact.MixinIdentityNumber == "" {
+		contact.MixinIdentityNumber = identity
+	}
+	contact.MixinChatIDs = mergeMixinChatIDs(contact.MixinChatIDs, candidate.MixinChatIDs...)
+}
+
 func mergeObservedTGGroupChatIDs(base []int64, chatID int64) []int64 {
 	if chatID == 0 {
 		return normalizeInt64Slice(base)
@@ -558,6 +613,23 @@ func mergeLarkChatIDs(base []string, chatIDs ...string) []string {
 		out[i] = refid.NormalizeLarkID(out[i])
 	}
 	return normalizeStringSlice(out)
+}
+
+func mergeMixinChatIDs(base []string, chatIDs ...string) []string {
+	return normalizeMixinIDs(append(append([]string(nil), base...), chatIDs...))
+}
+
+func normalizeMixinIDs(items []string) []string {
+	out := make([]string, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, raw := range items {
+		id := refid.NormalizeMixinID(raw)
+		if id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func slackConversationPartsFromKey(conversationKey string) (string, string, error) {

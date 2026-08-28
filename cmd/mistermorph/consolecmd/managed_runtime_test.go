@@ -2,10 +2,13 @@ package consolecmd
 
 import (
 	"context"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/spf13/viper"
 )
 
@@ -322,15 +325,29 @@ func TestManagedRuntimeSupervisorPrepareSkipsLarkMissingCredentials(t *testing.T
 	}
 }
 
-func TestManagedRuntimeKindsFromReaderAcceptsLark(t *testing.T) {
+func TestManagedRuntimeSupervisorPrepareSkipsMixinMissingKeystore(t *testing.T) {
+	supervisor := newManagedRuntimeSupervisor(nil, false, false)
+	reader := viper.New()
+	reader.Set("console.managed_runtimes", []string{"mixin"})
+
+	prepared, err := supervisor.PrepareReload(reader)
+	if err != nil {
+		t.Fatalf("PrepareReload() error = %v, want nil", err)
+	}
+	if len(prepared.kinds) != 0 || len(prepared.children) != 0 {
+		t.Fatalf("prepared = %+v, want no Mixin child", prepared)
+	}
+}
+
+func TestManagedRuntimeKindsFromReaderAcceptsSupportedChannels(t *testing.T) {
 	v := viper.New()
-	v.Set("console.managed_runtimes", []string{"telegram", "lark", "slack", "lark"})
+	v.Set("console.managed_runtimes", []string{"telegram", "lark", "mixin", "slack", "mixin"})
 
 	got, err := managedRuntimeKindsFromReader(v)
 	if err != nil {
 		t.Fatalf("managedRuntimeKindsFromReader() error = %v, want nil", err)
 	}
-	want := []string{"telegram", "lark", "slack"}
+	want := []string{"telegram", "lark", "mixin", "slack"}
 	if len(got) != len(want) {
 		t.Fatalf("managedRuntimeKindsFromReader() = %#v, want %#v", got, want)
 	}
@@ -338,6 +355,22 @@ func TestManagedRuntimeKindsFromReaderAcceptsLark(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("managedRuntimeKindsFromReader() = %#v, want %#v", got, want)
 		}
+	}
+}
+
+func TestNewManagedRuntimeTaskStoreAcceptsMixin(t *testing.T) {
+	dir := t.TempDir()
+	store, err := newManagedRuntimeTaskStore("mixin", 10, depsutil.CommonDependencies{
+		RuntimePaths: runtimepaths.Paths{
+			TasksDir:   filepath.Join(dir, "tasks"),
+			JournalDir: filepath.Join(dir, "journal"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("newManagedRuntimeTaskStore() error = %v", err)
+	}
+	if store == nil {
+		t.Fatal("newManagedRuntimeTaskStore() = nil")
 	}
 }
 

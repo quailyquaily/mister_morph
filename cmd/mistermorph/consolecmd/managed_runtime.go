@@ -15,6 +15,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	larkruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/lark"
+	mixinruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/mixin"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -23,6 +24,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -36,6 +38,7 @@ const (
 	managedRuntimeTelegram = "telegram"
 	managedRuntimeSlack    = "slack"
 	managedRuntimeLark     = "lark"
+	managedRuntimeMixin    = "mixin"
 )
 
 type managedRuntimeSupervisor struct {
@@ -82,7 +85,7 @@ func normalizeManagedRuntimeKinds(raw []string) ([]string, error) {
 			continue
 		}
 		switch kind {
-		case managedRuntimeTelegram, managedRuntimeSlack, managedRuntimeLark:
+		case managedRuntimeTelegram, managedRuntimeSlack, managedRuntimeLark, managedRuntimeMixin:
 		default:
 			return nil, fmt.Errorf("unsupported console.managed_runtimes entry %q", item)
 		}
@@ -423,6 +426,36 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 		return func(ctx context.Context) error {
 			return larkruntime.Run(ctx, runtimeDeps, runOpts)
 		}, cleanup, nil
+	case managedRuntimeMixin:
+		keystoreFile := pathutil.ResolveConfigRelativePath(reader.GetString("mixin.keystore_file"), reader.GetString("config"))
+		deps, cleanup, err := buildManagedRuntimeDepsFromReader(s.logger(), reader)
+		if err != nil {
+			return nil, nil, err
+		}
+		cfg := channelopts.MixinConfigFromReader(reader)
+		runOpts := channelopts.BuildMixinRunOptions(cfg, channelopts.MixinInput{
+			KeystoreFile:  keystoreFile,
+			InspectPrompt: s.inspectPrompt, InspectRequest: s.inspectRequest,
+		})
+		runOpts.ServerListen = ""
+		runOpts.ServerAuthToken = ""
+		runOpts.TaskStore, err = newManagedRuntimeTaskStore(kind, runOpts.ServerMaxQueue, deps)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+		runtimeDeps := mixinruntime.Dependencies{
+			CommonDependencies: deps,
+			HandleModelCommand: func(text string) (string, bool, error) {
+				return llmselect.ExecuteCommandText(runtimeValues, llmselect.ProcessStore(), text)
+			},
+			HandleSkillCommand: func(currentLoaded []string) (string, error) {
+				return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(reader), currentLoaded)
+			},
+		}
+		return func(ctx context.Context) error {
+			return mixinruntime.Run(ctx, runtimeDeps, runOpts)
+		}, cleanup, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported managed runtime %q", kind)
 	}
@@ -451,6 +484,10 @@ func managedRuntimeMissingCredential(kind string, reader *viper.Viper) (string, 
 		if strings.TrimSpace(reader.GetString("lark.app_secret")) == "" {
 			return "lark.app_secret", "set MISTER_MORPH_LARK_APP_SECRET or lark.app_secret", true
 		}
+	case managedRuntimeMixin:
+		if strings.TrimSpace(reader.GetString("mixin.keystore_file")) == "" {
+			return "mixin.keystore_file", "set MISTER_MORPH_MIXIN_KEYSTORE_FILE or mixin.keystore_file", true
+		}
 	}
 	return "", "", false
 }
@@ -473,7 +510,7 @@ func managedRuntimeKindsFromReader(r interface {
 
 func newManagedRuntimeTaskStore(kind string, maxItems int, deps depsutil.CommonDependencies) (daemonruntime.TaskView, error) {
 	switch kind {
-	case managedRuntimeTelegram, managedRuntimeSlack, managedRuntimeLark:
+	case managedRuntimeTelegram, managedRuntimeSlack, managedRuntimeLark, managedRuntimeMixin:
 		return daemonruntime.NewTaskViewForTarget(kind, maxItems, daemonruntime.TaskViewConfig{
 			PersistenceTargets: deps.TaskPersistenceTargets,
 			TasksDir:           deps.RuntimePaths.TasksDir,

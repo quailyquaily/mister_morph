@@ -29,6 +29,7 @@ type runtimeSnapshot struct {
 	Guard               guard.Snapshot
 	Telegram            channelopts.TelegramConfig
 	Slack               channelopts.SlackConfig
+	Mixin               channelopts.MixinConfig
 	MCPServers          []mcphost.ServerConfig
 	ACPAgents           []acpclient.AgentConfig
 	Paths               runtimepaths.Paths

@@ -141,6 +141,57 @@ func TestWriteConsoleSettingsPreservesOtherConfig(t *testing.T) {
 	}
 }
 
+func TestConsoleMixinSettingsRoundTrip(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	serialized, err := writeConsoleSettings(configPath, consoleSettingsPayload{
+		ManagedRuntimes: []string{"mixin"},
+		Mixin: consoleMixinSettingsPayload{
+			KeystoreFile:           "credentials/mixin.json",
+			AllowedConversationIDs: []string{" conversation-a ", "conversation-a", "conversation-b"},
+			GroupTriggerMode:       consoleGroupTriggerTalkative,
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeConsoleSettings() error = %v", err)
+	}
+	if err := os.WriteFile(configPath, serialized, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	got, err := readConsoleSettings(configPath)
+	if err != nil {
+		t.Fatalf("readConsoleSettings() error = %v", err)
+	}
+	if len(got.ManagedRuntimes) != 1 || got.ManagedRuntimes[0] != "mixin" {
+		t.Fatalf("managed runtimes = %#v, want [mixin]", got.ManagedRuntimes)
+	}
+	if got.Mixin.KeystoreFile != "credentials/mixin.json" || got.Mixin.GroupTriggerMode != consoleGroupTriggerTalkative {
+		t.Fatalf("mixin settings = %#v", got.Mixin)
+	}
+	if len(got.Mixin.AllowedConversationIDs) != 2 || got.Mixin.AllowedConversationIDs[0] != "conversation-a" || got.Mixin.AllowedConversationIDs[1] != "conversation-b" {
+		t.Fatalf("allowed conversations = %#v", got.Mixin.AllowedConversationIDs)
+	}
+}
+
+func TestNormalizeConsoleSettingsUpdateMixin(t *testing.T) {
+	keystore := " credentials/new-mixin.json "
+	allowed := []string{" conversation-b ", "conversation-b"}
+	mode := "strict"
+	got, err := normalizeConsoleSettingsUpdatePayload(consoleSettingsPayload{
+		Mixin: consoleMixinSettingsPayload{KeystoreFile: "old.json", AllowedConversationIDs: []string{"conversation-a"}, GroupTriggerMode: "smart"},
+	}, consoleSettingsUpdatePayload{
+		Mixin: &consoleMixinSettingsUpdatePayload{
+			KeystoreFile: &keystore, AllowedConversationIDs: &allowed, GroupTriggerMode: &mode,
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalizeConsoleSettingsUpdatePayload() error = %v", err)
+	}
+	if got.Mixin.KeystoreFile != "credentials/new-mixin.json" || got.Mixin.GroupTriggerMode != "strict" || len(got.Mixin.AllowedConversationIDs) != 1 {
+		t.Fatalf("mixin settings = %#v", got.Mixin)
+	}
+}
+
 func TestHandleConsoleSettingsPut(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(

@@ -7,4 +7,5 @@ const (
 	Line     = "line"
 	Lark     = "lark"
 	Discord  = "discord"
+	Mixin    = "mixin"
 )

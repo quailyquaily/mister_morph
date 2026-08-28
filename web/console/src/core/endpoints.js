@@ -57,6 +57,8 @@ function endpointChannelLabel(mode, t) {
       return t("endpoint_channel_line");
     case "lark":
       return t("endpoint_channel_lark");
+	case "mixin":
+	  return t("endpoint_channel_mixin");
     default:
       return String(mode || "").trim() || t("chat_readonly_unknown_channel");
   }
@@ -76,6 +78,8 @@ function endpointChannelTone(mode) {
       return "line";
     case "lark":
       return "lark";
+	case "mixin":
+	  return "mixin";
     default:
       return "default";
   }

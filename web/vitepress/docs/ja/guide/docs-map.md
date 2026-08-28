@@ -47,6 +47,7 @@ description: より詳細な設計・実装文書への入口。
 - [`docs/slack.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/slack.md)
 - [`docs/line.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/line.md)
 - [`docs/lark.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/lark.md)
+- [`docs/mixin.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/mixin.md)
 
 ## 運用・状態管理
 

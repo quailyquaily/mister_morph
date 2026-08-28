@@ -233,6 +233,18 @@ Shell のデフォルト値はプラットフォームごとに分かれます�
 - `lark.max_concurrency`
 - `lark.serve_listen`
 
+## Mixin Messenger
+
+- `mixin.keystore_file`
+- `mixin.allowed_conversation_ids`
+- `mixin.group_trigger_mode`
+- `mixin.record_untriggered`
+- `mixin.addressing_confidence_threshold`
+- `mixin.addressing_interject_threshold`
+- `mixin.task_timeout`
+- `mixin.max_concurrency`
+- `mixin.serve_listen`
+
 ## Heartbeat
 
 - `heartbeat.enabled`

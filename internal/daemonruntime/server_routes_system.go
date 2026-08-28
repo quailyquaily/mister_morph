@@ -45,6 +45,12 @@ func (routes *routeRegistration) registerSystemRoutes() {
 		}
 		return strings.TrimSpace(opts.AgentName)
 	}
+	resolveAgentAvatarURL := func() string {
+		if opts.AgentAvatarURLFunc != nil {
+			return strings.TrimSpace(opts.AgentAvatarURLFunc())
+		}
+		return strings.TrimSpace(opts.AgentAvatarURL)
+	}
 
 	if opts.AgentSettingsEnabled {
 		settingsOwner := opts.AgentSettingsOwner
@@ -77,6 +83,9 @@ func (routes *routeRegistration) registerSystemRoutes() {
 			}
 			if agentName := resolveAgentName(); agentName != "" {
 				payload["agent_name"] = agentName
+			}
+			if avatarURL := resolveAgentAvatarURL(); avatarURL != "" {
+				payload["agent_avatar_url"] = avatarURL
 			}
 			if instanceID != "" {
 				payload["instance_id"] = instanceID
@@ -151,6 +160,11 @@ func (routes *routeRegistration) registerSystemRoutes() {
 		if _, ok := payload["agent_name"]; !ok {
 			if agentName := resolveAgentName(); agentName != "" {
 				payload["agent_name"] = agentName
+			}
+		}
+		if _, ok := payload["agent_avatar_url"]; !ok {
+			if avatarURL := resolveAgentAvatarURL(); avatarURL != "" {
+				payload["agent_avatar_url"] = avatarURL
 			}
 		}
 		if _, ok := payload["submit_enabled"]; !ok {

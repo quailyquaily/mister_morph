@@ -644,6 +644,8 @@ const AuditView = {
           return "success";
         case "lark":
           return "warning";
+		case "mixin":
+		  return "info";
         case "serve":
         default:
           return "default";

@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // Protocol names allow lowercase letters/digits/underscore.
@@ -194,6 +196,34 @@ func ParseLarkUserContactID(raw string) (string, bool) {
 		return "", false
 	}
 	return openID, true
+}
+
+// NormalizeMixinID returns the canonical UUID used by Mixin users and conversations.
+func NormalizeMixinID(raw string) string {
+	id, err := uuid.Parse(strings.TrimSpace(raw))
+	if err != nil || id == uuid.Nil {
+		return ""
+	}
+	return id.String()
+}
+
+// ParseMixinChatIDHint parses "mixin:<conversation_uuid>".
+func ParseMixinChatIDHint(raw string) (string, bool, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" || !strings.HasPrefix(strings.ToLower(value), "mixin:") {
+		return "", false, nil
+	}
+	id := NormalizeMixinID(value[len("mixin:"):])
+	if id == "" {
+		return "", true, fmt.Errorf("invalid chat_id: %s", value)
+	}
+	return id, true, nil
+}
+
+// ParseMixinContactID parses "mixin:<user_uuid>".
+func ParseMixinContactID(raw string) (string, bool) {
+	id, hasHint, err := ParseMixinChatIDHint(raw)
+	return id, hasHint && err == nil
 }
 
 // LineIDLooksLikeUserID reports whether ID shape looks like a LINE user id.

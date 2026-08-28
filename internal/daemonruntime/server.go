@@ -583,6 +583,8 @@ type RoutesOptions struct {
 	Mode                 string
 	AgentName            string
 	AgentNameFunc        func() string
+	AgentAvatarURL       string
+	AgentAvatarURLFunc   func() string
 	AuthToken            string
 	TaskTopic            TaskTopicRoutes
 	Approvals            ApprovalRoutes
@@ -845,13 +847,16 @@ func buildRuntimeInstanceID(stateDir string) string {
 func channelOverviewFromMode(mode string) map[string]any {
 	telegramRunning := mode == "telegram"
 	slackRunning := mode == "slack"
+	mixinRunning := mode == "mixin"
 	return map[string]any{
-		"configured":          telegramRunning || slackRunning,
+		"configured":          telegramRunning || slackRunning || mixinRunning,
 		"telegram_configured": telegramRunning,
 		"slack_configured":    slackRunning,
+		"mixin_configured":    mixinRunning,
 		"running":             mode,
 		"telegram_running":    telegramRunning,
 		"slack_running":       slackRunning,
+		"mixin_running":       mixinRunning,
 	}
 }
 

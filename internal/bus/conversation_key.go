@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 func BuildConversationKey(channel Channel, id string) (string, error) {
@@ -79,6 +81,28 @@ func BuildLarkConversationKey(chatID string) (string, error) {
 	return BuildConversationKey(ChannelLark, chatID)
 }
 
+func BuildMixinConversationKey(conversationID string) (string, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	id, err := uuid.Parse(conversationID)
+	if err != nil || id == uuid.Nil {
+		return "", fmt.Errorf("mixin conversation id is invalid")
+	}
+	return BuildConversationKey(ChannelMixin, id.String())
+}
+
+func ParseMixinConversationKey(conversationKey string) (string, error) {
+	const prefix = "mixin:"
+	value := strings.TrimSpace(conversationKey)
+	if !strings.HasPrefix(strings.ToLower(value), prefix) {
+		return "", fmt.Errorf("mixin conversation key is invalid")
+	}
+	id, err := uuid.Parse(strings.TrimSpace(value[len(prefix):]))
+	if err != nil || id == uuid.Nil {
+		return "", fmt.Errorf("mixin conversation id is invalid")
+	}
+	return id.String(), nil
+}
+
 func conversationKeyPrefix(channel Channel) string {
 	switch channel {
 	case ChannelConsole:
@@ -93,6 +117,8 @@ func conversationKeyPrefix(channel Channel) string {
 		return "lark"
 	case ChannelDiscord:
 		return "discord"
+	case ChannelMixin:
+		return "mixin"
 	default:
 		return ""
 	}

@@ -150,3 +150,19 @@ func TestParseLarkContactIDs(t *testing.T) {
 		t.Fatalf("NormalizeLarkID mismatch")
 	}
 }
+
+func TestParseMixinIDs(t *testing.T) {
+	const id = "773e5e77-4107-45c2-b648-8fc722ed77f5"
+	if got := NormalizeMixinID("  " + id + "  "); got != id {
+		t.Fatalf("NormalizeMixinID() = %q", got)
+	}
+	if got, ok := ParseMixinContactID("mixin:" + id); !ok || got != id {
+		t.Fatalf("ParseMixinContactID() = %q, %v", got, ok)
+	}
+	if got, ok, err := ParseMixinChatIDHint("mixin:" + id); err != nil || !ok || got != id {
+		t.Fatalf("ParseMixinChatIDHint() = %q, %v, %v", got, ok, err)
+	}
+	if _, ok, err := ParseMixinChatIDHint("mixin:not-a-uuid"); err == nil || !ok {
+		t.Fatalf("invalid hint = ok %v, err %v", ok, err)
+	}
+}

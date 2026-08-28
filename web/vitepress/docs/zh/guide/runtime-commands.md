@@ -10,10 +10,12 @@ description: Chat、Console 和其他 Channels 支持的命令。
 > 在 Slack 中，由于 `/` 会触发 Slack 自己的命令，所以需要在 `/` 前面加一个空格。例如 ` /models`。
 >
 > Slack 群聊里，命令需要明确提到 bot。Telegram 群聊可以使用普通 bot command，例如 `/models@BotName`。
+>
+> Mixin 群聊里，需要在命令前提到 Bot 的 Mixin ID，例如 `@7000123456 /models`。
 
 ## 通用命令
 
-这些命令在 CLI chat、Console Web、Telegram、Slack、LINE 和 Lark 中可用。
+这些命令在 CLI chat、Console Web、Telegram、Slack、LINE、Lark 和 Mixin Messenger 中可用。
 
 | 命令 | 作用 |
 |---|---|
@@ -77,3 +79,10 @@ description: Chat、Console 和其他 Channels 支持的命令。
 |---|---|
 | `/id` | 显示当前 Telegram chat id 和 chat type。 |
 | `/reset` | 清空该 chat 的聊天历史、sticky skills、已知 mention 和 init 状态。 |
+
+## Mixin Messenger 特有的命令
+
+| 命令 | 作用 |
+|---|---|
+| `/id` | 显示当前 Mixin conversation UUID 和类型。 |
+| `/reset` | 清空 conversation 历史、sticky skills 和 checkpoint 状态。 |

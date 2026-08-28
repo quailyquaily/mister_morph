@@ -44,3 +44,13 @@ mistermorph telegram --log-level info
 ```bash
 mistermorph slack --log-level info
 ```
+
+## Mixin Messenger Bot
+
+通过 Blaze WebSocket 单独运行 Mixin Messenger runtime：
+
+```bash
+mistermorph mixin --log-level info
+```
+
+`mixin.keystore_file` 指向 Mixin Developer Dashboard 生成的 Ed25519 keystore。配置方法见 [Mixin Messenger 文档](https://github.com/quailyquaily/mistermorph/blob/master/docs/mixin.md)。

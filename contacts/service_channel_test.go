@@ -79,6 +79,21 @@ func TestResolveDecisionChannel_LarkTargetFallback(t *testing.T) {
 	}
 }
 
+func TestResolveDecisionChannel_MixinTargets(t *testing.T) {
+	const userID = "773e5e77-4107-45c2-b648-8fc722ed77f5"
+	const chatID = "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34"
+	contact := Contact{
+		ContactID: userID, Channel: ChannelMixin, MixinUserID: userID,
+		MixinChatIDs: []string{chatID},
+	}
+	if channel, err := ResolveDecisionChannel(contact, ShareDecision{}); err != nil || channel != ChannelMixin {
+		t.Fatalf("default route = %q, %v", channel, err)
+	}
+	if channel, err := ResolveDecisionChannel(contact, ShareDecision{ChatID: "mixin:" + chatID}); err != nil || channel != ChannelMixin {
+		t.Fatalf("chat route = %q, %v", channel, err)
+	}
+}
+
 func TestResolveDecisionChannel_InvalidProtocolHint(t *testing.T) {
 	_, err := ResolveDecisionChannel(Contact{
 		ContactID: "contact:test",
@@ -147,5 +162,16 @@ func TestResolveDecisionChannel_ContactReferenceUsesDefaultRouting(t *testing.T)
 	}
 	if channel != ChannelSlack {
 		t.Fatalf("channel = %q, want %q", channel, ChannelSlack)
+	}
+}
+
+func TestSyntheticMixinReferenceIsChatTarget(t *testing.T) {
+	const chatID = "773e5e77-4107-45c2-b648-8fc722ed77f5"
+	contact, ok, err := syntheticChatContact("mixin:" + chatID)
+	if err != nil || !ok {
+		t.Fatalf("syntheticChatContact() = %#v, %v, %v", contact, ok, err)
+	}
+	if contact.MixinUserID != "" || len(contact.MixinChatIDs) != 1 || contact.MixinChatIDs[0] != chatID {
+		t.Fatalf("synthetic Mixin contact = %#v", contact)
 	}
 }

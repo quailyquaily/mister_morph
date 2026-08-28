@@ -492,6 +492,37 @@ func TestObserveInboundBusMessage_LarkSenderAndMention(t *testing.T) {
 	}
 }
 
+func TestObserveInboundBusMessage_MixinSender(t *testing.T) {
+	ctx := context.Background()
+	store := NewFileStore(t.TempDir())
+	svc := NewService(store)
+	now := time.Date(2026, 8, 27, 10, 5, 0, 0, time.UTC)
+	const conversationID = "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34"
+	const userID = "773e5e77-4107-45c2-b648-8fc722ed77f5"
+
+	msg := busruntime.BusMessage{
+		Direction: busruntime.DirectionInbound, Channel: busruntime.ChannelMixin,
+		ConversationKey: "mixin:" + conversationID, ParticipantKey: userID,
+		Extensions: busruntime.MessageExtensions{
+			ChatType: "GROUP", FromUserRef: userID, FromUsername: "7000123456",
+			FromDisplayName: "Alice Mixin", FromIsAgent: true,
+		},
+	}
+	if err := svc.ObserveInboundBusMessage(ctx, msg, now); err != nil {
+		t.Fatalf("ObserveInboundBusMessage() error = %v", err)
+	}
+	contact, ok, err := svc.GetContact(ctx, "mixin:"+userID)
+	if err != nil || !ok {
+		t.Fatalf("GetContact() ok=%v err=%v", ok, err)
+	}
+	if contact.Channel != ChannelMixin || contact.Kind != KindAgent || contact.MixinUserID != userID || contact.MixinIdentityNumber != "7000123456" {
+		t.Fatalf("contact = %#v", contact)
+	}
+	if len(contact.MixinChatIDs) != 1 || contact.MixinChatIDs[0] != conversationID {
+		t.Fatalf("mixin_chat_ids = %#v", contact.MixinChatIDs)
+	}
+}
+
 func TestObserveInboundBusMessage_ConsoleUser(t *testing.T) {
 	ctx := context.Background()
 	store := NewFileStore(t.TempDir())

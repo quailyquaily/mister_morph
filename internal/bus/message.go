@@ -24,6 +24,7 @@ const (
 	ChannelLine     Channel = Channel(channels.Line)
 	ChannelLark     Channel = Channel(channels.Lark)
 	ChannelDiscord  Channel = Channel(channels.Discord)
+	ChannelMixin    Channel = Channel(channels.Mixin)
 )
 
 type MessageExtensions struct {

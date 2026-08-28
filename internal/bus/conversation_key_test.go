@@ -70,6 +70,16 @@ func TestBuildConversationKeyLark(t *testing.T) {
 	}
 }
 
+func TestBuildConversationKeyMixin(t *testing.T) {
+	key, err := BuildMixinConversationKey("8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34")
+	if err != nil {
+		t.Fatalf("BuildMixinConversationKey() error = %v", err)
+	}
+	if key != "mixin:8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34" {
+		t.Fatalf("key = %q", key)
+	}
+}
+
 func TestBuildConversationKeyRejectsInvalidInput(t *testing.T) {
 	cases := []struct {
 		name    string

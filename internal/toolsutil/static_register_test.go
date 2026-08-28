@@ -16,6 +16,8 @@ func TestStaticRegistryConfigFromReaderOwnsStaticToolConfiguration(t *testing.T)
 	reader := viper.New()
 	stateDir := t.TempDir()
 	cacheDir := t.TempDir()
+	configDir := t.TempDir()
+	reader.Set("config", filepath.Join(configDir, "config.yaml"))
 	reader.Set("file_state_dir", stateDir)
 	reader.Set("file_cache_dir", cacheDir)
 	reader.Set("contacts.dir_name", "people")
@@ -26,6 +28,7 @@ func TestStaticRegistryConfigFromReaderOwnsStaticToolConfiguration(t *testing.T)
 	reader.Set("lark.app_id", "lark-id")
 	reader.Set("lark.app_secret", "lark-secret")
 	reader.Set("lark.base_url", "https://open.example.test")
+	reader.Set("mixin.keystore_file", "secrets/mixin.json")
 	reader.Set("secrets.allow_profiles", []string{"billing"})
 	reader.Set("auth_profiles", map[string]any{
 		"billing": map[string]any{
@@ -54,6 +57,9 @@ func TestStaticRegistryConfigFromReaderOwnsStaticToolConfiguration(t *testing.T)
 	}
 	if cfg.ContactsSend.LarkAppID != "lark-id" || cfg.ContactsSend.LarkAppSecret != "lark-secret" || cfg.ContactsSend.LarkBaseURL != "https://open.example.test" {
 		t.Fatalf("lark contacts credentials = %#v", cfg.ContactsSend)
+	}
+	if cfg.ContactsSend.MixinKeystoreFile != filepath.Join(configDir, "secrets", "mixin.json") {
+		t.Fatalf("mixin contacts keystore = %q", cfg.ContactsSend.MixinKeystoreFile)
 	}
 	if cfg.ContactsSend.ContactsDir != filepath.Join(stateDir, "people") {
 		t.Fatalf("contacts dir = %q", cfg.ContactsSend.ContactsDir)

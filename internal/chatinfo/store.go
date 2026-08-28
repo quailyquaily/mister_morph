@@ -124,6 +124,31 @@ func (s *Store) Write(ctx context.Context, items []Info) error {
 	return s.writeLocked(items)
 }
 
+func (s *Store) Put(ctx context.Context, info Info) error {
+	if err := ensureContext(ctx); err != nil {
+		return err
+	}
+	if s == nil || s.root == "" {
+		return fmt.Errorf("chat profile store root is required")
+	}
+	chatID, err := NormalizeChatID(info.ChatID)
+	if err != nil {
+		return err
+	}
+	now := info.FetchedAt
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	info = normalizeFetchedInfo(chatID, info, now)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items, _, err := s.readLocked()
+	if err != nil {
+		return err
+	}
+	return s.writeLocked(upsertInfo(items, info))
+}
+
 func (s *Store) Get(ctx context.Context, now time.Time, chatID string, refresher Refresher) (Info, bool, error) {
 	if err := ensureContext(ctx); err != nil {
 		return Info{}, false, err
@@ -229,6 +254,10 @@ func NormalizeChatID(raw string) (string, error) {
 		if _, _, err := refid.ParseLarkChatIDHint(value); err != nil {
 			return "", err
 		}
+	case "mixin":
+		if _, _, err := refid.ParseMixinChatIDHint(value); err != nil {
+			return "", err
+		}
 	default:
 		return "", fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
 	}
@@ -243,7 +272,7 @@ func PlatformFromChatID(chatID string) string {
 	switch protocol {
 	case "tg":
 		return "telegram"
-	case "slack", "line", "lark":
+	case "slack", "line", "lark", "mixin":
 		return protocol
 	default:
 		return ""

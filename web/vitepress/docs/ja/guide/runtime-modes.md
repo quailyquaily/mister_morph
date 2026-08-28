@@ -44,3 +44,13 @@ Telegram モードとほぼ同じですが、対話先が Slack になります�
 ```bash
 mistermorph slack --log-level info
 ```
+
+## Mixin Messenger Bot
+
+Blaze WebSocket を使う Mixin Messenger runtime を単独で起動します。
+
+```bash
+mistermorph mixin --log-level info
+```
+
+`mixin.keystore_file` には Mixin Developer Dashboard で生成した Ed25519 keystore を指定します。設定方法は [Mixin Messenger ドキュメント](https://github.com/quailyquaily/mistermorph/blob/master/docs/mixin.md)を参照してください。

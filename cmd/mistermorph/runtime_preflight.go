@@ -31,7 +31,7 @@ func shouldRunRuntimeFilePreflight(cmd *cobra.Command) bool {
 		return false
 	}
 	switch cmd.CommandPath() {
-	case "mistermorph run", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark":
+	case "mistermorph run", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark", "mistermorph mixin":
 		return true
 	default:
 		return false

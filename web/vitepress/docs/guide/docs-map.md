@@ -47,6 +47,7 @@ description: Where to find deeper design and runtime documents in the repo.
 - [`docs/slack.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/slack.md)
 - [`docs/line.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/line.md)
 - [`docs/lark.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/lark.md)
+- [`docs/mixin.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/mixin.md)
 
 ## Governance and State
 
