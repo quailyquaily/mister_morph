@@ -49,6 +49,7 @@ const AppMobileBottomNav = {
   setup(props, { emit }) {
     const { personaAvatarURL } = usePersonaSummary();
     const morePanel = ref(null);
+    const agentMenuOpen = ref(false);
     const sidebarBottomLeftSlot = computed(() => uiSlots["sidebar.bottom_left"] || null);
     const primaryItems = computed(() =>
       PRIMARY_PAGE_PATHS.map((pagePath) =>
@@ -77,7 +78,9 @@ const AppMobileBottomNav = {
     }
 
     function navClass(item) {
-      return isActive(item) ? "mobile-bottom-nav-item is-active" : "mobile-bottom-nav-item";
+      return !props.modelValue && !agentMenuOpen.value && isActive(item)
+        ? "mobile-bottom-nav-item is-active"
+        : "mobile-bottom-nav-item";
     }
 
     function navCurrent(item) {
@@ -155,6 +158,7 @@ const AppMobileBottomNav = {
       moreItems,
       moreActive,
       morePanel,
+      agentMenuOpen,
       navClass,
       navCurrent,
       navHref,
@@ -218,7 +222,7 @@ const AppMobileBottomNav = {
       <button
         type="button"
         class="mobile-bottom-nav-item"
-        :class="{ 'is-active': modelValue || moreActive }"
+        :class="{ 'is-active': modelValue || (!agentMenuOpen && moreActive) }"
         :title="t('nav_more')"
         :aria-label="t('nav_more')"
         :aria-expanded="modelValue ? 'true' : 'false'"
@@ -241,6 +245,7 @@ const AppMobileBottomNav = {
           :selectedAvatar="personaAvatarURL || (selectedEndpointItem && selectedEndpointItem.image) || sidebarLogoURL"
           :selectedName="t('nav_agent')"
           :placeholder="t('endpoint_placeholder')"
+          @update:open="agentMenuOpen = $event"
           @change="$emit('endpoint-change', $event)"
           @desk="$emit('navigate', { id: '/chat/desk' })"
           @overview="$emit('navigate', { id: '/overview' })"

@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { translate } from "../core/context";
 import AppDialogShell from "./AppDialogShell";
@@ -116,7 +116,7 @@ const AgentSwitcher = {
       default: false,
     },
   },
-  emits: ["change", "desk", "overview"],
+  emits: ["change", "desk", "overview", "update:open"],
   setup(props, { emit }) {
     const t = translate;
     const root = ref(null);
@@ -165,6 +165,8 @@ const AgentSwitcher = {
     });
     const dialogOnlineItems = computed(() => filteredItems.value.filter((item) => item.connected));
     const dialogOfflineItems = computed(() => filteredItems.value.filter((item) => !item.connected));
+
+    watch(open, (value) => emit("update:open", value));
 
     function closeMenu(restoreFocus = false) {
       if (!menuOpen.value) {

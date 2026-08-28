@@ -1250,6 +1250,7 @@ const ChatView = {
         return;
       }
       syncMobileTopicView({ preferTopics: true });
+      void syncChatRoute("", { replace: true });
     }
 
     function refreshMobileMode() {
