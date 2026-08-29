@@ -74,6 +74,14 @@ func highlightCode(src, language string) (string, error) {
 	if style == nil {
 		style = styles.Fallback
 	}
+	style, err := style.Builder().Transform(func(entry chroma.StyleEntry) chroma.StyleEntry {
+		entry.Background = 0
+		entry.NoInherit = true
+		return entry
+	}).Build()
+	if err != nil {
+		return "", err
+	}
 
 	formatter := formatters.Get("terminal16m")
 	if formatter == nil {
@@ -117,29 +125,20 @@ func wrapInBox(highlighted string, lang string) string {
 	}
 
 	gray := "\x1b[38;5;245m"
-	bg := "\x1b[48;5;234m" // dark grey background for code blocks
-	fg := "\x1b[37m"       // white foreground for code-block padding
 
 	var b strings.Builder
 	// Header line
-	b.WriteString(bg)
 	b.WriteString(gray)
 	b.WriteString(header)
-	b.WriteString("\x1b[K")
 	b.WriteString("\x1b[0m")
 	b.WriteByte('\n')
 
 	for i, line := range lines {
-		b.WriteString(bg)
 		if showLineNumbers {
-			b.WriteString(fmt.Sprintf("%s%*d%s  ", gray, gutterWidth, i+1, fg))
+			b.WriteString(fmt.Sprintf("%s%*d\x1b[0m  ", gray, gutterWidth, i+1))
 		}
 		safe := ansiBgRe.ReplaceAllString(line, "")
-		safe = strings.ReplaceAll(safe, "\x1b[0m", "\x1b[39m"+bg+fg)
-		safe = reapplyBgBeforeWideChars(safe, bg)
 		b.WriteString(safe)
-		b.WriteString(bg)
-		b.WriteString("\x1b[K")
 		b.WriteString("\x1b[0m")
 		b.WriteByte('\n')
 	}
