@@ -127,7 +127,7 @@ func (t *BashTool) commonConfig() shellToolCommon {
 func (t *BashTool) runnerSpec() shellRunnerSpec {
 	return shellRunnerSpec{
 		Program:    "bash",
-		ArgsPrefix: []string{"-lc"},
+		ArgsPrefix: []string{"-c"},
 		BuildEnv: func(injected []shellenv.InjectedEnvVar) []string {
 			return bashToolEnvWithPathExtra(injected, t.PathExtra)
 		},
