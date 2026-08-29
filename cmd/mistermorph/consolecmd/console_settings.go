@@ -57,7 +57,6 @@ type consoleLarkSettingsPayload struct {
 type consoleMixinSettingsPayload struct {
 	KeystoreFile           string   `json:"keystore_file"`
 	AllowedConversationIDs []string `json:"allowed_conversation_ids"`
-	GroupTriggerMode       string   `json:"group_trigger_mode"`
 }
 
 type consoleGuardURLFetchSettingsPayload struct {
@@ -127,7 +126,6 @@ type consoleLarkSettingsUpdatePayload struct {
 type consoleMixinSettingsUpdatePayload struct {
 	KeystoreFile           *string   `json:"keystore_file,omitempty"`
 	AllowedConversationIDs *[]string `json:"allowed_conversation_ids,omitempty"`
-	GroupTriggerMode       *string   `json:"group_trigger_mode,omitempty"`
 }
 
 type consoleGuardURLFetchSettingsUpdatePayload struct {
@@ -339,7 +337,14 @@ func writeConsoleSettings(configPath string, values consoleSettingsPayload) ([]b
 	mixinNode := configbootstrap.EnsureMappingValue(root, "mixin")
 	configbootstrap.SetOrDeleteMappingScalar(mixinNode, "keystore_file", strings.TrimSpace(values.Mixin.KeystoreFile))
 	setMappingOrderedStringList(mixinNode, "allowed_conversation_ids", normalizeConsoleStringList(values.Mixin.AllowedConversationIDs))
-	configbootstrap.SetOrDeleteMappingScalar(mixinNode, "group_trigger_mode", strings.TrimSpace(values.Mixin.GroupTriggerMode))
+	for _, removedKey := range []string{
+		"group_trigger_mode",
+		"record_untriggered",
+		"addressing_confidence_threshold",
+		"addressing_interject_threshold",
+	} {
+		configbootstrap.DeleteMappingKey(mixinNode, removedKey)
+	}
 
 	guardNode := configbootstrap.EnsureMappingValue(root, "guard")
 	configbootstrap.SetMappingBoolValue(guardNode, "enabled", values.Guard.Enabled)
@@ -395,7 +400,6 @@ func readConsoleSettingsFromReader(r interface {
 		Mixin: consoleMixinSettingsPayload{
 			KeystoreFile:           strings.TrimSpace(r.GetString("mixin.keystore_file")),
 			AllowedConversationIDs: normalizeConsoleStringList(r.GetStringSlice("mixin.allowed_conversation_ids")),
-			GroupTriggerMode:       normalizeConsoleGroupTriggerMode(strings.TrimSpace(r.GetString("mixin.group_trigger_mode"))),
 		},
 		Guard: consoleGuardSettingsPayload{
 			Enabled: r.GetBool("guard.enabled"),
@@ -455,7 +459,6 @@ func normalizeConsoleSettingsPayload(in consoleSettingsPayload) (consoleSettings
 		Mixin: consoleMixinSettingsPayload{
 			KeystoreFile:           strings.TrimSpace(in.Mixin.KeystoreFile),
 			AllowedConversationIDs: normalizeConsoleStringList(in.Mixin.AllowedConversationIDs),
-			GroupTriggerMode:       normalizeConsoleGroupTriggerMode(strings.TrimSpace(in.Mixin.GroupTriggerMode)),
 		},
 		Guard: consoleGuardSettingsPayload{
 			Enabled: in.Guard.Enabled,
@@ -551,9 +554,6 @@ func normalizeConsoleSettingsUpdatePayload(
 		}
 		if in.Mixin.AllowedConversationIDs != nil {
 			next.Mixin.AllowedConversationIDs = normalizeConsoleStringList(*in.Mixin.AllowedConversationIDs)
-		}
-		if in.Mixin.GroupTriggerMode != nil {
-			next.Mixin.GroupTriggerMode = normalizeConsoleGroupTriggerMode(*in.Mixin.GroupTriggerMode)
 		}
 	}
 	if in.Guard != nil {

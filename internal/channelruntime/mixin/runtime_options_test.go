@@ -21,9 +21,6 @@ func TestNormalizeRunOptionsDefaults(t *testing.T) {
 	if opts.ServerListen != "127.0.0.1:8792" {
 		t.Fatalf("server listen = %q, want %q", opts.ServerListen, "127.0.0.1:8792")
 	}
-	if opts.GroupTriggerMode != "talkative" {
-		t.Fatalf("group trigger mode = %q, want talkative", opts.GroupTriggerMode)
-	}
 }
 
 func TestMixinChannelOverviewIncludesConnectionState(t *testing.T) {
@@ -52,18 +49,14 @@ func TestNormalizeRunOptionsPreservesAndDeduplicatesFields(t *testing.T) {
 	t.Parallel()
 
 	opts := normalizeRunOptions(RunOptions{
-		KeystoreFile:                  " ./mixin.json ",
-		AllowedConversationIDs:        []string{" c1 ", "c1", "c2"},
-		GroupTriggerMode:              " SMART ",
-		AddressingConfidenceThreshold: 0.8,
-		AddressingInterjectThreshold:  0.4,
-		TaskTimeout:                   3 * time.Minute,
-		MaxConcurrency:                7,
-		ServerListen:                  " 127.0.0.1:9999 ",
-		ServerAuthToken:               " auth ",
-		ServerMaxQueue:                23,
-		BusMaxInFlight:                55,
-		RequestTimeout:                45 * time.Second,
+		KeystoreFile:           " ./mixin.json ",
+		AllowedConversationIDs: []string{" c1 ", "c1", "c2"},
+		TaskTimeout:            3 * time.Minute,
+		MaxConcurrency:         7,
+		ServerListen:           " 127.0.0.1:9999 ",
+		ServerAuthToken:        " auth ",
+		ServerMaxQueue:         23,
+		BusMaxInFlight:         55,
 		AgentLimits: agent.Limits{
 			MaxSteps:        22,
 			ParseRetries:    4,
@@ -78,7 +71,7 @@ func TestNormalizeRunOptionsPreservesAndDeduplicatesFields(t *testing.T) {
 	if len(opts.AllowedConversationIDs) != 2 || opts.AllowedConversationIDs[0] != "c1" || opts.AllowedConversationIDs[1] != "c2" {
 		t.Fatalf("allowed conversations = %#v", opts.AllowedConversationIDs)
 	}
-	if opts.GroupTriggerMode != "smart" || opts.MaxConcurrency != 7 || opts.ServerAuthToken != "auth" {
+	if opts.MaxConcurrency != 7 || opts.ServerAuthToken != "auth" {
 		t.Fatalf("options were not preserved: %#v", opts)
 	}
 	if opts.AgentLimits.MaxSteps != 22 || !opts.InspectPrompt || !opts.InspectRequest {

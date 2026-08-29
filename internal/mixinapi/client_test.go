@@ -68,15 +68,27 @@ func TestClientMeSignsEveryRequest(t *testing.T) {
 
 func TestClientSendMessagesSignsExactBody(t *testing.T) {
 	credentials := testCredentials()
+	recipient := encryptedTestCredentials(0x71)
+	session := encryptedTestSession(t, recipient)
 	now := time.Date(2026, 8, 27, 3, 4, 5, 0, time.UTC)
 	requestID := "5f02a273-cd18-4af3-a57b-f3224a3c3591"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/sessions/fetch" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []Session{session}})
+			return
+		}
+		if r.URL.Path != "/encrypted_messages" {
+			t.Errorf("path = %q", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Error(err)
 			return
 		}
-		wantToken, err := signAuthenticationToken(credentials, http.MethodPost, "/messages", body, now, requestID)
+		wantToken, err := signAuthenticationToken(credentials, http.MethodPost, "/encrypted_messages", body, now, requestID)
 		if err != nil {
 			t.Error(err)
 			return
@@ -84,7 +96,7 @@ func TestClientSendMessagesSignsExactBody(t *testing.T) {
 		if got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); got != wantToken {
 			t.Errorf("token does not bind exact body")
 		}
-		_, _ = io.WriteString(w, `{"data":[]}`)
+		_, _ = io.WriteString(w, `{"data":[{"message_id":"a4ec1e53-f147-439a-82cd-2e5e4a95a152","recipient_id":"11111111-1111-4111-8111-111111111111","state":"SUCCESS"}]}`)
 	}))
 	defer server.Close()
 	client, err := NewClient(credentials, ClientOptions{
@@ -98,8 +110,9 @@ func TestClientSendMessagesSignsExactBody(t *testing.T) {
 	}
 	err = client.SendMessages(context.Background(), []MessageRequest{{
 		ConversationID: "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34",
+		RecipientID:    recipient.ClientID,
 		MessageID:      "a4ec1e53-f147-439a-82cd-2e5e4a95a152",
-		Category:       MessageCategoryPlainText,
+		Category:       MessageCategoryEncryptedText,
 		DataBase64:     "SGVsbG8",
 	}})
 	if err != nil {
@@ -108,11 +121,18 @@ func TestClientSendMessagesSignsExactBody(t *testing.T) {
 }
 
 func TestClientSendMessagesRetriesWithStableBody(t *testing.T) {
+	recipient := encryptedTestCredentials(0x72)
+	session := encryptedTestSession(t, recipient)
 	var (
 		attempts int
 		bodies   [][]byte
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/sessions/fetch" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []Session{session}})
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Error(err)
@@ -126,7 +146,7 @@ func TestClientSendMessagesRetriesWithStableBody(t *testing.T) {
 			_, _ = io.WriteString(w, `{"error":{"status":429,"code":429,"description":"rate limited"}}`)
 			return
 		}
-		_, _ = io.WriteString(w, `{"data":[]}`)
+		_, _ = io.WriteString(w, `{"data":[{"message_id":"a4ec1e53-f147-439a-82cd-2e5e4a95a152","recipient_id":"11111111-1111-4111-8111-111111111111","state":"SUCCESS"}]}`)
 	}))
 	defer server.Close()
 	client, err := NewClient(testCredentials(), ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
@@ -135,8 +155,9 @@ func TestClientSendMessagesRetriesWithStableBody(t *testing.T) {
 	}
 	err = client.SendMessages(context.Background(), []MessageRequest{{
 		ConversationID: "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34",
+		RecipientID:    recipient.ClientID,
 		MessageID:      "a4ec1e53-f147-439a-82cd-2e5e4a95a152",
-		Category:       MessageCategoryPlainText,
+		Category:       MessageCategoryEncryptedText,
 		DataBase64:     "SGVsbG8",
 	}})
 	if err != nil {
@@ -159,8 +180,9 @@ func TestClientRejectsOversizedMessageBatchBeforeRequest(t *testing.T) {
 	}
 	err = client.SendMessages(context.Background(), []MessageRequest{{
 		ConversationID: "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34",
+		RecipientID:    "11111111-1111-4111-8111-111111111111",
 		MessageID:      "a4ec1e53-f147-439a-82cd-2e5e4a95a152",
-		Category:       MessageCategoryPlainText,
+		Category:       MessageCategoryEncryptedText,
 		DataBase64:     strings.Repeat("a", maxMessageRequestBytes),
 	}})
 	if !errors.Is(err, ErrRequestTooLarge) {

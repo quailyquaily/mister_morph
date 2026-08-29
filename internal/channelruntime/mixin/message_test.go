@@ -81,20 +81,6 @@ func TestMixinMentionUsesTokenBoundariesAndCanBeRemoved(t *testing.T) {
 	}
 }
 
-func TestGroupCommandRequiresExplicitTrigger(t *testing.T) {
-	t.Parallel()
-
-	if mixinGroupCommandAllowed("/id", false) {
-		t.Fatal("bare group command must not be handled")
-	}
-	if !mixinGroupCommandAllowed("/id", true) {
-		t.Fatal("mentioned group command should be handled")
-	}
-	if !mixinGroupCommandAllowed("hello", false) {
-		t.Fatal("ordinary messages are not command-gated")
-	}
-}
-
 func TestMixinAllowlistBypassCommands(t *testing.T) {
 	t.Parallel()
 

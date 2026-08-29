@@ -83,6 +83,7 @@ func (i *mixinIngress) Normalize(ctx context.Context, message mixinapi.MessageVi
 		}
 		return mixinbus.InboundMessage{}, false, nil
 	}
+	message.Category = mixinapi.PlainMessageCategory(message.Category)
 	text, supported, err := decodeMixinText(message.Category, message.DataBase64)
 	if err != nil {
 		return mixinbus.InboundMessage{}, false, err

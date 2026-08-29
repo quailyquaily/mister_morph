@@ -20,27 +20,22 @@ type Dependencies struct {
 }
 
 type RunOptions struct {
-	KeystoreFile                  string
-	Credentials                   mixinapi.Credentials
-	AllowedConversationIDs        []string
-	GroupTriggerMode              string
-	RecordUntriggered             bool
-	AddressingConfidenceThreshold float64
-	AddressingInterjectThreshold  float64
-	TaskTimeout                   time.Duration
-	MaxConcurrency                int
-	FileCacheDir                  string
-	ServerListen                  string
-	ServerAuthToken               string
-	ServerMaxQueue                int
-	BusMaxInFlight                int
-	RequestTimeout                time.Duration
-	AgentLimits                   agent.Limits
-	EngineToolsConfig             agent.EngineToolsConfig
-	InspectPrompt                 bool
-	InspectRequest                bool
-	TaskStore                     daemonruntime.TaskView
-	OnConnectionChange            func(bool)
+	KeystoreFile           string
+	Credentials            mixinapi.Credentials
+	AllowedConversationIDs []string
+	TaskTimeout            time.Duration
+	MaxConcurrency         int
+	FileCacheDir           string
+	ServerListen           string
+	ServerAuthToken        string
+	ServerMaxQueue         int
+	BusMaxInFlight         int
+	AgentLimits            agent.Limits
+	EngineToolsConfig      agent.EngineToolsConfig
+	InspectPrompt          bool
+	InspectRequest         bool
+	TaskStore              daemonruntime.TaskView
+	OnConnectionChange     func(bool)
 
 	api   mixinAPI
 	blaze mixinBlaze

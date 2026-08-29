@@ -310,15 +310,9 @@ func mixinJobFromInbound(inbound mixinbus.InboundMessage) mixinJob {
 	}
 }
 
-func mixinHistoryCap(mode string) int {
-	if strings.EqualFold(strings.TrimSpace(mode), "talkative") {
-		return 16
-	}
-	return 8
-}
-
-func trimMixinHistory(items []chathistory.ChatHistoryItem, limit int) []chathistory.ChatHistoryItem {
-	if limit > 0 && len(items) > limit {
+func trimMixinHistory(items []chathistory.ChatHistoryItem) []chathistory.ChatHistoryItem {
+	const limit = 8
+	if len(items) > limit {
 		items = items[len(items)-limit:]
 	}
 	return append([]chathistory.ChatHistoryItem(nil), items...)

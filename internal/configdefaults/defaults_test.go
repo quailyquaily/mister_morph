@@ -36,7 +36,6 @@ func TestApplyDisablesRecordUntriggeredByDefault(t *testing.T) {
 		"slack.record_untriggered",
 		"line.record_untriggered",
 		"lark.record_untriggered",
-		"mixin.record_untriggered",
 	} {
 		if !v.IsSet(key) {
 			t.Fatalf("%s has no registered default", key)
@@ -50,9 +49,6 @@ func TestApplyDisablesRecordUntriggeredByDefault(t *testing.T) {
 func TestApplySetsMixinDefaults(t *testing.T) {
 	v := viper.New()
 	Apply(v)
-	if got := v.GetString("mixin.group_trigger_mode"); got != "talkative" {
-		t.Fatalf("mixin.group_trigger_mode = %q, want talkative", got)
-	}
 	if got := v.GetInt("mixin.max_concurrency"); got != DefaultChannelMaxConcurrency {
 		t.Fatalf("mixin.max_concurrency = %d, want %d", got, DefaultChannelMaxConcurrency)
 	}

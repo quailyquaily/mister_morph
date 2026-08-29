@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/mixinapi"
 )
 
@@ -19,7 +18,7 @@ type mixinAttachmentPayload struct {
 }
 
 func decodeMixinAttachment(category, dataBase64 string) (mixinAttachmentPayload, bool, error) {
-	switch strings.ToUpper(strings.TrimSpace(category)) {
+	switch category {
 	case mixinapi.MessageCategoryPlainImage, mixinapi.MessageCategoryPlainAudio, mixinapi.MessageCategoryPlainData:
 	default:
 		return mixinAttachmentPayload{}, false, nil
@@ -42,7 +41,7 @@ func decodeMixinAttachment(category, dataBase64 string) (mixinAttachmentPayload,
 }
 
 func decodeMixinText(category, dataBase64 string) (string, bool, error) {
-	switch strings.ToUpper(strings.TrimSpace(category)) {
+	switch category {
 	case mixinapi.MessageCategoryPlainText, mixinapi.MessageCategoryPlainPost:
 	default:
 		return "", false, nil
@@ -112,14 +111,6 @@ func findMixinBotMention(text, identityNumber string) int {
 		}
 		from = after
 	}
-}
-
-func mixinGroupCommandAllowed(text string, explicit bool) bool {
-	command, _ := chatcommands.ParseCommand(text)
-	if chatcommands.NormalizeCommand(command) == "" {
-		return true
-	}
-	return explicit
 }
 
 func splitMixinText(text string, maxBytes int) []string {

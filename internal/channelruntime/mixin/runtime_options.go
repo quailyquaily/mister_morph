@@ -10,7 +10,6 @@ import (
 func normalizeRunOptions(opts RunOptions) RunOptions {
 	opts.KeystoreFile = strings.TrimSpace(opts.KeystoreFile)
 	opts.AllowedConversationIDs = normalizeStrings(opts.AllowedConversationIDs)
-	opts.GroupTriggerMode = strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	opts.FileCacheDir = strings.TrimSpace(opts.FileCacheDir)
 	opts.ServerListen = strings.TrimSpace(opts.ServerListen)
 	opts.ServerAuthToken = strings.TrimSpace(opts.ServerAuthToken)
@@ -33,18 +32,10 @@ func normalizeRunOptions(opts RunOptions) RunOptions {
 	if opts.ServerMaxQueue <= 0 {
 		opts.ServerMaxQueue = configdefaults.DefaultServerMaxQueue
 	}
-	if opts.RequestTimeout <= 0 {
-		opts.RequestTimeout = configdefaults.DefaultLLMRequestTimeout
-	}
 	opts.AgentLimits = opts.AgentLimits.NormalizeForRuntime()
-	if opts.GroupTriggerMode == "" {
-		opts.GroupTriggerMode = "talkative"
-	}
 	if opts.ServerListen == "" && opts.TaskStore == nil {
 		opts.ServerListen = "127.0.0.1:8792"
 	}
-	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, configdefaults.DefaultAddressingThreshold)
-	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, configdefaults.DefaultAddressingThreshold)
 	return opts
 }
 
@@ -60,14 +51,4 @@ func normalizeStrings(values []string) []string {
 		out = append(out, value)
 	}
 	return out
-}
-
-func normalizeThreshold(value, fallback float64) float64 {
-	if value <= 0 {
-		value = fallback
-	}
-	if value > 1 {
-		return 1
-	}
-	return value
 }

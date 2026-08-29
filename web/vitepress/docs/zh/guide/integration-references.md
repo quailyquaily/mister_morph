@@ -281,9 +281,6 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | `AllowedConversationIDs` | `[]string` | 允许的 conversation UUID。 |
 | `TaskTimeout` | `time.Duration` | 单个 task 的执行超时。 |
 | `MaxConcurrency` | `int` | conversation 最大并发数。 |
-| `GroupTriggerMode` | `string` | 群聊 trigger mode。 |
-| `AddressingConfidenceThreshold` | `float64` | addressing 判定阈值。 |
-| `AddressingInterjectThreshold` | `float64` | interject 判定阈值。 |
 
 ### `type TelegramHooks struct`
 

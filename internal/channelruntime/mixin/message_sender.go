@@ -13,8 +13,8 @@ type mixinMessageSender struct {
 	sender *mixinapi.MessageSender
 }
 
-func newMixinMessageSender(api mixinAPI, botUserID string, recent *recentMessageTracker) *mixinMessageSender {
-	return &mixinMessageSender{mixinAPI: api, sender: mixinapi.NewMessageSender(api, botUserID, recent.Add)}
+func newMixinMessageSender(api mixinAPI, botUserID string) *mixinMessageSender {
+	return &mixinMessageSender{mixinAPI: api, sender: mixinapi.NewMessageSender(api, botUserID, nil)}
 }
 
 func (s *mixinMessageSender) SendMessages(ctx context.Context, messages []mixinapi.MessageRequest) error {

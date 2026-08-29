@@ -154,8 +154,7 @@ func TestSendMixinTextSplitsWithStableIDs(t *testing.T) {
 	t.Parallel()
 
 	api := &fakeMixinAPI{}
-	tracker := newRecentMessageTracker(4)
-	sender := newMixinMessageSender(api, testBotID, tracker)
+	sender := newMixinMessageSender(api, testBotID)
 	err := sendMixinText(context.Background(), sender, testConversationID, testUserID, "hello", mixinbus.SendTextOptions{
 		MessageID:      "44444444-4444-4444-4444-444444444444",
 		QuoteMessageID: "55555555-5555-5555-5555-555555555555",
@@ -168,9 +167,6 @@ func TestSendMixinTextSplitsWithStableIDs(t *testing.T) {
 	}
 	if api.sent[0].RecipientID != testUserID {
 		t.Fatalf("recipient_id = %q", api.sent[0].RecipientID)
-	}
-	if !tracker.Contains(testConversationID, api.sent[0].MessageID) {
-		t.Fatal("sent message was not tracked")
 	}
 }
 
@@ -187,12 +183,13 @@ func TestMixinIngressNormalizesAndCachesProfiles(t *testing.T) {
 		},
 	}
 	ingress := newMixinIngress(api, api.users[testBotID], "", nil)
-	for _, messageID := range []string{"44444444-4444-4444-4444-444444444444", "55555555-5555-5555-5555-555555555555"} {
+	categories := []string{mixinapi.MessageCategoryEncryptedText, mixinapi.MessageCategoryPlainText}
+	for index, messageID := range []string{"44444444-4444-4444-4444-444444444444", "55555555-5555-5555-5555-555555555555"} {
 		inbound, publish, err := ingress.Normalize(context.Background(), mixinapi.MessageView{
 			ConversationID: testConversationID,
 			UserID:         testUserID,
 			MessageID:      messageID,
-			Category:       mixinapi.MessageCategoryPlainText,
+			Category:       categories[index],
 			DataBase64:     base64.RawURLEncoding.EncodeToString([]byte("@7000 hello")),
 		})
 		if err != nil || !publish {

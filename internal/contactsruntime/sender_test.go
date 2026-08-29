@@ -223,6 +223,9 @@ func TestSendMixinTargetExpandsConversationParticipants(t *testing.T) {
 			if message.ConversationID != conversationID || message.RecipientID == "" || message.RecipientID == botID {
 				t.Fatalf("message target = %#v", message)
 			}
+			if message.Category != mixinapi.MessageCategoryPlainText {
+				t.Fatalf("message category = %q", message.Category)
+			}
 			if _, found := seenRecipients[message.RecipientID]; found {
 				t.Fatalf("duplicate recipient_id %q", message.RecipientID)
 			}

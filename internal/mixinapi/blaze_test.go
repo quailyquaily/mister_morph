@@ -16,6 +16,13 @@ import (
 )
 
 func TestBlazeRunListsPendingHandlesMessageAndAcknowledges(t *testing.T) {
+	recipient := testCredentials()
+	sender := encryptedTestCredentials(0x73)
+	plain := base64.RawURLEncoding.EncodeToString([]byte("hello"))
+	encrypted, err := encryptMessageData(plain, []Session{encryptedTestSession(t, recipient)}, sender.privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var gotListPending atomic.Bool
 	var gotAck atomic.Bool
 	ackDone := make(chan struct{})
@@ -45,10 +52,10 @@ func TestBlazeRunListsPendingHandlesMessageAndAcknowledges(t *testing.T) {
 			Action: blazeActionCreateMessage,
 			Data: mustJSONRaw(t, MessageView{
 				ConversationID: "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34",
-				UserID:         "773e5e77-4107-45c2-b648-8fc722ed77f5",
+				UserID:         sender.ClientID,
 				MessageID:      "a4ec1e53-f147-439a-82cd-2e5e4a95a152",
-				Category:       MessageCategoryPlainText,
-				DataBase64:     base64.RawURLEncoding.EncodeToString([]byte("hello")),
+				Category:       MessageCategoryEncryptedText,
+				DataBase64:     encrypted,
 				Status:         "SENT",
 			}),
 		}); err != nil {
@@ -69,7 +76,7 @@ func TestBlazeRunListsPendingHandlesMessageAndAcknowledges(t *testing.T) {
 	defer server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client, err := NewBlazeClient(testCredentials(), BlazeOptions{
+	client, err := NewBlazeClient(recipient, BlazeOptions{
 		URL:        "ws" + strings.TrimPrefix(server.URL, "http"),
 		MinBackoff: time.Millisecond,
 		MaxBackoff: 2 * time.Millisecond,
@@ -80,7 +87,7 @@ func TestBlazeRunListsPendingHandlesMessageAndAcknowledges(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- client.Run(ctx, func(_ context.Context, msg MessageView) error {
-			if msg.MessageID != "a4ec1e53-f147-439a-82cd-2e5e4a95a152" {
+			if msg.MessageID != "a4ec1e53-f147-439a-82cd-2e5e4a95a152" || msg.DataBase64 != plain || msg.Category != MessageCategoryEncryptedText {
 				t.Errorf("message = %#v", msg)
 			}
 			return nil
@@ -98,6 +105,121 @@ func TestBlazeRunListsPendingHandlesMessageAndAcknowledges(t *testing.T) {
 	}
 	if !gotListPending.Load() || !gotAck.Load() {
 		t.Fatalf("list_pending=%v ack=%v", gotListPending.Load(), gotAck.Load())
+	}
+}
+
+func TestBlazeRunAcknowledgesUndecryptableMessageAndContinues(t *testing.T) {
+	const (
+		conversationID = "8f7059b9-b1b2-4ed8-a99f-4ac2f07a9a34"
+		badMessageID   = "a4ec1e53-f147-439a-82cd-2e5e4a95a152"
+		goodMessageID  = "b4ec1e53-f147-439a-82cd-2e5e4a95a153"
+	)
+	var handled atomic.Int64
+	decryptError := make(chan error, 1)
+	done := make(chan struct{})
+	upgrader := websocket.Upgrader{Subprotocols: []string{blazeSubprotocol}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		var request BlazeEnvelope
+		if err := readBlazeEnvelope(conn, &request); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := writeBlazeEnvelope(conn, BlazeEnvelope{
+			ID: "bad-event", Action: blazeActionCreateMessage,
+			Data: mustJSONRaw(t, MessageView{
+				ConversationID: conversationID,
+				UserID:         "11111111-1111-4111-8111-111111111111",
+				MessageID:      badMessageID,
+				Category:       MessageCategoryEncryptedText,
+				DataBase64:     "SGVsbG8",
+			}),
+		}); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := readBlazeEnvelope(conn, &request); err != nil {
+			t.Error(err)
+			return
+		}
+		if request.Action != blazeActionAcknowledge || request.Params["message_id"] != badMessageID {
+			t.Errorf("bad message ack = %#v", request)
+			return
+		}
+		if err := writeBlazeEnvelope(conn, BlazeEnvelope{
+			ID: "good-event", Action: blazeActionCreateMessage,
+			Data: mustJSONRaw(t, MessageView{
+				ConversationID: conversationID,
+				UserID:         "11111111-1111-4111-8111-111111111111",
+				MessageID:      goodMessageID,
+				Category:       MessageCategoryPlainText,
+				DataBase64:     base64.RawURLEncoding.EncodeToString([]byte("next")),
+			}),
+		}); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := readBlazeEnvelope(conn, &request); err != nil {
+			t.Error(err)
+			return
+		}
+		if request.Action != blazeActionAcknowledge || request.Params["message_id"] != goodMessageID {
+			t.Errorf("good message ack = %#v", request)
+			return
+		}
+		close(done)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client, err := NewBlazeClient(testCredentials(), BlazeOptions{
+		URL:        "ws" + strings.TrimPrefix(server.URL, "http"),
+		MinBackoff: time.Second,
+		MaxBackoff: time.Second,
+		OnDecryptError: func(message MessageView, err error) {
+			if message.MessageID != badMessageID {
+				t.Errorf("decrypt error message_id = %q", message.MessageID)
+			}
+			decryptError <- err
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.Run(ctx, func(_ context.Context, message MessageView) error {
+			handled.Add(1)
+			if message.MessageID != goodMessageID {
+				t.Errorf("handled message = %#v", message)
+			}
+			return nil
+		})
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for messages")
+	}
+	cancel()
+	if err := <-errCh; err != nil && err != context.Canceled {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if handled.Load() != 1 {
+		t.Fatalf("handled messages = %d, want 1", handled.Load())
+	}
+	select {
+	case err := <-decryptError:
+		if err == nil {
+			t.Fatal("decrypt error callback received nil")
+		}
+	default:
+		t.Fatal("decrypt error callback was not called")
 	}
 }
 

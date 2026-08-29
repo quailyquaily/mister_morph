@@ -59,15 +59,12 @@ type SlackOptions struct {
 }
 
 type MixinOptions struct {
-	ClientID                      string
-	SessionID                     string
-	PrivateKey                    string
-	AllowedConversationIDs        []string
-	TaskTimeout                   time.Duration
-	MaxConcurrency                int
-	GroupTriggerMode              string
-	AddressingConfidenceThreshold float64
-	AddressingInterjectThreshold  float64
+	ClientID               string
+	SessionID              string
+	PrivateKey             string
+	AllowedConversationIDs []string
+	TaskTimeout            time.Duration
+	MaxConcurrency         int
 }
 
 type TelegramHooks struct {
@@ -262,14 +259,11 @@ func (r *mixinBotRunner) Run(ctx context.Context) error {
 		}
 		defer func() { runErr = errors.Join(runErr, cleanup()) }()
 		runOpts := channelopts.BuildMixinRunOptions(snap.Mixin, channelopts.MixinInput{
-			AllowedConversationIDs:        append([]string(nil), r.opts.AllowedConversationIDs...),
-			GroupTriggerMode:              strings.TrimSpace(r.opts.GroupTriggerMode),
-			AddressingConfidenceThreshold: r.opts.AddressingConfidenceThreshold,
-			AddressingInterjectThreshold:  r.opts.AddressingInterjectThreshold,
-			TaskTimeout:                   r.opts.TaskTimeout,
-			MaxConcurrency:                r.opts.MaxConcurrency,
-			InspectPrompt:                 r.rt.inspect.Prompt,
-			InspectRequest:                r.rt.inspect.Request,
+			AllowedConversationIDs: append([]string(nil), r.opts.AllowedConversationIDs...),
+			TaskTimeout:            r.opts.TaskTimeout,
+			MaxConcurrency:         r.opts.MaxConcurrency,
+			InspectPrompt:          r.rt.inspect.Prompt,
+			InspectRequest:         r.rt.inspect.Request,
 		})
 		runOpts.Credentials = r.credentials
 		runOpts.EngineToolsConfig.SpawnEnabled = runOpts.EngineToolsConfig.SpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)

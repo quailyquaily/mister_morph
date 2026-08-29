@@ -74,6 +74,7 @@ type BlazeOptions struct {
 	NewRequestID       func() string
 	OnConnectionChange func(bool)
 	OnReconnect        func(error, time.Duration)
+	OnDecryptError     func(MessageView, error)
 }
 
 type BlazeClient struct {
@@ -86,6 +87,7 @@ type BlazeClient struct {
 	newRequestID       func() string
 	onConnectionChange func(bool)
 	onReconnect        func(error, time.Duration)
+	onDecryptError     func(MessageView, error)
 	pongWait           time.Duration
 	pingPeriod         time.Duration
 }
@@ -138,6 +140,7 @@ func NewBlazeClient(credentials Credentials, opts BlazeOptions) (*BlazeClient, e
 		newRequestID:       requestID,
 		onConnectionChange: opts.OnConnectionChange,
 		onReconnect:        opts.OnReconnect,
+		onDecryptError:     opts.OnDecryptError,
 		pongWait:           defaultBlazePongWait,
 		pingPeriod:         defaultBlazePingPeriod,
 	}, nil
@@ -257,6 +260,15 @@ func (c *BlazeClient) runConnection(ctx context.Context, handler MessageHandler)
 		writeMu  sync.Mutex
 		failOnce sync.Once
 	)
+	acknowledge := func(messageID string) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return writeBlazeEnvelope(conn, BlazeEnvelope{
+			ID:     c.newRequestID(),
+			Action: blazeActionAcknowledge,
+			Params: map[string]any{"message_id": messageID, "status": "READ"},
+		})
+	}
 	fail := func(err error) {
 		failOnce.Do(func() {
 			handlerFailure <- err
@@ -277,14 +289,7 @@ func (c *BlazeClient) runConnection(ctx context.Context, handler MessageHandler)
 						fail(fmt.Errorf("handle mixin message: %w", err))
 						return
 					}
-					writeMu.Lock()
-					err := writeBlazeEnvelope(conn, BlazeEnvelope{
-						ID:     c.newRequestID(),
-						Action: blazeActionAcknowledge,
-						Params: map[string]any{"message_id": message.MessageID, "status": "READ"},
-					})
-					writeMu.Unlock()
-					if err != nil {
+					if err := acknowledge(message.MessageID); err != nil {
 						fail(fmt.Errorf("acknowledge mixin message: %w", err))
 						return
 					}
@@ -316,6 +321,15 @@ func (c *BlazeClient) runConnection(ctx context.Context, handler MessageHandler)
 		if err := json.Unmarshal(envelope.Data, &message); err != nil {
 			return fmt.Errorf("decode mixin message: %w", err)
 		}
+		if err := c.decryptMessage(&message); err != nil {
+			if c.onDecryptError != nil {
+				c.onDecryptError(message, err)
+			}
+			if ackErr := acknowledge(message.MessageID); ackErr != nil {
+				return fmt.Errorf("acknowledge unreadable mixin message: %w", ackErr)
+			}
+			continue
+		}
 		queue := queues[blazeMessageShard(message.ConversationID, len(queues))]
 		select {
 		case queue <- message:
@@ -325,6 +339,18 @@ func (c *BlazeClient) runConnection(ctx context.Context, handler MessageHandler)
 			return ctx.Err()
 		}
 	}
+}
+
+func (c *BlazeClient) decryptMessage(message *MessageView) error {
+	if message == nil || !isEncryptedMessageCategory(message.Category) || strings.EqualFold(strings.TrimSpace(message.UserID), c.credentials.ClientID) {
+		return nil
+	}
+	data, err := decryptMessageData(message.DataBase64, c.credentials.SessionID, c.credentials.privateKey)
+	if err != nil {
+		return fmt.Errorf("decrypt mixin message %s: %w", strings.TrimSpace(message.MessageID), err)
+	}
+	message.DataBase64 = data
+	return nil
 }
 
 func blazeMessageShard(conversationID string, count int) int {

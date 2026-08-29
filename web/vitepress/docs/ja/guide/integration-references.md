@@ -281,9 +281,6 @@ description: integration パッケージの公開関数、メソッド、構造�
 | `AllowedConversationIDs` | `[]string` | 許可する conversation UUID。 |
 | `TaskTimeout` | `time.Duration` | 1 task あたりの実行 timeout。 |
 | `MaxConcurrency` | `int` | conversation の最大同時実行数。 |
-| `GroupTriggerMode` | `string` | グループ trigger mode。 |
-| `AddressingConfidenceThreshold` | `float64` | addressing 判定の閾値。 |
-| `AddressingInterjectThreshold` | `float64` | interject 判定の閾値。 |
 
 ### `type TelegramHooks struct`
 

@@ -30,15 +30,12 @@ func NewCommand(d Dependencies) *cobra.Command {
 			cfg := channelopts.MixinConfigFromViper()
 			runtimeToolsConfig := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 			runOpts := channelopts.BuildMixinRunOptions(cfg, channelopts.MixinInput{
-				KeystoreFile:                  keystoreFile,
-				AllowedConversationIDs:        configutil.FlagOrViperStringArray(cmd, "mixin-allowed-conversation-id", "mixin.allowed_conversation_ids"),
-				GroupTriggerMode:              configutil.FlagOrViperString(cmd, "mixin-group-trigger-mode", "mixin.group_trigger_mode"),
-				AddressingConfidenceThreshold: configutil.FlagOrViperFloat64(cmd, "mixin-addressing-confidence-threshold", "mixin.addressing_confidence_threshold"),
-				AddressingInterjectThreshold:  configutil.FlagOrViperFloat64(cmd, "mixin-addressing-interject-threshold", "mixin.addressing_interject_threshold"),
-				TaskTimeout:                   configutil.FlagOrViperDuration(cmd, "mixin-task-timeout", "mixin.task_timeout"),
-				MaxConcurrency:                configutil.FlagOrViperInt(cmd, "mixin-max-concurrency", "mixin.max_concurrency"),
-				InspectPrompt:                 configutil.FlagOrViperBool(cmd, "inspect-prompt", ""),
-				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
+				KeystoreFile:           keystoreFile,
+				AllowedConversationIDs: configutil.FlagOrViperStringArray(cmd, "mixin-allowed-conversation-id", "mixin.allowed_conversation_ids"),
+				TaskTimeout:            configutil.FlagOrViperDuration(cmd, "mixin-task-timeout", "mixin.task_timeout"),
+				MaxConcurrency:         configutil.FlagOrViperInt(cmd, "mixin-max-concurrency", "mixin.max_concurrency"),
+				InspectPrompt:          configutil.FlagOrViperBool(cmd, "inspect-prompt", ""),
+				InspectRequest:         configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
 			deps := buildMixinRuntimeDeps(d, runtimeToolsConfig, viper.GetViper())
 			return mixinruntime.Run(cmd.Context(), deps, runOpts)
@@ -47,9 +44,6 @@ func NewCommand(d Dependencies) *cobra.Command {
 
 	cmd.Flags().String("mixin-keystore-file", "", "Mixin Messenger Ed25519 keystore file.")
 	cmd.Flags().StringArray("mixin-allowed-conversation-id", nil, "Allowed Mixin conversation UUID(s). If empty, allows all conversations.")
-	cmd.Flags().String("mixin-group-trigger-mode", "talkative", "Group trigger mode: strict|smart|talkative.")
-	cmd.Flags().Float64("mixin-addressing-confidence-threshold", configdefaults.DefaultAddressingThreshold, "Minimum confidence (0-1) required to accept an addressing LLM decision.")
-	cmd.Flags().Float64("mixin-addressing-interject-threshold", configdefaults.DefaultAddressingThreshold, "Minimum interject (0-1) required to accept an addressing LLM decision.")
 	cmd.Flags().Duration("mixin-task-timeout", 0, "Per-message agent timeout (0 uses --timeout).")
 	cmd.Flags().Int("mixin-max-concurrency", configdefaults.DefaultChannelMaxConcurrency, "Max number of Mixin conversations processed concurrently.")
 	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_mixin_YYYYMMDD_HHmmss.md.")

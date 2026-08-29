@@ -194,7 +194,6 @@ function buildEmptyMixinConsoleState() {
   return {
     keystore_file: "",
     allowed_conversation_ids_text: "",
-    group_trigger_mode: "talkative",
   };
 }
 
@@ -536,7 +535,6 @@ function buildConsoleMixinSnapshot(state) {
   return JSON.stringify({
     keystore_file: trimText(state.mixin.keystore_file),
     allowed_conversation_ids: parseConfigListText(state.mixin.allowed_conversation_ids_text),
-    group_trigger_mode: normalizeConsoleGroupTriggerMode(state.mixin.group_trigger_mode),
   });
 }
 
@@ -2276,7 +2274,6 @@ const SettingsView = {
       state.lark.group_trigger_mode = normalizeConsoleGroupTriggerMode(lark.group_trigger_mode);
       state.mixin.keystore_file = typeof mixin.keystore_file === "string" ? mixin.keystore_file : "";
       state.mixin.allowed_conversation_ids_text = formatConfigList(mixin.allowed_conversation_ids);
-      state.mixin.group_trigger_mode = normalizeConsoleGroupTriggerMode(mixin.group_trigger_mode || "talkative");
       state.guard.enabled = typeof guard.enabled === "boolean" ? guard.enabled : true;
       state.guard.url_fetch_allowed_url_prefixes_text = formatConfigList(guardURLFetch.allowed_url_prefixes);
       state.guard.deny_private_ips =
@@ -2889,7 +2886,6 @@ const SettingsView = {
       const mixin = {
         keystore_file: consoleFieldRawValue(mixinEnv, "keystore_file") || trimText(state.mixin.keystore_file),
         allowed_conversation_ids: parseConfigListText(state.mixin.allowed_conversation_ids_text),
-        group_trigger_mode: normalizeConsoleGroupTriggerMode(state.mixin.group_trigger_mode),
       };
       const guard = {
         enabled: !!state.guard.enabled,
@@ -3026,10 +3022,6 @@ const SettingsView = {
       }
       state.mixin[key] = String(value || "");
       updateConsoleMixinDirty();
-    }
-
-    function updateMixinGroupTrigger(item) {
-      updateMixinField("group_trigger_mode", item?.value || "talkative");
     }
 
     function updateGuardField(field, value) {
@@ -3978,7 +3970,6 @@ const SettingsView = {
       updateSlackGroupTrigger,
       updateLineGroupTrigger,
       updateLarkGroupTrigger,
-      updateMixinGroupTrigger,
       updateGuardField,
       selectSection,
       isSelectedSection,
@@ -4669,16 +4660,6 @@ const SettingsView = {
                       <p class="settings-field-note">{{ t("settings_console_mixin_allowed_conversation_ids_note") }}</p>
                     </div>
 
-                    <div class="settings-field is-wide">
-                      <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
-                      <QDropdownMenu
-                        :key="state.mixin.group_trigger_mode || 'mixin-group-trigger'"
-                        :items="groupTriggerItems"
-                        :initialItem="groupTriggerItems.find((item) => item.value === state.mixin.group_trigger_mode) || groupTriggerItems[2]"
-                        @change="updateMixinGroupTrigger"
-                      />
-                      <p class="settings-field-note">{{ t("settings_console_mixin_group_trigger_note") }}</p>
-                    </div>
                   </div>
                 </div>
               </div>

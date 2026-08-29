@@ -11,15 +11,15 @@ status: in_progress
 Morph 增加一个 `mixin` Channel，覆盖两个主要场景：
 
 1. 人类与 Morph Bot 私聊。
-2. Morph Bot 作为成员加入群聊，在群里接收消息、判断 trigger 并回复。
+2. Morph Bot 作为成员加入群聊，接收明确 `@Bot` 的消息并回复。
 
 第一版在 Mixin 平台能力允许的范围内对齐 Telegram Runtime。这里的“对齐”是复用相同的 Morph 行为，不是复制 Telegram API：
 
 - 私聊直接进入任务。
-- 群聊支持 `strict`、`smart`、`talkative` 三种 trigger mode。
-- 支持 allowlist、非 trigger 消息写 journal、每会话串行、跨会话并发。
+- 群聊消息由 Mixin 在传输层按 mention 投递；Morph 不再重复判断 trigger。
+- 支持 allowlist、每会话串行、跨会话并发。
 - 支持共享命令、审批、文件输入输出、Contacts、主动发送、Agent 配对和 managed runtime。
-- 不为 Mixin 重新实现 task、history、journal、group trigger、bus、Contacts 或 runtime API。
+- 不为 Mixin 重新实现 task、history、journal、bus、Contacts 或 runtime API。
 
 Mixin Messenger 同时有钱包能力，但它与本需求无关。第一版不读取资产，不处理转账，不注册支付工具，也不使用 keystore 中的 PIN 和 `pin_token`。
 
@@ -54,7 +54,7 @@ Mixin 消息服务使用 Blaze WebSocket：
 
 ### 2.3 发消息
 
-Bot 使用 `POST /messages` 发消息。请求由客户端生成 UUID `message_id`，可以一次发送最多 100 条，整个请求体上限为 128 KB。`quote_message_id` 可以让回复引用原消息。
+Bot 使用 `POST /encrypted_messages` 发消息。发送前通过 `POST /sessions/fetch` 获取每个接收者的 session public key，并为每个 recipient 加密 payload。请求由客户端生成 UUID `message_id`，可以一次发送最多 100 条，整个请求体上限为 128 KB。`quote_message_id` 可以让回复引用原消息。
 
 私聊发送前必须存在 `CONTACT` conversation。私聊 conversation ID 由双方 user UUID 按官方算法确定；用户已经主动发消息或添加 Bot 时，会话通常已经存在。主动联系一个从未交互的用户时，先调用 `POST /conversations` 创建会话。
 
@@ -66,37 +66,35 @@ Bot 使用 `POST /messages` 发消息。请求由客户端生成 UUID `message_i
 
 | Mixin category | 用途 |
 | --- | --- |
-| `PLAIN_TEXT` | 普通文本 |
-| `PLAIN_POST` | Markdown 长文 |
-| `PLAIN_IMAGE` | 图片 |
-| `PLAIN_AUDIO` | 音频 |
-| `PLAIN_DATA` | 文件 |
+| `ENCRYPTED_TEXT` / `PLAIN_TEXT` | 普通文本；出站使用 encrypted，入站兼容两者 |
+| `ENCRYPTED_POST` / `PLAIN_POST` | Markdown 长文；入站兼容两者 |
+| `ENCRYPTED_IMAGE` / `PLAIN_IMAGE` | 图片；出站使用 encrypted，入站兼容两者 |
+| `ENCRYPTED_AUDIO` / `PLAIN_AUDIO` | 音频；出站使用 encrypted，入站兼容两者 |
+| `ENCRYPTED_DATA` / `PLAIN_DATA` | 文件；出站使用 encrypted，入站兼容两者 |
 | `APP_BUTTON_GROUP` | 按钮组；是否可由 Bot 发送需要真实账号验证 |
 | `SYSTEM_CONVERSATION` | 群成员和会话状态变化 |
 
 图片、音频和文件都先调用 `POST /attachments` 获取 `upload_url` 和 `attachment_id`，上传后再发送消息。接收附件时通过 `GET /attachments/:id` 获取 `view_url`，再下载文件。
 
-官方文档在按钮能力上存在冲突：Message Category 页写着 Bot 目前只支持 `PLAIN_` 前缀的消息，同时又列出了 `APP_BUTTON_GROUP`；User Interaction 页则明确描述了 Bot 使用 `input:` button。第一版不能只根据文档假定按钮可用。审批先提供完整的纯文本命令，真实 Bot smoke test 验证按钮可发送后再启用按钮增强。
+公开 Message Category 文档仍写着 Bot 只支持 `PLAIN_`，但官方 Go SDK 和 Mixin Safe 已在 2026-08-25 至 2026-08-27 接入 encrypted message。Morph 以最新官方实现为准，同时保留 `PLAIN_*` 入站兼容。按钮能力仍需真实 Bot smoke test；审批先提供完整的纯文本命令。
 
 ### 2.5 提及和引用
 
-Blaze message 没有 Telegram 那样的 mention entity。Mixin 官方客户端使用消息正文中的 `@<identity_number>` 表示提及；客户端选择某个群成员时会生成该引用。Morph 在启动时通过 `GET /me` 得到自己的 `identity_number`，据此判断群消息是否明确提到了自己。
+官方 Mixin Messenger 客户端的普通群消息使用 `SIGNAL_*` 群组加密，Bot API 不提供这类消息的群组解密会话。客户端只从正文中的 `@<identity_number>` 提取 Bot user ID，写入 Blaze 的 `mentions` 字段。Mixin 据此向 Bot 提供可读消息。
 
-引用消息只有 `quote_message_id`，不会附带被引用消息的发送者或正文。Morph 可以用当前进程内保存的近期 message ID 判断“回复了 Bot”。进程重启后，如果本地近期记录中没有该 message ID，就不能可靠判断引用对象；此时只有正文中的 Bot 提及算 explicit trigger。第一版不为这个小概率边界增加一套消息索引。
+`quote_message_id` 和 `mentions` 是两个独立字段。回复 Bot 只设置引用，不会自动提及 Bot，因此 Bot 收不到仅 reply 的群消息。用户需要同时 `@Bot`。Morph 收到可读群消息后直接视为已寻址，并从正文移除自己的 mention。
 
 ## 3. Telegram 对齐范围
 
 | 能力 | Mixin 第一版 | 说明 |
 | --- | --- | --- |
 | 人类私聊 | 支持 | 有效私聊消息直接进入 main run |
-| 群聊 | 支持 | Bot 作为普通群成员接收消息 |
+| 群聊 | 部分支持 | 只接收明确 @Bot 的可读消息 |
 | `allowed_chat_ids` 等价能力 | 支持 | 使用 `allowed_conversation_ids` |
-| `strict` / `smart` / `talkative` | 支持 | 复用 `internal/grouptrigger` |
 | 明确 @Bot | 支持 | 匹配 Bot 的 `identity_number` |
-| 回复 Bot | 支持 | 当前进程近期消息可准确判断；重启后的旧引用有上述限制 |
+| 回复 Bot | 部分支持 | reply 必须同时 @Bot |
 | 每会话串行 | 支持 | key 为 Mixin `conversation_id` |
 | 上下文、sticky skills、context checkpoint | 支持 | 复用 channel task runtime |
-| `record_untriggered` | 支持 | 写现有 conversation journal event |
 | 共享 slash commands | 支持 | 私聊可直接使用；群聊必须同时提及 Bot |
 | `/stop` 和 steering | 支持 | 复用现有任务控制 |
 | 审批 | 支持 | 完整文本和命令必定可用；验证后增加 `APP_BUTTON_GROUP` |
@@ -111,7 +109,7 @@ Blaze message 没有 Telegram 那样的 mention entity。Mixin 官方客户端�
 | typing 状态 | 不支持 | 官方 Bot API 没有已文档化的等价接口 |
 | reaction | 不支持 | 官方消息类型和 Go Bot SDK 未提供已文档化的 reaction API；不注册 `message_react` |
 | Telegram topic/thread | 不支持 | Mixin conversation 没有等价层级 |
-| Telegram HTML/Markdown 气泡 | 不完全对齐 | 普通回复使用 `PLAIN_TEXT`；不把每条回答都变成 `PLAIN_POST` |
+| Telegram HTML/Markdown 气泡 | 不完全对齐 | 普通回复使用 `ENCRYPTED_TEXT`；不把每条回答都变成 POST |
 | 编辑进度消息 | 不支持 | 不用多条临时消息模拟 typing 或 edit，避免刷屏 |
 
 不支持的平台能力不能用额外轮询、伪 reaction 或频繁状态消息模拟。这样会增加延迟和噪声，却不能得到等价体验。
@@ -129,15 +127,6 @@ mixin:
   # 可选的 conversation UUID allowlist。空数组允许所有会话。
   allowed_conversation_ids: []
 
-  # strict | smart | talkative
-  group_trigger_mode: "talkative"
-
-  # 把有效但未触发 main run 的群消息写入统一 journal。
-  record_untriggered: false
-
-  addressing_confidence_threshold: 0.6
-  addressing_interject_threshold: 0.6
-
   # 0 使用顶层 timeout。
   task_timeout: "0s"
 
@@ -153,9 +142,6 @@ mixin:
 ```text
 --mixin-keystore-file
 --mixin-allowed-conversation-id
---mixin-group-trigger-mode
---mixin-addressing-confidence-threshold
---mixin-addressing-interject-threshold
 --mixin-task-timeout
 --mixin-max-concurrency
 ```
@@ -313,29 +299,13 @@ Bus inbox 的记录保留与清理由独立方案定义，见 [Bus Inbox Seen Re
 
 这样可避免已有 Channel 曾出现的“展示头像或列出任务时等待远端 profile API”问题。
 
-## 7. 群聊 trigger
+## 7. 群聊消息
 
-### 7.1 Explicit trigger
-
-群消息满足任一条件时视为明确触发：
-
-1. 正文提及 Bot 的 `@<identity_number>`。
-2. `quote_message_id` 指向当前进程近期保存的 Bot outbound message。
-3. 群命令正文同时明确提及 Bot。
+官方客户端只向 Bot 提供明确提及它的可读群消息。Morph 不再重复执行 trigger 判断，也不提供 `strict`、`smart`、`talkative`、addressing 阈值或 `record_untriggered`。这些选项无法扩大 Mixin 实际投递给 Bot 的消息范围。
 
 mention 匹配必须有 token 边界，不能让 Bot ID `7000` 误匹配 `@70001`。进入 main run 前只移除指向当前 Bot 的 mention，不删除对其他人的引用。
 
-### 7.2 Mode
-
-- `strict`：只有 explicit trigger 进入 main run。
-- `smart`：非 explicit 消息交给共享 addressing LLM，满足 `addressed` 和 confidence 阈值才进入 main run。
-- `talkative`：非 explicit 消息交给共享 addressing LLM，按 interject 判断是否加入对话。
-
-addressing prompt 使用现有结构化 history，并保留 sender UUID、昵称、Mixin ID 和引用关系。Mixin 没有 reaction API，因此 addressing 阶段不注册 `message_react`，也不要求模型返回 reaction。
-
-回复群内其他人的消息且没有提及 Bot 时，沿用 Telegram 的前置拒绝逻辑。引用目标未知时不猜测；交给当前 mode 判断，但 `strict` 不触发。
-
-### 7.3 群命令
+### 7.1 群命令
 
 私聊中可直接发送 `/help`、`/models`、`/skills`、`/ctx`、`/workspace`、`/think`、`/reset`、`/stop` 和 `/id`。
 
@@ -346,15 +316,15 @@ Mixin 没有 Telegram 的 `/command@bot_username` 语法。为了避免一个群
 @7000123456 /models
 ```
 
-命令解析先移除当前 Bot mention，再交给共享 `chatcommands`。bare `/id` 在群里不执行，也不进入 main run。
+命令解析先移除当前 Bot mention，再交给共享 `chatcommands`。bare `/id` 不会由 Mixin 投递给 Bot。
 
 ## 8. 消息和附件映射
 
 ### 8.1 文本
 
-- `PLAIN_TEXT`：trim 后为空则忽略并 ACK；否则作为普通文本。
-- `PLAIN_POST`：把解码后的 UTF-8 payload 作为用户文本，不在 Morph 内渲染或转换格式。
-- 普通 Agent 回复使用 `PLAIN_TEXT`。
+- `ENCRYPTED_TEXT` / `PLAIN_TEXT`：encrypted payload 先解密；trim 后为空则忽略并 ACK，否则作为普通文本。
+- `ENCRYPTED_POST` / `PLAIN_POST`：把解密和解码后的 UTF-8 payload 作为用户文本，不在 Morph 内渲染或转换格式。
+- 普通 Agent 回复使用 `ENCRYPTED_TEXT`。不在 encrypted 发送失败时降级为 plain。
 - 单条回复最多使用 64 KiB UTF-8 文本，超过时按段落和 rune 安全分片。只有第一片引用 inbound message。
 - 每个分片使用由 bus idempotency key 和分片序号稳定生成的 UUID，超时重试时复用同一个 message ID。
 
@@ -364,11 +334,11 @@ Mixin 没有 Telegram 的 `/command@bot_username` 语法。为了避免一个群
 
 | category | 第一版处理 |
 | --- | --- |
-| `PLAIN_IMAGE` | 下载原图，校验大小和 MIME，进入现有 multimodal image input |
-| `PLAIN_DATA` | 下载到安全缓存，向 Agent 提供文件名、MIME 和本地路径说明 |
-| `PLAIN_AUDIO` | 下载到安全缓存，作为音频文件提供；不新增语音转写服务 |
-| `PLAIN_VIDEO` | 只记录类型和基本 metadata，不下载，不触发仅视频消息 |
-| `PLAIN_STICKER` | 不触发；开启 `record_untriggered` 时也不保存 sticker 内容 |
+| `ENCRYPTED_IMAGE` / `PLAIN_IMAGE` | 下载原图，校验大小和 MIME，进入现有 multimodal image input |
+| `ENCRYPTED_DATA` / `PLAIN_DATA` | 下载到安全缓存，向 Agent 提供文件名、MIME 和本地路径说明 |
+| `ENCRYPTED_AUDIO` / `PLAIN_AUDIO` | 下载到安全缓存，作为音频文件提供；不新增语音转写服务 |
+| `ENCRYPTED_VIDEO` / `PLAIN_VIDEO` | 只记录类型和基本 metadata，不下载，不触发仅视频消息 |
+| `ENCRYPTED_STICKER` / `PLAIN_STICKER` | 不触发，也不保存 sticker 内容 |
 | contact/location/live/card | 不触发 main run，只做受限日志并 ACK |
 | transfer/snapshot/wallet system | 永不进入 Agent prompt，ACK 后丢弃 |
 
@@ -499,7 +469,7 @@ Console API 永不返回 keystore 内容。修改配置后沿用现有 managed r
 Runtime.NewMixinBot(MixinOptions)
 ```
 
-它与 `NewTelegramBot`、`NewSlackBot` 一样返回 `BotRunner`。`MixinOptions` 只接收解析后的消息凭据、allowlist 和 runtime options；不接收钱包字段。
+它与 `NewTelegramBot`、`NewSlackBot` 一样返回 `BotRunner`。`MixinOptions` 只接收解析后的消息凭据、allowlist、任务超时和并发数；不接收钱包或群 trigger 字段。
 
 ## 12. 错误处理和可观测性
 
@@ -549,6 +519,7 @@ health check 只读内存状态，不请求 Mixin API。
 - [x] Blaze gzip encode/decode、`LIST_PENDING_MESSAGES`、`CREATE_MESSAGE` 和 ACK。
 - [x] 401 停止；普通断线退避重连；cancel 能立即退出。
 - [x] REST error、429、body limit 和 secret redaction。
+- [x] encrypted message session 获取、内存缓存、session 失效重试和入站解密。
 
 测试使用本地 HTTP/WebSocket server，不连接真实 Mixin，不运行网上下载的二进制。
 
@@ -556,11 +527,10 @@ health check 只读内存状态，不请求 Mixin API。
 
 - [x] 注册 `mixin` channel、conversation key、bus inbound/delivery adapter。
 - [x] 私聊文本进入 main run。
-- [x] 群聊 explicit trigger 和三种 mode。
+- [x] 群聊 @Bot 消息直接进入 main run。
 - [x] allowlist、per-conversation ordering、cross-conversation concurrency。
 - [x] bus inbox 去重成功后才 ACK；重投不产生第二个 task。
 - [x] commands、`/stop`、history、context checkpoint、sticky skills。
-- [x] `record_untriggered` 只记录有效的群聊拒绝消息。
 
 ### Phase 3：附件、审批和 Contacts
 
@@ -580,13 +550,14 @@ health check 只读内存状态，不请求 Mixin API。
 - [x] `Runtime.NewMixinBot`。
 - [x] 更新 `assets/config/config.example.yaml`、CLI help、Channel 文档和 VitePress 导航。
 - [x] 运行 `go test ./...` 和 `go vet ./...`。
-- [ ] 用真实测试 Bot 各做一次私聊、群 mention、群 quote、附件、审批和断线重连 smoke test。
+- [x] 用真实测试 Bot确认普通群消息和仅 reply 不会投递，群 mention 可以进入 main run。
+- [ ] 用真实测试 Bot 各做一次私聊、附件、审批和断线重连 smoke test。
 
 ## 14. 验收条件
 
 1. 用户添加 Bot 后发送私聊文本，Morph 创建一个 task，并在同一 conversation 回复。
-2. Bot 加入群后，`strict` 模式只响应对 Bot 的提及和可识别的引用；`smart`、`talkative` 使用现有 addressing 规则。
-3. bare 群命令不会唤醒同群所有 Morph Bot；带当前 Bot mention 的命令正常执行。
+2. Bot 加入群后，只处理明确提及 Bot 的可读消息；仅 reply 不触发。
+3. bare 群命令不会投递给 Bot；带当前 Bot mention 的命令正常执行。
 4. allowlist 为空时允许所有 conversation；非空时只允许列出的 UUID，已配对 Agent 私聊除外。
 5. 同一 conversation 顺序执行，不同 conversation 的并发不超过 `max_concurrency`。
 6. 正常运行时，Blaze 重投同一 message ID 不创建重复 task；seen record 写入后才 ACK。进程退出窗口保持明确的 at-least-once 语义。
@@ -604,7 +575,6 @@ health check 只读内存状态，不请求 Mixin API。
 - 创建、管理或邀请群成员。
 - sticker、location、live、video、contact card 和 app card tools。
 - 用临时消息模拟 typing、reaction 或编辑中的回答。
-- 为重启以前的所有 quote message 建立永久索引。
 - 新的通用 Channel framework 或重写现有 Telegram runtime。
 - 将 Mixin API base、reconnect、cache 和 ack 细节全部变成配置项。
 
@@ -627,7 +597,8 @@ health check 只读内存状态，不请求 Mixin API。
 - [Read User](https://developers.mixin.one/docs/api/users/user) 与 [User Introduction](https://developers.mixin.one/docs/api/users/intro)：user profile、Mixin ID 以及普通用户和 Bot 的关系。
 - [User Interaction](https://developers.mixin.one/docs/app/design/user-interaction)：Bot 私聊、群成员和 `input:` button 行为。
 - [Official Go Bot SDK](https://github.com/MixinNetwork/bot-api-go-client) 与 [Blaze implementation](https://github.com/MixinNetwork/bot-api-go-client/blob/master/blaze.go)：协议常量、message view 和 SDK 能力边界。
-- [Official Flutter client mention parser](https://github.com/MixinNetwork/flutter-app/blob/main/lib/utils/reg_exp_utils.dart) 与 [mention storage](https://github.com/MixinNetwork/flutter-app/blob/main/lib/db/dao/message_mention_dao.dart)：`@identity_number` 和引用当前用户消息的客户端提及判断。
+- [Official encrypted message implementation](https://github.com/MixinNetwork/bot-api-go-client/commit/147cae2bd41c89f6cf048b272b50813a24ac0833) 与 [Mixin Safe migration](https://github.com/MixinNetwork/safe/commit/fd2e823758186588a103ff15e4615bb8b3f31646)：encrypted endpoint、recipient sessions、session cache 和迁移实例。
+- [Official Flutter client sending job](https://github.com/MixinNetwork/flutter-app/blob/main/lib/workers/job/sending_job.dart) 与 [Signal protocol](https://github.com/MixinNetwork/flutter-app/blob/main/lib/crypto/signal/signal_protocol.dart)：从正文生成 `mentions`，并将 `mentions` 和 `quote_message_id` 作为独立字段发送。
 
 ## 17. 实施进度
 
@@ -636,5 +607,6 @@ health check 只读内存状态，不请求 Mixin API。
 - [x] Phase 2：Channel 注册、Bus adapters、私聊、群聊 trigger、commands 和 task runtime。
 - [x] Phase 3：附件、审批、Contacts、主动发送和 Agent 配对。
 - [x] Phase 4：CLI、managed runtime、Console Settings、Integration API 和用户文档。
+- [x] encrypted message 出站、入站解密和 `PLAIN_*` 入站兼容。
 - [x] 完成定向测试、`go test ./...` 和 `go vet ./...`。
 - [ ] 完成真实 Mixin Bot 的私聊、群聊、附件、审批和断线重连 smoke test。

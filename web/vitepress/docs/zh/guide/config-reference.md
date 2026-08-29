@@ -263,10 +263,6 @@ Shell 默认值按平台区分：
 |---|---|
 | `mixin.keystore_file` | Mixin Developer Dashboard 生成的 Ed25519 keystore 文件路径。 |
 | `mixin.allowed_conversation_ids` | 允许的 conversation UUID；空表示不限制。 |
-| `mixin.group_trigger_mode` | 群聊触发策略（`strict/smart/talkative`）。 |
-| `mixin.record_untriggered` | 是否把有效但未触发的群消息写入 journal。 |
-| `mixin.addressing_confidence_threshold` | addressing 判定通过所需最小置信度。 |
-| `mixin.addressing_interject_threshold` | addressing 的 interject 下限阈值。 |
 | `mixin.task_timeout` | 单条消息任务超时。 |
 | `mixin.max_concurrency` | conversation 并发处理上限。 |
 | `mixin.serve_listen` | Mixin runtime API 监听地址。 |

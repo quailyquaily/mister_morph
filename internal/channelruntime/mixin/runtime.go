@@ -76,17 +76,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		return fmt.Errorf("load mixin bot profile: user_id is required")
 	}
 	logger.Info("mixin_profile_loaded", "user_id", bot.UserID, "identity_number", bot.IdentityNumber, "name", bot.FullName)
-	recentOutbound := newRecentMessageTracker(256)
-	messageSender := newMixinMessageSender(api, bot.UserID, recentOutbound)
-
-	var untriggeredRecorder *runtimecore.UntriggeredRecorder
-	if opts.RecordUntriggered {
-		untriggeredRecorder, err = runtimecore.NewUntriggeredRecorder(d.RuntimePaths.JournalDir, d.TaskRotateMaxBytes)
-		if err != nil {
-			return fmt.Errorf("mixin untriggered journal: %w", err)
-		}
-		defer untriggeredRecorder.Close()
-	}
+	messageSender := newMixinMessageSender(api, bot.UserID)
 	daemonStore := opts.TaskStore
 	if daemonStore == nil {
 		daemonStore, err = daemonruntime.NewTaskViewForTarget("mixin", opts.ServerMaxQueue, daemonruntime.TaskViewConfig{
@@ -278,7 +268,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			if output != "" {
 				items = append(items, newMixinOutboundHistoryItem(job, output, time.Now().UTC()))
 			}
-			history[conversationKey] = trimMixinHistory(items, mixinHistoryCap(opts.GroupTriggerMode))
+			history[conversationKey] = trimMixinHistory(items)
 		}
 		stateMu.Unlock()
 	}, runtimecore.ConversationRunnerOptions[string, mixinJob]{
@@ -377,48 +367,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		conversationKey := message.ConversationKey
 		stateMu.Lock()
 		currentSkills := append([]string(nil), stickySkills[conversationKey]...)
-		prior := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
 		stateMu.Unlock()
-		explicitReason, explicit := mixinExplicitTriggerReason(inbound, bot.UserID, recentOutbound)
-		if isMixinGroup(inbound.ChatType) {
-			if !mixinGroupCommandAllowed(text, explicit) {
-				recordMixinUntriggered(logger, untriggeredRecorder, message, inbound)
-				return nil
-			}
-			if !chatcommands.IsContextCompactCommand(text) {
-				decisionCtx := llmstats.WithMetadata(context.Background(), mixinTaskID(inbound.ConversationID, inbound.MessageID), inbound.MessageID)
-				generation, captureErr := generations.Capture()
-				if captureErr != nil {
-					return captureErr
-				}
-				bundle := generation.Bundle()
-				if bundle == nil || bundle.TaskRuntime == nil {
-					generation.Release()
-					return fmt.Errorf("mixin runtime generation is unavailable")
-				}
-				addressingTimeout := bundle.AddressingRoute.ClientConfig.RequestTimeout
-				if addressingTimeout <= 0 {
-					addressingTimeout = opts.RequestTimeout
-				}
-				decision, accepted, decisionErr := decideMixinGroupTrigger(decisionCtx, bundle.AddressingClient, bundle.AddressingModel, inbound, opts.GroupTriggerMode, addressingTimeout, opts.AddressingConfidenceThreshold, opts.AddressingInterjectThreshold, prior, bot.UserID, recentOutbound, d.RuntimePaths.PersonaDir)
-				generation.Release()
-				if decisionErr != nil {
-					logger.Warn("mixin_addressing_llm_error", "conversation_id", inbound.ConversationID, "error", decisionErr.Error())
-					return nil
-				}
-				if !accepted {
-					logger.Info("mixin_group_ignored", "conversation_id", inbound.ConversationID, "reason", decision.Reason, "llm_attempted", decision.AddressingLLMAttempted)
-					if strings.EqualFold(opts.GroupTriggerMode, "talkative") {
-						stateMu.Lock()
-						history[conversationKey] = trimMixinHistory(append(history[conversationKey], newMixinInboundHistoryItem(mixinJobFromInbound(inbound))), mixinHistoryCap(opts.GroupTriggerMode))
-						stateMu.Unlock()
-					}
-					recordMixinUntriggered(logger, untriggeredRecorder, message, inbound)
-					return nil
-				}
-				logger.Info("mixin_group_trigger", "conversation_id", inbound.ConversationID, "reason", firstNonEmptyMixin(decision.Reason, explicitReason))
-			}
-		}
 		if isMixinStopCommand(text) {
 			result := runControl.Stop("mixin", conversationKey, "/stop")
 			_, err := publishMixinBusOutbound(handlerCtx, bus, inbound.ConversationID, mixinReplyRecipient(inbound.ChatType, inbound.FromUserID), runtimecontrol.StopFeedback(result.Found), inbound.MessageID, "mixin:stop:"+inbound.MessageID)
@@ -547,7 +496,7 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		}
 	}
 
-	logger.Info("mixin_runtime_start", "allowed_conversation_ids", len(opts.AllowedConversationIDs), "task_timeout", opts.TaskTimeout.String(), "max_concurrency", opts.MaxConcurrency, "group_trigger_mode", opts.GroupTriggerMode)
+	logger.Info("mixin_runtime_start", "allowed_conversation_ids", len(opts.AllowedConversationIDs), "task_timeout", opts.TaskTimeout.String(), "max_concurrency", opts.MaxConcurrency)
 	err = blaze.Run(ctx, func(messageCtx context.Context, view mixinapi.MessageView) error {
 		inbound, publish, normalizeErr := ingress.Normalize(messageCtx, view)
 		if normalizeErr != nil {
@@ -663,6 +612,9 @@ func mixinProtocolClients(opts RunOptions, logger *slog.Logger, onConnectionChan
 	}
 	if blaze == nil {
 		blaze, err = mixinapi.NewBlazeClient(credentials, mixinapi.BlazeOptions{
+			OnDecryptError: func(message mixinapi.MessageView, decryptErr error) {
+				logger.Warn("mixin_message_decrypt_failed", "conversation_id", message.ConversationID, "message_id", message.MessageID, "category", message.Category, "error", decryptErr.Error())
+			},
 			OnConnectionChange: func(connected bool) {
 				if onConnectionChange != nil {
 					onConnectionChange(connected)
@@ -750,18 +702,6 @@ func mixinTaskID(conversationID, messageID string) string {
 	return daemonruntime.BuildTaskID("mx", conversationID, messageID)
 }
 
-func recordMixinUntriggered(logger *slog.Logger, recorder *runtimecore.UntriggeredRecorder, message busruntime.BusMessage, inbound mixinbus.InboundMessage) {
-	if recorder == nil {
-		return
-	}
-	if err := recorder.Record(runtimecore.UntriggeredMessage{
-		Channel: string(busruntime.ChannelMixin), ConversationKey: message.ConversationKey, MessageID: inbound.MessageID,
-		SenderID: inbound.FromUserID, SentAt: inbound.SentAt, Text: inbound.Text,
-	}); err != nil {
-		logger.Error("mixin_untriggered_journal_append_error", "conversation_id", inbound.ConversationID, "message_id", inbound.MessageID, "error", err.Error())
-	}
-}
-
 func markMixinTaskFailed(logger *slog.Logger, store daemonruntime.TaskUpdater, taskID, message string, stopped bool) {
 	if err := runtimecore.MarkTaskFailed(store, taskID, strings.TrimSpace(message), stopped); err != nil {
 		logger.Error("mixin_task_state_write_error", "task_id", taskID, "status", daemonruntime.TaskFailed, "error", err.Error())
@@ -782,13 +722,4 @@ func markMixinTaskCanceled(logger *slog.Logger, store daemonruntime.TaskUpdater,
 	}); err != nil {
 		logger.Error("mixin_task_state_write_error", "task_id", taskID, "status", daemonruntime.TaskCanceled, "error", err.Error())
 	}
-}
-
-func firstNonEmptyMixin(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }

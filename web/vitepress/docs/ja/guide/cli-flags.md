@@ -151,9 +151,6 @@ description: mistermorph が現在サポートしているコマンドライン�
 - `--inspect-request`: LLM request/response payload を `./dump` に保存する。
 - `--mixin-keystore-file`: Mixin Messenger Ed25519 keystore ファイル。
 - `--mixin-allowed-conversation-id`: 許可する Mixin conversation UUID。繰り返し指定可。
-- `--mixin-group-trigger-mode`: グループトリガーモード。`strict|smart|talkative`。
-- `--mixin-addressing-confidence-threshold`: addressing 判定を受け入れる最小 confidence。
-- `--mixin-addressing-interject-threshold`: addressing 判定を受け入れる最小 interject スコア。
 - `--mixin-task-timeout`: メッセージ単位の agent timeout。
 - `--mixin-max-concurrency`: 同時処理する Mixin conversation の最大数。
 

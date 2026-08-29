@@ -151,9 +151,6 @@ This command accepts an optional `profile-name` positional argument. Without one
 - `--inspect-request`: Dump LLM request/response payloads into `./dump`.
 - `--mixin-keystore-file`: Mixin Messenger Ed25519 keystore file.
 - `--mixin-allowed-conversation-id`: Allowed Mixin conversation UUID. Repeatable.
-- `--mixin-group-trigger-mode`: Group trigger mode, `strict|smart|talkative`.
-- `--mixin-addressing-confidence-threshold`: Minimum addressing confidence to accept.
-- `--mixin-addressing-interject-threshold`: Minimum interject score to accept.
 - `--mixin-task-timeout`: Per-message agent timeout.
 - `--mixin-max-concurrency`: Max number of Mixin conversations processed concurrently.
 

@@ -1,11 +1,37 @@
 package channelopts
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 )
+
+func TestMixinOptionsDoNotExposeUnavailableGroupTriggerBehavior(t *testing.T) {
+	t.Parallel()
+
+	fields := []string{
+		"DefaultGroupTriggerMode",
+		"RecordUntriggered",
+		"DefaultAddressingConfidenceThreshold",
+		"DefaultAddressingInterjectThreshold",
+		"GroupTriggerMode",
+		"AddressingConfidenceThreshold",
+		"AddressingInterjectThreshold",
+	}
+	for _, typ := range []reflect.Type{
+		reflect.TypeOf(MixinConfig{}),
+		reflect.TypeOf(MixinInput{}),
+		reflect.TypeOf(BuildMixinRunOptions(MixinConfig{}, MixinInput{})),
+	} {
+		for _, field := range fields {
+			if _, found := typ.FieldByName(field); found {
+				t.Fatalf("%s unexpectedly exposes %s", typ.Name(), field)
+			}
+		}
+	}
+}
 
 type stubConfigReader map[string]any
 
@@ -99,7 +125,6 @@ func TestRecordUntriggeredConfigIsPerChannel(t *testing.T) {
 		{name: "slack", key: "slack.record_untriggered"},
 		{name: "line", key: "line.record_untriggered"},
 		{name: "lark", key: "lark.record_untriggered"},
-		{name: "mixin", key: "mixin.record_untriggered"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -108,14 +133,11 @@ func TestRecordUntriggeredConfigIsPerChannel(t *testing.T) {
 			slackCfg := SlackConfigFromReader(r)
 			lineCfg := LineConfigFromReader(r)
 			larkCfg := LarkConfigFromReader(r)
-			mixinCfg := MixinConfigFromReader(r)
-
 			got := map[string]bool{
 				"telegram": telegramCfg.RecordUntriggered,
 				"slack":    slackCfg.RecordUntriggered,
 				"line":     lineCfg.RecordUntriggered,
 				"lark":     larkCfg.RecordUntriggered,
-				"mixin":    mixinCfg.RecordUntriggered,
 			}
 			for channel, enabled := range got {
 				if enabled != (channel == tt.name) {
@@ -132,7 +154,6 @@ func TestRecordUntriggeredConfigIsPerChannel(t *testing.T) {
 				"slack":    BuildSlackRunOptions(slackCfg, SlackInput{}).RecordUntriggered,
 				"line":     BuildLineRunOptions(lineCfg, LineInput{}).RecordUntriggered,
 				"lark":     BuildLarkRunOptions(larkCfg, LarkInput{}).RecordUntriggered,
-				"mixin":    BuildMixinRunOptions(mixinCfg, MixinInput{}).RecordUntriggered,
 			}
 			for channel, enabled := range built {
 				if enabled != (channel == tt.name) {
@@ -405,15 +426,12 @@ func TestBuildLarkRunOptionsInputOverridesAndDedupesChats(t *testing.T) {
 func TestBuildMixinRunOptions(t *testing.T) {
 	opts := BuildMixinRunOptions(
 		MixinConfig{
-			AllowedConversationIDs:               []string{"conversation-a"},
-			TaskTimeout:                          0,
-			GlobalTaskTimeout:                    6 * time.Minute,
-			MaxConcurrency:                       3,
-			FileCacheDir:                         "/tmp/morph-cache",
-			DefaultGroupTriggerMode:              "smart",
-			DefaultAddressingConfidenceThreshold: 0.6,
-			DefaultAddressingInterjectThreshold:  0.7,
-			AgentLimits:                          agent.Limits{ToolRepeatLimit: 15},
+			AllowedConversationIDs: []string{"conversation-a"},
+			TaskTimeout:            0,
+			GlobalTaskTimeout:      6 * time.Minute,
+			MaxConcurrency:         3,
+			FileCacheDir:           "/tmp/morph-cache",
+			AgentLimits:            agent.Limits{ToolRepeatLimit: 15},
 		},
 		MixinInput{
 			KeystoreFile:           " mixin-keystore.json ",
@@ -429,9 +447,6 @@ func TestBuildMixinRunOptions(t *testing.T) {
 	}
 	if len(opts.AllowedConversationIDs) != 2 || opts.AllowedConversationIDs[0] != "conversation-b" || opts.AllowedConversationIDs[1] != "conversation-c" {
 		t.Fatalf("allowed conversations = %#v, want [conversation-b conversation-c]", opts.AllowedConversationIDs)
-	}
-	if opts.GroupTriggerMode != "smart" || opts.AddressingConfidenceThreshold != 0.6 || opts.AddressingInterjectThreshold != 0.7 {
-		t.Fatalf("trigger options = %+v", opts)
 	}
 	if opts.AgentLimits.ToolRepeatLimit != 15 || opts.FileCacheDir != "/tmp/morph-cache" {
 		t.Fatalf("shared runtime options = %+v", opts)

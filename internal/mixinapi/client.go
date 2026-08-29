@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,15 +31,21 @@ const (
 var ErrRequestTooLarge = errors.New("mixin request is too large")
 
 const (
-	MessageCategoryPlainText    = "PLAIN_TEXT"
-	MessageCategoryPlainPost    = "PLAIN_POST"
-	MessageCategoryPlainImage   = "PLAIN_IMAGE"
-	MessageCategoryPlainAudio   = "PLAIN_AUDIO"
-	MessageCategoryPlainData    = "PLAIN_DATA"
-	MessageCategoryPlainVideo   = "PLAIN_VIDEO"
-	MessageCategoryPlainSticker = "PLAIN_STICKER"
-	MessageCategoryAppButton    = "APP_BUTTON_GROUP"
-	MessageCategorySystem       = "SYSTEM_CONVERSATION"
+	MessageCategoryPlainText      = "PLAIN_TEXT"
+	MessageCategoryPlainPost      = "PLAIN_POST"
+	MessageCategoryPlainImage     = "PLAIN_IMAGE"
+	MessageCategoryPlainAudio     = "PLAIN_AUDIO"
+	MessageCategoryPlainData      = "PLAIN_DATA"
+	MessageCategoryPlainVideo     = "PLAIN_VIDEO"
+	MessageCategoryPlainSticker   = "PLAIN_STICKER"
+	MessageCategoryEncryptedText  = "ENCRYPTED_TEXT"
+	MessageCategoryEncryptedPost  = "ENCRYPTED_POST"
+	MessageCategoryEncryptedImage = "ENCRYPTED_IMAGE"
+	MessageCategoryEncryptedAudio = "ENCRYPTED_AUDIO"
+	MessageCategoryEncryptedData  = "ENCRYPTED_DATA"
+	MessageCategoryEncryptedVideo = "ENCRYPTED_VIDEO"
+	MessageCategoryAppButton      = "APP_BUTTON_GROUP"
+	MessageCategorySystem         = "SYSTEM_CONVERSATION"
 )
 
 type User struct {
@@ -128,6 +135,8 @@ type Client struct {
 	httpClient   *http.Client
 	now          func() time.Time
 	newRequestID func() string
+	sessionsMu   sync.RWMutex
+	sessions     map[string][]Session
 }
 
 func NewClient(credentials Credentials, opts ClientOptions) (*Client, error) {
@@ -154,7 +163,10 @@ func NewClient(credentials Credentials, opts ClientOptions) (*Client, error) {
 	if requestID == nil {
 		requestID = newRequestID
 	}
-	return &Client{credentials: credentials, baseURL: parsed, httpClient: httpClient, now: now, newRequestID: requestID}, nil
+	return &Client{
+		credentials: credentials, baseURL: parsed, httpClient: httpClient, now: now, newRequestID: requestID,
+		sessions: make(map[string][]Session),
+	}, nil
 }
 
 func (c *Client) Me(ctx context.Context) (User, error) {
@@ -204,9 +216,43 @@ func (c *Client) SendMessages(ctx context.Context, messages []MessageRequest) er
 	if len(messages) > 100 {
 		return fmt.Errorf("mixin message batch exceeds 100 messages")
 	}
+	raw, err := json.Marshal(messages)
+	if err != nil {
+		return fmt.Errorf("marshal mixin message batch: %w", err)
+	}
+	if len(raw) > maxMessageRequestBytes {
+		return fmt.Errorf("%w: %d bytes exceeds %d", ErrRequestTooLarge, len(raw), maxMessageRequestBytes)
+	}
+	pending := append([]MessageRequest(nil), messages...)
+	for sessionAttempt := 0; sessionAttempt < 2; sessionAttempt++ {
+		requests, err := c.buildEncryptedMessageRequests(ctx, pending)
+		if err != nil {
+			return err
+		}
+		var responses []EncryptedMessageResponse
+		if err := c.sendMessageRequest(ctx, "/encrypted_messages", requests, &responses); err != nil {
+			return err
+		}
+		failed, failures, err := failedEncryptedMessages(pending, responses)
+		if err != nil {
+			return err
+		}
+		if len(failed) == 0 {
+			return nil
+		}
+		c.deleteRecipientSessions(failed)
+		if sessionAttempt == 1 {
+			return &EncryptedMessageError{Responses: failures}
+		}
+		pending = failed
+	}
+	return nil
+}
+
+func (c *Client) sendMessageRequest(ctx context.Context, path string, input, output any) error {
 	var lastErr error
 	for attempt := 0; attempt < maxMessageSendAttempts; attempt++ {
-		lastErr = c.do(ctx, http.MethodPost, "/messages", messages, nil, maxMessageRequestBytes)
+		lastErr = c.do(ctx, http.MethodPost, path, input, output, maxMessageRequestBytes)
 		if lastErr == nil {
 			return nil
 		}

@@ -258,34 +258,26 @@ func ParseTelegramAllowedChatIDs(values []string) ([]int64, error) {
 }
 
 type MixinConfig struct {
-	AllowedConversationIDs               []string
-	DefaultGroupTriggerMode              string
-	RecordUntriggered                    bool
-	DefaultAddressingConfidenceThreshold float64
-	DefaultAddressingInterjectThreshold  float64
-	TaskTimeout                          time.Duration
-	GlobalTaskTimeout                    time.Duration
-	MaxConcurrency                       int
-	FileCacheDir                         string
-	ServerListen                         string
-	ServerAuthToken                      string
-	ServerMaxQueue                       int
-	BusMaxInFlight                       int
-	RequestTimeout                       time.Duration
-	AgentLimits                          agent.Limits
-	EngineToolsConfig                    agent.EngineToolsConfig
+	AllowedConversationIDs []string
+	TaskTimeout            time.Duration
+	GlobalTaskTimeout      time.Duration
+	MaxConcurrency         int
+	FileCacheDir           string
+	ServerListen           string
+	ServerAuthToken        string
+	ServerMaxQueue         int
+	BusMaxInFlight         int
+	AgentLimits            agent.Limits
+	EngineToolsConfig      agent.EngineToolsConfig
 }
 
 type MixinInput struct {
-	KeystoreFile                  string
-	AllowedConversationIDs        []string
-	GroupTriggerMode              string
-	AddressingConfidenceThreshold float64
-	AddressingInterjectThreshold  float64
-	TaskTimeout                   time.Duration
-	MaxConcurrency                int
-	InspectPrompt                 bool
-	InspectRequest                bool
+	KeystoreFile           string
+	AllowedConversationIDs []string
+	TaskTimeout            time.Duration
+	MaxConcurrency         int
+	InspectPrompt          bool
+	InspectRequest         bool
 }
 
 func MixinConfigFromReader(r ConfigReader) MixinConfig {
@@ -293,22 +285,17 @@ func MixinConfigFromReader(r ConfigReader) MixinConfig {
 		return MixinConfig{}
 	}
 	return MixinConfig{
-		AllowedConversationIDs:               append([]string(nil), r.GetStringSlice("mixin.allowed_conversation_ids")...),
-		DefaultGroupTriggerMode:              strings.TrimSpace(r.GetString("mixin.group_trigger_mode")),
-		RecordUntriggered:                    r.GetBool("mixin.record_untriggered"),
-		DefaultAddressingConfidenceThreshold: r.GetFloat64("mixin.addressing_confidence_threshold"),
-		DefaultAddressingInterjectThreshold:  r.GetFloat64("mixin.addressing_interject_threshold"),
-		TaskTimeout:                          r.GetDuration("mixin.task_timeout"),
-		GlobalTaskTimeout:                    r.GetDuration("timeout"),
-		MaxConcurrency:                       r.GetInt("mixin.max_concurrency"),
-		FileCacheDir:                         strings.TrimSpace(r.GetString("file_cache_dir")),
-		ServerListen:                         strings.TrimSpace(r.GetString("mixin.serve_listen")),
-		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
-		ServerMaxQueue:                       r.GetInt("server.max_queue"),
-		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
-		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
-		AgentLimits:                          agentLimitsFromReader(r),
-		EngineToolsConfig:                    engineToolsConfigFromReader(r),
+		AllowedConversationIDs: append([]string(nil), r.GetStringSlice("mixin.allowed_conversation_ids")...),
+		TaskTimeout:            r.GetDuration("mixin.task_timeout"),
+		GlobalTaskTimeout:      r.GetDuration("timeout"),
+		MaxConcurrency:         r.GetInt("mixin.max_concurrency"),
+		FileCacheDir:           strings.TrimSpace(r.GetString("file_cache_dir")),
+		ServerListen:           strings.TrimSpace(r.GetString("mixin.serve_listen")),
+		ServerAuthToken:        strings.TrimSpace(r.GetString("server.auth_token")),
+		ServerMaxQueue:         r.GetInt("server.max_queue"),
+		BusMaxInFlight:         r.GetInt("bus.max_inflight"),
+		AgentLimits:            agentLimitsFromReader(r),
+		EngineToolsConfig:      engineToolsConfigFromReader(r),
 	}
 }
 
@@ -320,18 +307,6 @@ func BuildMixinRunOptions(cfg MixinConfig, in MixinInput) mixinruntime.RunOption
 	allowedConversationIDs := normalizeTrimmedUniqueStrings(in.AllowedConversationIDs)
 	if len(allowedConversationIDs) == 0 {
 		allowedConversationIDs = normalizeTrimmedUniqueStrings(cfg.AllowedConversationIDs)
-	}
-	groupTriggerMode := strings.TrimSpace(in.GroupTriggerMode)
-	if groupTriggerMode == "" {
-		groupTriggerMode = strings.TrimSpace(cfg.DefaultGroupTriggerMode)
-	}
-	addressingConfidenceThreshold := in.AddressingConfidenceThreshold
-	if addressingConfidenceThreshold <= 0 {
-		addressingConfidenceThreshold = cfg.DefaultAddressingConfidenceThreshold
-	}
-	addressingInterjectThreshold := in.AddressingInterjectThreshold
-	if addressingInterjectThreshold <= 0 {
-		addressingInterjectThreshold = cfg.DefaultAddressingInterjectThreshold
 	}
 	taskTimeout := in.TaskTimeout
 	if taskTimeout <= 0 {
@@ -346,24 +321,19 @@ func BuildMixinRunOptions(cfg MixinConfig, in MixinInput) mixinruntime.RunOption
 	}
 
 	return mixinruntime.RunOptions{
-		KeystoreFile:                  strings.TrimSpace(in.KeystoreFile),
-		AllowedConversationIDs:        allowedConversationIDs,
-		GroupTriggerMode:              groupTriggerMode,
-		RecordUntriggered:             cfg.RecordUntriggered,
-		AddressingConfidenceThreshold: addressingConfidenceThreshold,
-		AddressingInterjectThreshold:  addressingInterjectThreshold,
-		TaskTimeout:                   taskTimeout,
-		MaxConcurrency:                maxConcurrency,
-		FileCacheDir:                  strings.TrimSpace(cfg.FileCacheDir),
-		ServerListen:                  strings.TrimSpace(cfg.ServerListen),
-		ServerAuthToken:               cfg.ServerAuthToken,
-		ServerMaxQueue:                cfg.ServerMaxQueue,
-		BusMaxInFlight:                cfg.BusMaxInFlight,
-		RequestTimeout:                cfg.RequestTimeout,
-		AgentLimits:                   cfg.AgentLimits,
-		EngineToolsConfig:             cfg.EngineToolsConfig,
-		InspectPrompt:                 in.InspectPrompt,
-		InspectRequest:                in.InspectRequest,
+		KeystoreFile:           strings.TrimSpace(in.KeystoreFile),
+		AllowedConversationIDs: allowedConversationIDs,
+		TaskTimeout:            taskTimeout,
+		MaxConcurrency:         maxConcurrency,
+		FileCacheDir:           strings.TrimSpace(cfg.FileCacheDir),
+		ServerListen:           strings.TrimSpace(cfg.ServerListen),
+		ServerAuthToken:        cfg.ServerAuthToken,
+		ServerMaxQueue:         cfg.ServerMaxQueue,
+		BusMaxInFlight:         cfg.BusMaxInFlight,
+		AgentLimits:            cfg.AgentLimits,
+		EngineToolsConfig:      cfg.EngineToolsConfig,
+		InspectPrompt:          in.InspectPrompt,
+		InspectRequest:         in.InspectRequest,
 	}
 }
 

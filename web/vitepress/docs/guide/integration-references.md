@@ -281,9 +281,6 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | `AllowedConversationIDs` | `[]string` | Allowed conversation UUIDs. |
 | `TaskTimeout` | `time.Duration` | Per-task run timeout. |
 | `MaxConcurrency` | `int` | Maximum concurrent conversation count. |
-| `GroupTriggerMode` | `string` | Group trigger mode. |
-| `AddressingConfidenceThreshold` | `float64` | Addressing hit threshold. |
-| `AddressingInterjectThreshold` | `float64` | Interject threshold. |
 
 ### `type TelegramHooks struct`
 

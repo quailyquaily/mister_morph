@@ -54,6 +54,19 @@ func TestMixinReplyRecipientLeavesGroupUnaddressed(t *testing.T) {
 	}
 }
 
+func TestTrimMixinHistoryUsesFixedLimit(t *testing.T) {
+	t.Parallel()
+
+	items := make([]chathistory.ChatHistoryItem, 10)
+	for index := range items {
+		items[index].MessageID = string(rune('a' + index))
+	}
+	got := trimMixinHistory(items)
+	if len(got) != 8 || got[0].MessageID != "c" {
+		t.Fatalf("trimMixinHistory() = %#v", got)
+	}
+}
+
 type stubMixinAttachmentAPI struct{}
 
 func (stubMixinAttachmentAPI) CreateAttachment(context.Context) (mixinapi.Attachment, error) {

@@ -21,8 +21,7 @@ func TestMixinMessageSenderExpandsAndCachesGroupRecipients(t *testing.T) {
 			},
 		}},
 	}
-	tracker := newRecentMessageTracker(8)
-	sender := newMixinMessageSender(api, testBotID, tracker)
+	sender := newMixinMessageSender(api, testBotID)
 	request := mixinapi.MessageRequest{
 		ConversationID: testConversationID,
 		MessageID:      "55555555-5555-5555-5555-555555555555",
@@ -47,9 +46,6 @@ func TestMixinMessageSenderExpandsAndCachesGroupRecipients(t *testing.T) {
 	for _, message := range api.sent {
 		if message.RecipientID == "" || message.RecipientID == testBotID {
 			t.Fatalf("message recipient = %q", message.RecipientID)
-		}
-		if !tracker.Contains(testConversationID, message.MessageID) {
-			t.Fatalf("sent message %q was not tracked", message.MessageID)
 		}
 	}
 }

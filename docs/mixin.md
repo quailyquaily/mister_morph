@@ -19,10 +19,6 @@ The runtime reads `app_id`, `session_id`, and `session_private_key` from current
 mixin:
   keystore_file: "./secrets/mixin-keystore.json"
   allowed_conversation_ids: []
-  group_trigger_mode: "talkative"
-  record_untriggered: false
-  addressing_confidence_threshold: 0.6
-  addressing_interject_threshold: 0.6
   task_timeout: "0s"
   max_concurrency: 3
   serve_listen: ""
@@ -45,9 +41,6 @@ The main CLI overrides are:
 ```text
 --mixin-keystore-file
 --mixin-allowed-conversation-id
---mixin-group-trigger-mode
---mixin-addressing-confidence-threshold
---mixin-addressing-interject-threshold
 --mixin-task-timeout
 --mixin-max-concurrency
 ```
@@ -84,11 +77,9 @@ Do not start the same bot as both a managed runtime and a separate `mistermorph 
 
 Private text messages trigger a task directly.
 
-Groups support the same trigger modes as other Morph channels:
+The official Mixin Messenger client sends readable group messages to a Bot only when the text explicitly mentions it. A plain group message is not available to Morph. Replying to a Bot message sets `quote_message_id`, but does not mention the Bot; use reply together with `@<bot_mixin_id>`.
 
-- `strict`: only an explicit `@<bot_mixin_id>` mention or a recognized reply to the bot triggers a task.
-- `smart`: other group messages use the addressing classifier and require `addressed=true`.
-- `talkative`: other group messages use the addressing classifier and may interject.
+Because every readable group message has already been addressed to the Bot by Mixin, this runtime has no group trigger mode or addressing classifier.
 
 Mixin group commands must include the bot mention so that multiple bots do not answer the same command:
 
@@ -137,6 +128,6 @@ The target must already be an active Agent in Contacts. After pairing, private A
 ## Current limits
 
 - Mixin does not provide the typing, message editing, thread/topic, or reaction behavior used by some other channels.
-- A quoted message from before the current process started may not be recognized as a reply to the bot unless the text also mentions it.
+- Bots cannot read ordinary group traffic. Group messages and replies must explicitly mention the Bot.
 - Unsupported cards, locations, stickers, videos, wallet messages, and payment events do not enter the Agent prompt.
 - Approval buttons remain disabled until their behavior is verified with a real Bot account. Text approval commands always work.

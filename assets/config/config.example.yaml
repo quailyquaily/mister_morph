@@ -656,17 +656,6 @@ mixin:
   keystore_file: ""
   # Optional allowlist of conversation UUIDs. Empty means allow all conversations.
   allowed_conversation_ids: []
-  # Group trigger mode:
-  # - strict: only explicit @mentions and known replies trigger in groups.
-  # - smart: every group message goes through addressing LLM classification; `addressed=true` is required.
-  # - talkative: every group message goes through addressing LLM classification; does not require `addressed=true`.
-  group_trigger_mode: "talkative"
-  # Persist valid group messages rejected by group trigger to the shared journal.
-  record_untriggered: false
-  # Minimum confidence required to accept the LLM addressing classification.
-  addressing_confidence_threshold: 0.6
-  # Minimum interject required to accept the LLM addressing classification.
-  addressing_interject_threshold: 0.6
   # Per-message agent timeout (0 uses top-level timeout).
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
