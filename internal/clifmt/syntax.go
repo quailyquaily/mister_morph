@@ -10,11 +10,9 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/mattn/go-runewidth"
 )
 
 var codeBlockRe = regexp.MustCompile("(?s)```(\\w*)\\n(.*?)```")
-var ansiRe = regexp.MustCompile("(?s)\x1b\\[[0-9;]*[mK]")
 
 // HighlightCodeBlocks finds markdown code blocks in text and applies syntax highlighting,
 // borders, and line numbers. It also handles plain code (without markdown fences) by
@@ -100,20 +98,27 @@ func wrapInBox(highlighted string, lang string) string {
 		return ""
 	}
 
-	gutterWidth := len(fmt.Sprintf("%d", len(lines)))
-	if gutterWidth < 3 {
-		gutterWidth = 3
-	}
-
 	header := lang
 	if header == "" {
 		header = "code"
+	}
+	showLineNumbers := true
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "diff", "udiff", "patch":
+		showLineNumbers = false
+	}
+
+	gutterWidth := 0
+	if showLineNumbers {
+		gutterWidth = len(fmt.Sprintf("%d", len(lines)))
+		if gutterWidth < 3 {
+			gutterWidth = 3
+		}
 	}
 
 	gray := "\x1b[38;5;245m"
 	bg := "\x1b[48;5;234m" // dark grey background for code blocks
 	fg := "\x1b[37m"       // white foreground for code-block padding
-	termWidth := getTermWidth()
 
 	var b strings.Builder
 	// Header line
@@ -121,30 +126,20 @@ func wrapInBox(highlighted string, lang string) string {
 	b.WriteString(gray)
 	b.WriteString(header)
 	b.WriteString("\x1b[K")
-	if termWidth > 0 {
-		if pad := termWidth - visibleWidth(header); pad > 0 {
-			b.WriteString(strings.Repeat(" ", pad))
-		}
-	}
 	b.WriteString("\x1b[0m")
 	b.WriteByte('\n')
 
 	for i, line := range lines {
-		lineNum := i + 1
 		b.WriteString(bg)
-		b.WriteString(fmt.Sprintf("%s%*d%s  ", gray, gutterWidth, lineNum, fg))
+		if showLineNumbers {
+			b.WriteString(fmt.Sprintf("%s%*d%s  ", gray, gutterWidth, i+1, fg))
+		}
 		safe := ansiBgRe.ReplaceAllString(line, "")
 		safe = strings.ReplaceAll(safe, "\x1b[0m", "\x1b[39m"+bg+fg)
 		safe = reapplyBgBeforeWideChars(safe, bg)
 		b.WriteString(safe)
 		b.WriteString(bg)
 		b.WriteString("\x1b[K")
-		if termWidth > 0 {
-			used := gutterWidth + 2 + visibleWidth(safe)
-			if pad := termWidth - used; pad > 0 {
-				b.WriteString(strings.Repeat(" ", pad))
-			}
-		}
 		b.WriteString("\x1b[0m")
 		b.WriteByte('\n')
 	}
@@ -164,23 +159,6 @@ func isMarkdownHeader(line string) bool {
 		}
 	}
 	return false
-}
-
-func visibleWidth(s string) int {
-	stripped := stripANSI(s)
-	width := 0
-	for _, r := range stripped {
-		if r == '\t' {
-			width += 8 - (width % 8)
-		} else {
-			width += runewidth.RuneWidth(r)
-		}
-	}
-	return width
-}
-
-func stripANSI(s string) string {
-	return ansiRe.ReplaceAllString(s, "")
 }
 
 // looksLikeCode heuristically detects if plain text is source code.

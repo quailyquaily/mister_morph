@@ -308,8 +308,6 @@ func RenderDiff(path, oldContent, newContent string) string {
 		}
 	}
 
-	termWidth := getTermWidth()
-
 	var b strings.Builder
 
 	white := ""
@@ -371,12 +369,6 @@ func RenderDiff(path, oldContent, newContent string) string {
 				b.WriteString(safeText)
 				b.WriteString(bg)
 				b.WriteString("\x1b[K")
-				if termWidth > 0 {
-					used := gutterWidth + 3 + visibleWidth(safeText)
-					if pad := termWidth - used; pad > 0 {
-						b.WriteString(strings.Repeat(" ", pad))
-					}
-				}
 				b.WriteString("\x1b[0m")
 			} else {
 				b.WriteString(fmt.Sprintf("%*d - %s", gutterWidth, lineNum, text))
@@ -393,12 +385,6 @@ func RenderDiff(path, oldContent, newContent string) string {
 				b.WriteString(safeText)
 				b.WriteString(bg)
 				b.WriteString("\x1b[K")
-				if termWidth > 0 {
-					used := gutterWidth + 3 + visibleWidth(safeText)
-					if pad := termWidth - used; pad > 0 {
-						b.WriteString(strings.Repeat(" ", pad))
-					}
-				}
 				b.WriteString("\x1b[0m")
 			} else {
 				b.WriteString(fmt.Sprintf("%*d + %s", gutterWidth, lineNum, text))
