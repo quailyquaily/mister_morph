@@ -22,6 +22,15 @@ func loadPatchedConfig(t *testing.T, body string) *viper.Viper {
 	return tmp
 }
 
+func assertMinimalInstallLLMConfig(t *testing.T, cfg *viper.Viper) {
+	t.Helper()
+	for _, key := range []string{"llm.provider", "llm.azure", "llm.bedrock"} {
+		if cfg.IsSet(key) {
+			t.Fatalf("generated config unexpectedly contains %s", key)
+		}
+	}
+}
+
 func TestFindReadableInstallConfigPriority(t *testing.T) {
 	initViperDefaults()
 
@@ -123,9 +132,10 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	if gotPath := cfg.GetString("file_state_dir"); gotPath != "/tmp/my-state" {
 		t.Fatalf("file_state_dir = %q, want /tmp/my-state", gotPath)
 	}
-	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "cloudflare" {
-		t.Fatalf("llm.provider = %q, want cloudflare", gotProvider)
+	if gotProvider := cfg.GetString("llm.inference_provider"); gotProvider != "cloudflare" {
+		t.Fatalf("llm.inference_provider = %q, want cloudflare", gotProvider)
 	}
+	assertMinimalInstallLLMConfig(t, cfg)
 	if gotEndpoint := cfg.GetString("llm.endpoint"); gotEndpoint != "https://api.cloudflare.com/client/v4" {
 		t.Fatalf("llm.endpoint = %q, want cloudflare endpoint", gotEndpoint)
 	}
@@ -170,9 +180,10 @@ func TestPatchInitConfigWithSetup_OpenAICompatiblePrunesCloudflareBlock(t *testi
 	}
 	cfg := loadPatchedConfig(t, got)
 
-	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "openai" {
-		t.Fatalf("llm.provider = %q, want openai", gotProvider)
+	if gotProvider := cfg.GetString("llm.inference_provider"); gotProvider != "openai_chat_compatible" {
+		t.Fatalf("llm.inference_provider = %q, want openai_chat_compatible", gotProvider)
 	}
+	assertMinimalInstallLLMConfig(t, cfg)
 	if gotEndpoint := cfg.GetString("llm.endpoint"); gotEndpoint != "https://api.deepseek.com" {
 		t.Fatalf("llm.endpoint = %q, want https://api.deepseek.com", gotEndpoint)
 	}
@@ -210,9 +221,10 @@ func TestPatchInitConfigWithSetup_DefaultPrunesCloudflareBlock(t *testing.T) {
 		strings.Contains(got, "\n  api_key: \"${OPENAI_API_KEY}\"") {
 		t.Fatalf("default patched config should clear template llm examples: %s", got)
 	}
-	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "openai" {
-		t.Fatalf("llm.provider = %q, want openai", gotProvider)
+	if gotProvider := cfg.GetString("llm.inference_provider"); gotProvider != "openai" {
+		t.Fatalf("llm.inference_provider = %q, want openai", gotProvider)
 	}
+	assertMinimalInstallLLMConfig(t, cfg)
 	if gotPricingFile := cfg.GetString("llm.pricing_file"); gotPricingFile != "" {
 		t.Fatalf("llm.pricing_file = %q, want empty", gotPricingFile)
 	}

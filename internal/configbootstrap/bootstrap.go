@@ -9,7 +9,7 @@ import (
 )
 
 type LLMConfig struct {
-	Provider            string
+	InferenceProvider   string
 	Endpoint            string
 	Model               string
 	APIKey              string
@@ -47,7 +47,6 @@ func Apply(base []byte, cfg Config) ([]byte, error) {
 }
 
 type runtimeValues struct {
-	Provider          string
 	ToolsWriteFile    bool
 	ToolsSpawn        bool
 	ToolsCoder        bool
@@ -64,7 +63,6 @@ func defaultRuntimeValues() runtimeValues {
 	tmp := viper.New()
 	configdefaults.Apply(tmp)
 	return runtimeValues{
-		Provider:          strings.TrimSpace(tmp.GetString("llm.provider")),
 		ToolsWriteFile:    tmp.GetBool("tools.write_file.enabled"),
 		ToolsSpawn:        tmp.GetBool("tools.spawn.enabled"),
 		ToolsCoder:        tmp.GetBool("tools.coder.enabled"),
@@ -80,16 +78,14 @@ func defaultRuntimeValues() runtimeValues {
 
 func applyAgentDefaults(root *yaml.Node, values runtimeValues, cfg LLMConfig) {
 	llmNode := EnsureMappingValue(root, "llm")
-	provider := strings.TrimSpace(cfg.Provider)
-	if provider == "" {
-		provider = strings.TrimSpace(values.Provider)
-	}
-	SetOrDeleteMappingScalar(llmNode, "provider", provider)
+	inferenceProvider := strings.TrimSpace(cfg.InferenceProvider)
+	SetOrDeleteMappingScalar(llmNode, "inference_provider", inferenceProvider)
+	DeleteMappingKey(llmNode, "provider")
 	SetOrDeleteMappingScalar(llmNode, "endpoint", strings.TrimSpace(cfg.Endpoint))
 	SetOrDeleteMappingScalar(llmNode, "model", strings.TrimSpace(cfg.Model))
 	SetOrDeleteMappingScalar(llmNode, "pricing_file", strings.TrimSpace(cfg.PricingFile))
 
-	if strings.EqualFold(provider, "cloudflare") {
+	if strings.EqualFold(inferenceProvider, "cloudflare") {
 		SetOrDeleteMappingScalar(llmNode, "api_key", "")
 		cloudflareNode := EnsureMappingValue(llmNode, "cloudflare")
 		SetOrDeleteMappingScalar(cloudflareNode, "account_id", strings.TrimSpace(cfg.CloudflareAccountID))
@@ -101,6 +97,8 @@ func applyAgentDefaults(root *yaml.Node, values runtimeValues, cfg LLMConfig) {
 		SetOrDeleteMappingScalar(llmNode, "api_key", strings.TrimSpace(cfg.APIKey))
 		DeleteMappingKey(llmNode, "cloudflare")
 	}
+	DeleteMappingKey(llmNode, "azure")
+	DeleteMappingKey(llmNode, "bedrock")
 
 	DeleteMappingKey(root, "multimodal")
 

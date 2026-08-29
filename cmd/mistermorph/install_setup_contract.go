@@ -57,7 +57,7 @@ func defaultEndpointForSetupProvider(choice string) string {
 	return installSetupProviderOptions[0].DefaultEndpoint
 }
 
-func normalizeConfigProviderForSetup(choice string) string {
+func normalizeInferenceProviderForSetup(choice string) string {
 	switch strings.ToLower(strings.TrimSpace(choice)) {
 	case setupProviderGemini:
 		return setupProviderGemini
@@ -66,7 +66,7 @@ func normalizeConfigProviderForSetup(choice string) string {
 	case setupProviderCloudflare:
 		return setupProviderCloudflare
 	default:
-		return "openai"
+		return "openai_chat_compatible"
 	}
 }
 

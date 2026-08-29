@@ -254,17 +254,17 @@ func buildInstallBootstrapConfig(dir string, setup *installConfigSetup) configbo
 	cfg := configbootstrap.Config{
 		FileStateDir: dir,
 		LLM: configbootstrap.LLMConfig{
-			Provider: "openai",
+			InferenceProvider: "openai",
 		},
 	}
 	if setup == nil {
 		return cfg
 	}
 
-	cfg.LLM.Provider = normalizeConfigProviderForSetup(setup.Provider)
+	cfg.LLM.InferenceProvider = normalizeInferenceProviderForSetup(setup.Provider)
 	cfg.LLM.Endpoint = strings.TrimSpace(setup.Endpoint)
 	cfg.LLM.Model = strings.TrimSpace(setup.Model)
-	switch cfg.LLM.Provider {
+	switch cfg.LLM.InferenceProvider {
 	case setupProviderCloudflare:
 		cfg.LLM.CloudflareAccountID = strings.TrimSpace(setup.CloudflareAccount)
 		cfg.LLM.CloudflareAPIToken = strings.TrimSpace(setup.CloudflareAPIToken)

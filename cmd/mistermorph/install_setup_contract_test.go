@@ -22,12 +22,12 @@ func TestDefaultEndpointForSetupProvider(t *testing.T) {
 	}
 }
 
-func TestNormalizeConfigProviderForSetup(t *testing.T) {
-	if got := normalizeConfigProviderForSetup(setupProviderOpenAICompatible); got != "openai" {
-		t.Fatalf("normalizeConfigProviderForSetup() = %q, want openai", got)
+func TestNormalizeInferenceProviderForSetup(t *testing.T) {
+	if got := normalizeInferenceProviderForSetup(setupProviderOpenAICompatible); got != "openai_chat_compatible" {
+		t.Fatalf("normalizeInferenceProviderForSetup() = %q, want openai_chat_compatible", got)
 	}
-	if got := normalizeConfigProviderForSetup(setupProviderCloudflare); got != "cloudflare" {
-		t.Fatalf("normalizeConfigProviderForSetup() = %q, want cloudflare", got)
+	if got := normalizeInferenceProviderForSetup(setupProviderCloudflare); got != "cloudflare" {
+		t.Fatalf("normalizeInferenceProviderForSetup() = %q, want cloudflare", got)
 	}
 }
 
