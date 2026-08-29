@@ -173,9 +173,6 @@ func TestPatchInitConfigWithSetup_OpenAICompatiblePrunesCloudflareBlock(t *testi
 	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "openai" {
 		t.Fatalf("llm.provider = %q, want openai", gotProvider)
 	}
-	if strings.Contains(got, "provider: openai_custom") {
-		t.Fatalf("patched config should not write openai_custom: %s", got)
-	}
 	if gotEndpoint := cfg.GetString("llm.endpoint"); gotEndpoint != "https://api.deepseek.com" {
 		t.Fatalf("llm.endpoint = %q, want https://api.deepseek.com", gotEndpoint)
 	}

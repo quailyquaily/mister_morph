@@ -183,7 +183,6 @@ function normalizeSetupProviderChoice(provider, options = {}) {
     case "":
       return allowEmpty ? SETUP_PROVIDER_NONE : SETUP_PROVIDER_OPENAI_COMPATIBLE;
     case "openai_compatible":
-    case "openai_custom":
     case SETUP_PROVIDER_OPENAI_CHAT_COMPATIBLE:
       return SETUP_PROVIDER_OPENAI_CHAT_COMPATIBLE;
     case "openai_resp":

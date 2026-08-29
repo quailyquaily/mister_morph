@@ -214,7 +214,7 @@ func ResolveImageClientMetadata(values RuntimeValues) ImageClientMetadata {
 func normalizeImageProviderForUniai(provider string) string {
 	provider = normalizeProvider(provider)
 	switch provider {
-	case "openai_codex", "openai_custom", "openai_resp":
+	case "openai_codex", "openai_resp":
 		return "openai"
 	default:
 		return provider
@@ -349,7 +349,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	if provider == xaiauth.ProviderName {
 		xaiSubscription = xaiSubscriptionSource{stateDir: strings.TrimSpace(values.FileStateDir)}
 	}
-	uniaiProviderName := uniaiChatProviderName(provider)
+	uniaiProviderName := normalizeProvider(provider)
 	switch provider {
 	case "openai_codex":
 		if codexSubscription == nil {
@@ -366,7 +366,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			}), nil
 		}
 		fallthrough
-	case xaiauth.ProviderName, "openai", "openai_resp", "openai_custom", "deepseek", "xai", "meta", "sakana", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
+	case xaiauth.ProviderName, "openai", "openai_resp", "deepseek", "xai", "meta", "sakana", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
 		c, err := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,
 			InferenceProvider:  strings.TrimSpace(values.InferenceProvider),
@@ -408,16 +408,6 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 		return c, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)
-	}
-}
-
-func uniaiChatProviderName(provider string) string {
-	provider = normalizeProvider(provider)
-	switch provider {
-	case "openai_custom":
-		return "openai"
-	default:
-		return provider
 	}
 }
 

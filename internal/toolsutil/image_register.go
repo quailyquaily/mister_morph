@@ -401,7 +401,7 @@ func ApplyImageToolLLMConfig(cfg ImageToolsRegisterConfig, llmCfg ImageToolLLMCo
 func normalizeImageToolProvider(provider string) string {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	switch provider {
-	case "openai_codex", "openai_custom", "openai_resp":
+	case "openai_codex", "openai_resp":
 		return "openai"
 	default:
 		return provider

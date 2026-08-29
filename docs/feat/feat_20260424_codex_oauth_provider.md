@@ -68,7 +68,7 @@ llm:
 4. 不承诺 OpenAI 会长期保持当前 Codex OAuth 行为。
 5. 不实现服务端撤销 OAuth grant。
 6. 不自动删除 OpenAI 侧已经生成的 API key。
-7. 不改现有 `openai`、`openai_resp`、`openai_custom` 行为。
+7. 不改现有 `openai`、`openai_resp` 行为。
 8. 不把 Codex OAuth 设为默认 provider。
 
 其中第 2 点是安全边界。意思是：不自动读取 `~/.codex` 或其他官方 Codex CLI 保存的本地 token。官方 Codex CLI 的本地凭证属于另一个应用。即使技术上可以读，也不应该默认读，否则用户可能以为只是在使用 `mistermorph`，实际却复用了另一个应用的高权限凭证。

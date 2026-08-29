@@ -180,7 +180,7 @@ status: superseded
 - UI label 使用 `openai-compatible`
 - 持久化时可按 endpoint 归一化到现有 provider 字段
   - 官方 OpenAI base: `openai`
-  - 其他兼容 endpoint: `openai_custom`
+  - 其他 OpenAI Chat 兼容 endpoint: `openai`
 - `gemini` / `anthropic` / `cloudflare` 保持显式 provider
 
 这能同时满足两点：

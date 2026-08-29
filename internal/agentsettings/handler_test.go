@@ -173,7 +173,7 @@ func TestHandlerConnectionTestUsesSharedProfileResolution(t *testing.T) {
 			if !opts.InspectPrompt || !opts.InspectRequest {
 				t.Fatalf("inspect options = %+v, want both enabled", opts)
 			}
-			if settings.Provider != "openai_custom" || settings.Model != "gpt-candidate" || settings.APIKey != "runtime-key" {
+			if settings.Provider != "openai" || settings.Model != "gpt-candidate" || settings.APIKey != "runtime-key" {
 				t.Fatalf("resolved settings = %+v", settings)
 			}
 			return ConnectionTestResult{Provider: settings.Provider, APIBase: settings.Endpoint, Model: settings.Model}, nil

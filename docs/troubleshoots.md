@@ -23,7 +23,7 @@ Workarounds:
 Recommendation:
 
 - Use `llm.provider=gemini` (native Gemini provider).
-- Do not use OpenAI-compatible mode for Gemini (for example: `llm.provider=openai_custom` with a Gemini-compatible endpoint).
+- Do not use `llm.inference_provider=openai_chat_compatible` with a Gemini-compatible endpoint.
 
 Example:
 

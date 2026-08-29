@@ -1907,8 +1907,8 @@ func TestHandleAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 		if settings.InferenceProvider != llmutil.InferenceProviderGroq {
 			t.Fatalf("inference_provider = %q, want %q", settings.InferenceProvider, llmutil.InferenceProviderGroq)
 		}
-		if settings.Provider != "openai_custom" {
-			t.Fatalf("provider = %q, want openai_custom", settings.Provider)
+		if settings.Provider != "openai" {
+			t.Fatalf("provider = %q, want openai", settings.Provider)
 		}
 		if settings.Endpoint != llmutil.DefaultGroqEndpoint {
 			t.Fatalf("endpoint = %q, want %s", settings.Endpoint, llmutil.DefaultGroqEndpoint)
@@ -1934,7 +1934,7 @@ func TestHandleAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
-		`{"llm":{"inference_provider":"groq","provider":"openai_custom","endpoint":"","model":"llama-3.3-70b-versatile","api_key":"sk-test"}}`,
+		`{"llm":{"inference_provider":"groq","provider":"openai","endpoint":"","model":"llama-3.3-70b-versatile","api_key":"sk-test"}}`,
 	))
 	rec := httptest.NewRecorder()
 
@@ -2198,8 +2198,8 @@ func TestHandleAgentSettingsTestUsesOnlyTargetProfileFromSnapshot(t *testing.T) 
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
-		if settings.Provider != "openai_custom" {
-			t.Fatalf("provider = %q, want openai_custom", settings.Provider)
+		if settings.Provider != "openai" {
+			t.Fatalf("provider = %q, want openai", settings.Provider)
 		}
 		if settings.Endpoint != "https://profile.example.com/v1" {
 			t.Fatalf("endpoint = %q, want profile endpoint", settings.Endpoint)

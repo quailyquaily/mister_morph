@@ -118,11 +118,11 @@ Console Settings UI 显示 `inference_provider`。
 | MisterMorph Pro | `mistermorph_pro` | `openai` | `https://router.mistermorph.com/api/v1` |
 | xAI | `xai` | `xai` | `https://api.x.ai` |
 | Deepseek | `deepseek` | `deepseek` | `https://api.deepseek.com` |
-| Kimi | `kimi` | `openai_custom` | `https://api.moonshot.cn` |
-| OpenRouter | `openrouter` | `openai_custom` | `https://openrouter.ai/api/v1` |
-| Groq | `groq` | `openai_custom` | `https://api.groq.com/openai/v1` |
+| Kimi | `kimi` | `openai` | `https://api.moonshot.cn` |
+| OpenRouter | `openrouter` | `openai` | `https://openrouter.ai/api/v1` |
+| Groq | `groq` | `openai` | `https://api.groq.com/openai/v1` |
 | Sakana AI | `sakana` | `sakana` | `https://api.sakana.ai/v1` |
-| OpenAI Chat Compatible | `openai_chat_compatible` | `openai_custom` | 用户填写 |
+| OpenAI Chat Compatible | `openai_chat_compatible` | `openai` | 用户填写 |
 | OpenAI Response Compatible | `openai_response_compatible` | `openai_resp` | 用户填写 |
 | Claude AI Compatible | `anthropic_compatible` | `anthropic` | 用户填写 |
 
@@ -172,8 +172,8 @@ Console 前端可以镜像这份列表。
 - `provider=openai_resp` 且 endpoint 是 OpenAI 默认地址 -> `openai`
 - `provider=openai_resp` 且 endpoint 是自定义地址 -> `openai_response_compatible`
 - `provider=openai` 且 endpoint 是 OpenAI 默认地址 -> `openai`
-- `provider=openai`、`provider=openai_custom` 或 `provider=openai_resp`，且 endpoint 匹配 xAI、Deepseek、Kimi、OpenRouter、Groq、Sakana AI 的已知地址 -> 对应直连供应商
-- `provider=openai` 或 `provider=openai_custom`，且 endpoint 是其他自定义地址 -> `openai_chat_compatible`
+- `provider=openai` 且 endpoint 匹配 xAI、Deepseek、Kimi、OpenRouter、Groq、Sakana AI 的已知地址 -> 对应直连供应商
+- `provider=openai` 且 endpoint 是其他自定义地址 -> `openai_chat_compatible`
 
 V1 列表没覆盖到的旧 provider 不能被改写成其他协议。
 这些配置应报错，并要求配置明确的 `llm.inference_provider`。

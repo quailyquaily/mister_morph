@@ -125,7 +125,7 @@ func TestResolveConnectionTestValuesNamedProfileIgnoresDefaultLLMFields(t *testi
 	if err != nil {
 		t.Fatalf("ResolveConnectionTestValues() error = %v", err)
 	}
-	if values.InferenceProvider != llmutil.InferenceProviderOpenAIChatCompatible || values.Provider != "openai_custom" {
+	if values.InferenceProvider != llmutil.InferenceProviderOpenAIChatCompatible || values.Provider != "openai" {
 		t.Fatalf("provider = %q/%q, want profile provider", values.InferenceProvider, values.Provider)
 	}
 	if values.Endpoint != "https://profile.example.test/v1" || values.APIKey != "profile-key" || values.Model != "profile-model" {

@@ -65,11 +65,11 @@ var inferenceProviderRegistry = []InferenceProviderInfo{
 	{Label: "xAI Grok OAuth", Value: InferenceProviderXAIOAuth, Provider: xaiauth.ProviderName, Endpoint: DefaultXAIOAuthEndpoint},
 	{Label: "Meta", Value: InferenceProviderMeta, Provider: "meta", Endpoint: DefaultMetaEndpoint},
 	{Label: "Deepseek", Value: InferenceProviderDeepseek, Provider: "deepseek", Endpoint: DefaultDeepseekEndpoint},
-	{Label: "Kimi", Value: InferenceProviderKimi, Provider: "openai_custom", Endpoint: DefaultKimiEndpoint},
-	{Label: "OpenRouter", Value: InferenceProviderOpenRouter, Provider: "openai_custom", Endpoint: DefaultOpenRouterEndpoint},
-	{Label: "Groq", Value: InferenceProviderGroq, Provider: "openai_custom", Endpoint: DefaultGroqEndpoint},
+	{Label: "Kimi", Value: InferenceProviderKimi, Provider: "openai", Endpoint: DefaultKimiEndpoint},
+	{Label: "OpenRouter", Value: InferenceProviderOpenRouter, Provider: "openai", Endpoint: DefaultOpenRouterEndpoint},
+	{Label: "Groq", Value: InferenceProviderGroq, Provider: "openai", Endpoint: DefaultGroqEndpoint},
 	{Label: "Sakana AI", Value: InferenceProviderSakana, Provider: "sakana", Endpoint: DefaultSakanaEndpoint},
-	{Label: "OpenAI Chat Compatible", Value: InferenceProviderOpenAIChatCompatible, Provider: "openai_custom", SupportsCustomAPIBase: true, RequiresAPIBase: true},
+	{Label: "OpenAI Chat Compatible", Value: InferenceProviderOpenAIChatCompatible, Provider: "openai", SupportsCustomAPIBase: true, RequiresAPIBase: true},
 	{Label: "OpenAI Response Compatible", Value: InferenceProviderOpenAIResponseCompatible, Provider: "openai_resp", SupportsCustomAPIBase: true, RequiresAPIBase: true},
 	{Label: "Claude AI Compatible", Value: InferenceProviderAnthropicCompatible, Provider: "anthropic", SupportsCustomAPIBase: true, RequiresAPIBase: true},
 }
@@ -155,25 +155,6 @@ func InferInferenceProvider(provider string, endpoint string) string {
 			return InferenceProviderOpenAI
 		case normalizeEndpoint(DefaultMisterMorphProEndpoint):
 			return InferenceProviderMisterMorphPro
-		case normalizeEndpoint(DefaultXAIEndpoint), normalizeEndpoint(DefaultXAIEndpoint + "/v1"):
-			return InferenceProviderXAI
-		case normalizeEndpoint(DefaultMetaEndpoint):
-			return InferenceProviderMeta
-		case normalizeEndpoint(DefaultDeepseekEndpoint), normalizeEndpoint(DefaultDeepseekEndpoint + "/v1"):
-			return InferenceProviderDeepseek
-		case normalizeEndpoint(DefaultKimiEndpoint), normalizeEndpoint(DefaultKimiEndpoint + "/v1"):
-			return InferenceProviderKimi
-		case normalizeEndpoint(DefaultOpenRouterEndpoint):
-			return InferenceProviderOpenRouter
-		case normalizeEndpoint(DefaultGroqEndpoint):
-			return InferenceProviderGroq
-		case normalizeEndpoint(DefaultSakanaEndpoint):
-			return InferenceProviderSakana
-		default:
-			return InferenceProviderOpenAIChatCompatible
-		}
-	case "openai_custom":
-		switch endpoint {
 		case normalizeEndpoint(DefaultXAIEndpoint), normalizeEndpoint(DefaultXAIEndpoint + "/v1"):
 			return InferenceProviderXAI
 		case normalizeEndpoint(DefaultMetaEndpoint):

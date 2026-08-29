@@ -310,7 +310,7 @@ func TestRuntimeValuesWithClientConfigAppliesEffectiveLLMConfig(t *testing.T) {
 }
 
 func TestNormalizeImageProviderForUniaiMapsChatOnlyOpenAIProviders(t *testing.T) {
-	for _, provider := range []string{"openai_codex", "openai_resp", "openai_custom"} {
+	for _, provider := range []string{"openai_codex", "openai_resp"} {
 		t.Run(provider, func(t *testing.T) {
 			if got := normalizeImageProviderForUniai(provider); got != "openai" {
 				t.Fatalf("normalizeImageProviderForUniai(%q) = %q, want openai", provider, got)
@@ -325,7 +325,7 @@ func TestNormalizeImageProviderForUniaiMapsChatOnlyOpenAIProviders(t *testing.T)
 func TestResolveRoute_ExplicitInferenceProviderDerivesProviderEndpoint(t *testing.T) {
 	values := RuntimeValues{
 		InferenceProvider: InferenceProviderMisterMorphPro,
-		Provider:          "openai_custom",
+		Provider:          "anthropic",
 		Endpoint:          "https://wrong.example.test",
 		Model:             "carrot/gpt",
 	}
@@ -525,12 +525,9 @@ func TestResolveRoute_ProfileCanSelectXAIOAuth(t *testing.T) {
 	}
 }
 
-func TestInferInferenceProvider_MisterMorphProRequiresOpenAIProvider(t *testing.T) {
+func TestInferInferenceProvider_MisterMorphPro(t *testing.T) {
 	if got := InferInferenceProvider("openai", DefaultMisterMorphProEndpoint); got != InferenceProviderMisterMorphPro {
 		t.Fatalf("InferInferenceProvider(openai, router) = %q, want %q", got, InferenceProviderMisterMorphPro)
-	}
-	if got := InferInferenceProvider("openai_custom", DefaultMisterMorphProEndpoint); got != InferenceProviderOpenAIChatCompatible {
-		t.Fatalf("InferInferenceProvider(openai_custom, router) = %q, want %q", got, InferenceProviderOpenAIChatCompatible)
 	}
 }
 
@@ -554,24 +551,20 @@ func TestResolveRoute_OpenRouterInferenceProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRoute() error = %v", err)
 	}
-	if route.Values.Provider != "openai_custom" {
-		t.Fatalf("provider = %q, want openai_custom", route.Values.Provider)
+	if route.Values.Provider != "openai" {
+		t.Fatalf("provider = %q, want openai", route.Values.Provider)
 	}
 	if route.Values.Endpoint != DefaultOpenRouterEndpoint {
 		t.Fatalf("endpoint = %q, want %q", route.Values.Endpoint, DefaultOpenRouterEndpoint)
 	}
-	if route.ClientConfig.Provider != "openai_custom" || route.ClientConfig.Endpoint != DefaultOpenRouterEndpoint {
+	if route.ClientConfig.Provider != "openai" || route.ClientConfig.Endpoint != DefaultOpenRouterEndpoint {
 		t.Fatalf("client config = %#v", route.ClientConfig)
 	}
 }
 
 func TestInferInferenceProvider_OpenRouterEndpoint(t *testing.T) {
-	for _, provider := range []string{"openai", "openai_custom"} {
-		t.Run(provider, func(t *testing.T) {
-			if got := InferInferenceProvider(provider, DefaultOpenRouterEndpoint); got != InferenceProviderOpenRouter {
-				t.Fatalf("InferInferenceProvider(%q, openrouter) = %q, want %q", provider, got, InferenceProviderOpenRouter)
-			}
-		})
+	if got := InferInferenceProvider("openai", DefaultOpenRouterEndpoint); got != InferenceProviderOpenRouter {
+		t.Fatalf("InferInferenceProvider(openai, openrouter) = %q, want %q", got, InferenceProviderOpenRouter)
 	}
 }
 
@@ -586,13 +579,13 @@ func TestResolveRoute_GroqInferenceProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRoute() error = %v", err)
 	}
-	if route.Values.Provider != "openai_custom" {
-		t.Fatalf("provider = %q, want openai_custom", route.Values.Provider)
+	if route.Values.Provider != "openai" {
+		t.Fatalf("provider = %q, want openai", route.Values.Provider)
 	}
 	if route.Values.Endpoint != DefaultGroqEndpoint {
 		t.Fatalf("endpoint = %q, want %q", route.Values.Endpoint, DefaultGroqEndpoint)
 	}
-	if route.ClientConfig.Provider != "openai_custom" || route.ClientConfig.Endpoint != DefaultGroqEndpoint {
+	if route.ClientConfig.Provider != "openai" || route.ClientConfig.Endpoint != DefaultGroqEndpoint {
 		t.Fatalf("client config = %#v", route.ClientConfig)
 	}
 }
@@ -623,12 +616,8 @@ func TestInferInferenceProvider_MetaEndpoint(t *testing.T) {
 	if got := InferInferenceProvider("meta", ""); got != "meta" {
 		t.Fatalf("InferInferenceProvider(meta, empty) = %q, want meta", got)
 	}
-	for _, provider := range []string{"openai", "openai_custom"} {
-		t.Run(provider, func(t *testing.T) {
-			if got := InferInferenceProvider(provider, "https://api.ai.meta.com/v1"); got != "meta" {
-				t.Fatalf("InferInferenceProvider(%q, Meta) = %q, want meta", provider, got)
-			}
-		})
+	if got := InferInferenceProvider("openai", "https://api.ai.meta.com/v1"); got != "meta" {
+		t.Fatalf("InferInferenceProvider(openai, Meta) = %q, want meta", got)
 	}
 }
 
@@ -654,27 +643,11 @@ func TestResolveRoute_SakanaInferenceProvider(t *testing.T) {
 	}
 }
 
-func TestUniaiChatProviderNameMapsProtocolAliases(t *testing.T) {
-	tests := map[string]string{
-		"openai_custom": "openai",
-		"sakana":        "sakana",
-		"openai_resp":   "openai_resp",
-		"gemini":        "gemini",
-	}
-	for provider, want := range tests {
-		t.Run(provider, func(t *testing.T) {
-			if got := uniaiChatProviderName(provider); got != want {
-				t.Fatalf("uniaiChatProviderName(%q) = %q, want %q", provider, got, want)
-			}
-		})
-	}
-}
-
 func TestInferInferenceProvider_SakanaEndpoint(t *testing.T) {
 	if got := InferInferenceProvider("sakana", ""); got != InferenceProviderSakana {
 		t.Fatalf("InferInferenceProvider(sakana, empty) = %q, want %q", got, InferenceProviderSakana)
 	}
-	for _, provider := range []string{"openai", "openai_custom", "openai_resp"} {
+	for _, provider := range []string{"openai", "openai_resp"} {
 		t.Run(provider, func(t *testing.T) {
 			if got := InferInferenceProvider(provider, DefaultSakanaEndpoint); got != InferenceProviderSakana {
 				t.Fatalf("InferInferenceProvider(%q, sakana) = %q, want %q", provider, got, InferenceProviderSakana)
@@ -687,12 +660,8 @@ func TestInferInferenceProvider_GroqEndpoint(t *testing.T) {
 	if got := InferInferenceProvider("groq", ""); got != InferenceProviderGroq {
 		t.Fatalf("InferInferenceProvider(groq, empty) = %q, want %q", got, InferenceProviderGroq)
 	}
-	for _, provider := range []string{"openai", "openai_custom"} {
-		t.Run(provider, func(t *testing.T) {
-			if got := InferInferenceProvider(provider, DefaultGroqEndpoint); got != InferenceProviderGroq {
-				t.Fatalf("InferInferenceProvider(%q, groq) = %q, want %q", provider, got, InferenceProviderGroq)
-			}
-		})
+	if got := InferInferenceProvider("openai", DefaultGroqEndpoint); got != InferenceProviderGroq {
+		t.Fatalf("InferInferenceProvider(openai, groq) = %q, want %q", got, InferenceProviderGroq)
 	}
 }
 

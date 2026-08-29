@@ -136,7 +136,7 @@ func assertConsoleUsageJournalPath(
 	if !ok {
 		t.Fatalf("CreateLLMClient() type = %T, want *llmstats.UsageClient", client)
 	}
-	if usageClient.Provider != "openai_custom" || usageClient.APIBase != "https://example.test/v1" || usageClient.DefaultModel != "test-model" {
+	if usageClient.Provider != "openai" || usageClient.APIBase != "https://example.test/v1" || usageClient.DefaultModel != "test-model" {
 		t.Fatalf("chat usage metadata = %q/%q/%q", usageClient.Provider, usageClient.APIBase, usageClient.DefaultModel)
 	}
 	usageClient.Base = consoleUsagePathStubClient{}

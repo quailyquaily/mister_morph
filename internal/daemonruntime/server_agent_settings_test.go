@@ -87,7 +87,7 @@ func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 	if !payload.ReadOnly {
 		t.Fatal("read_only = false, want true")
 	}
-	if payload.LLM.Provider != "openai_custom" || payload.LLM.Endpoint != "https://api.example.test/v1" || payload.LLM.Model != "gpt-test" {
+	if payload.LLM.Provider != "openai" || payload.LLM.Endpoint != "https://api.example.test/v1" || payload.LLM.Model != "gpt-test" {
 		t.Fatalf("unexpected llm payload: %#v", payload.LLM)
 	}
 	if payload.LLM.APIKey != "" {
