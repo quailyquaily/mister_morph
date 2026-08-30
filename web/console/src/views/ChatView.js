@@ -4035,6 +4035,7 @@ const ChatView = {
       :class="pageClass"
       :hideDesktopBar="true"
       :hideMobileBar="showTopicSidebar"
+      :overlayBar="true"
     >
       <template v-if="consoleTopicsEnabled" #leading>
         <div :class="mobileTopicSplitEnabled ? 'chat-page-bar-mobile' : 'chat-page-bar-desktop'">

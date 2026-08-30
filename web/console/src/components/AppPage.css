@@ -5,6 +5,17 @@
   min-height: 100%;
 }
 
+.page-view-overlay-bar {
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.page-view-overlay-bar > .page-bar {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+}
+
 .page-bar {
   position: sticky;
   top: 0;

@@ -434,6 +434,10 @@
 }
 
 @media (max-width: 920px) {
+  .contacts-page:not(.page-view-hide-mobile-bar) .contacts-workbench {
+    padding-top: var(--workspace-head-height);
+  }
+
   .contacts-page-mobile-split .page-body:has(.contacts-index) {
     overflow: hidden;
   }

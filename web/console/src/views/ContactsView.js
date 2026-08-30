@@ -487,6 +487,7 @@ const ContactsView = {
       :class="pageClass"
       :hideDesktopBar="true"
       :hideMobileBar="showIndexPane"
+      :overlayBar="true"
     >
       <template #leading>
         <div class="contacts-page-bar">

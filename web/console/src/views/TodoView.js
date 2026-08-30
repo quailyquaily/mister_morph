@@ -2436,6 +2436,7 @@ const TodoView = {
       :class="pageClass"
       :hideDesktopBar="true"
       :hideMobileBar="showIndexPane"
+      :overlayBar="true"
     >
       <template #leading>
         <div class="todo-page-bar">

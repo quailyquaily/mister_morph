@@ -2165,6 +2165,10 @@ body.artifact-preview-scroll-lock {
     padding: 8px;
   }
 
+  .chat-page:not(.page-view-hide-mobile-bar) .chat-history {
+    padding-top: calc(var(--workspace-head-height) + clamp(8px, 2vw, 20px));
+  }
+
   .chat-page-mobile-split .page-bar-leading {
     width: 100%;
   }

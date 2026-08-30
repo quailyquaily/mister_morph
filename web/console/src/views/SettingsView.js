@@ -3990,7 +3990,7 @@ const SettingsView = {
     };
   },
   template: `
-    <AppPage :title="t('settings_title')" :class="pageClass">
+    <AppPage :title="t('settings_title')" :class="pageClass" :overlayBar="true">
       <template #leading>
         <div class="settings-page-bar">
           <QButton

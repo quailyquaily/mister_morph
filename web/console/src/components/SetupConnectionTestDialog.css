@@ -96,7 +96,7 @@
 .connection-test-benchmark-time {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   word-break: break-word;
 }

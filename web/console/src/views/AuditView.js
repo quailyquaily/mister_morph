@@ -301,12 +301,6 @@ const AuditView = {
     const showIndexPane = computed(() => !isMobile.value || !mobileLedgerVisible.value);
     const showLedgerPane = computed(() => !isMobile.value || mobileLedgerVisible.value);
     const mobileShowBack = computed(() => isMobile.value && mobileLedgerVisible.value);
-    const mobileBarTitle = computed(() => {
-      if (!mobileShowBack.value) {
-        return t("audit_title");
-      }
-      return isTasksStreamSelected.value ? t("tasks_title") : selectedFileTitle.value || t("audit_title");
-    });
     const pageClass = computed(() => (isMobile.value ? "audit-page audit-page-mobile-split" : "audit-page"));
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const taskFeedEndpointRef = computed(() => {
@@ -883,7 +877,6 @@ const AuditView = {
         err,
         isMobile,
         mobileShowBack,
-        mobileBarTitle,
         pageClass,
         fileItems,
         selectedFileItem,
@@ -934,22 +927,8 @@ const AuditView = {
       :title="t('audit_title')"
       :class="pageClass"
       :hideDesktopBar="true"
-      :hideMobileBar="showIndexPane"
+      :hideMobileBar="true"
     >
-      <template #leading>
-        <div class="audit-page-bar">
-          <QButton
-            v-if="mobileShowBack"
-            class="plain xs icon audit-page-bar-back"
-            :title="t('audit_title')"
-            :aria-label="t('audit_title')"
-            @click="showIndexView"
-          >
-            <QIconArrowLeft class="icon" />
-          </QButton>
-          <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
-        </div>
-      </template>
       <div class="audit-workbench">
         <aside v-if="showIndexPane" class="audit-index workspace-sidebar-section" :aria-label="t('audit_title')">
           <div class="audit-index-head workspace-sidebar-head">
@@ -994,43 +973,52 @@ const AuditView = {
         </aside>
 
         <section v-if="showLedgerPane && !isTasksStreamSelected" class="audit-ledger">
-        <header class="audit-ledger-head">
-          <div class="audit-ledger-copy">
-            <h3 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h3>
-          </div>
-          <div class="audit-ledger-actions">
+          <header class="audit-ledger-head">
             <QButton
-              class="plain sm icon"
-              :loading="loading"
-              :title="t('action_refresh')"
-              :aria-label="t('action_refresh')"
-              @click="refreshLatest"
+              v-if="mobileShowBack"
+              class="plain xs icon audit-ledger-back"
+              :title="t('audit_title')"
+              :aria-label="t('audit_title')"
+              @click="showIndexView"
             >
-              <QIconRefresh class="icon" />
+              <QIconArrowLeft class="icon" />
             </QButton>
-            <div v-if="meta.exists && (auditGroups.length > 0 || pageValue > 1)" class="audit-pagination">
-              <QButton
-                class="plain sm icon"
-                :disabled="pageValue <= 1"
-                :title="t('audit_newer')"
-                :aria-label="t('audit_newer')"
-                @click="goPrev"
-              >
-                <QIconArrowLeft class="icon" />
-              </QButton>
-              <code class="audit-page-indicator">{{ pageText }}</code>
-              <QButton
-                class="plain sm icon"
-                :disabled="!meta.has_next || !meta.next_cursor"
-                :title="t('audit_older')"
-                :aria-label="t('audit_older')"
-                @click="goNext"
-              >
-                <QIconArrowRight class="icon" />
-              </QButton>
+            <div class="audit-ledger-copy">
+              <h3 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h3>
             </div>
-          </div>
-        </header>
+            <div class="audit-ledger-actions">
+              <QButton
+                class="plain sm icon"
+                :loading="loading"
+                :title="t('action_refresh')"
+                :aria-label="t('action_refresh')"
+                @click="refreshLatest"
+              >
+                <QIconRefresh class="icon" />
+              </QButton>
+              <div v-if="meta.exists && (auditGroups.length > 0 || pageValue > 1)" class="audit-pagination">
+                <QButton
+                  class="plain sm icon"
+                  :disabled="pageValue <= 1"
+                  :title="t('audit_newer')"
+                  :aria-label="t('audit_newer')"
+                  @click="goPrev"
+                >
+                  <QIconArrowLeft class="icon" />
+                </QButton>
+                <code class="audit-page-indicator">{{ pageText }}</code>
+                <QButton
+                  class="plain sm icon"
+                  :disabled="!meta.has_next || !meta.next_cursor"
+                  :title="t('audit_older')"
+                  :aria-label="t('audit_older')"
+                  @click="goNext"
+                >
+                  <QIconArrowRight class="icon" />
+                </QButton>
+              </div>
+            </div>
+          </header>
 
         <QProgress v-if="loading" :infinite="true" />
         <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
@@ -1104,6 +1092,15 @@ const AuditView = {
 
         <section v-if="showLedgerPane && isTasksStreamSelected" class="audit-ledger">
           <header class="audit-ledger-head">
+            <QButton
+              v-if="mobileShowBack"
+              class="plain xs icon audit-ledger-back"
+              :title="t('audit_title')"
+              :aria-label="t('audit_title')"
+              @click="showIndexView"
+            >
+              <QIconArrowLeft class="icon" />
+            </QButton>
             <div class="audit-ledger-copy">
               <h3 class="audit-ledger-title workspace-document-title">{{ t("tasks_title") }}</h3>
             </div>

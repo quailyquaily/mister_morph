@@ -915,6 +915,10 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 }
 
 @media (max-width: 920px) {
+  .todo-page:not(.page-view-hide-mobile-bar) > .page-body {
+    padding-top: var(--workspace-head-height);
+  }
+
   .todo-page-mobile-split .page-body:has(.todo-index) {
     overflow: hidden;
   }

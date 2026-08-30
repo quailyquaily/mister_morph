@@ -14,6 +14,10 @@ const AppPage = {
       type: Boolean,
       default: false,
     },
+    overlayBar: {
+      type: Boolean,
+      default: false,
+    },
   },
   template: `
     <section
@@ -22,6 +26,7 @@ const AppPage = {
         {
           'page-view-hide-desktop-bar': hideDesktopBar,
           'page-view-hide-mobile-bar': hideMobileBar,
+          'page-view-overlay-bar': overlayBar,
         },
       ]"
     >
