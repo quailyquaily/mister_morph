@@ -223,10 +223,6 @@ export default {
       type: Boolean,
       default: true,
     },
-    disclaimer: {
-      type: String,
-      default: "",
-    },
     inputHistory: {
       type: Array,
       default: () => [],
@@ -1232,7 +1228,6 @@ export default {
         scrollHeight="min(42dvh, 320px)"
         @change="selectLLMProfile"
       />
-      <p v-if="disclaimer" class="chat-composer-disclaimer">{{ disclaimer }}</p>
     </div>
   `,
 };

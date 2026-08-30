@@ -70,6 +70,7 @@ import {
 const POLL_INTERVAL_MS = 1200;
 const CHAT_HISTORY_LIMIT = 100;
 const TOPIC_PAGE_LIMIT = 100;
+const CHAT_COMPOSER_MIN_HEIGHT = 80;
 const DEFAULT_TOPIC_ID = "default";
 const AWARENESS_TOPIC_ID = "_awareness";
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
@@ -618,7 +619,7 @@ const ChatView = {
     const approvalDetailAttempts = new Set();
     const composerRef = ref(null);
     const mobileWorkspaceSidebarPanel = ref(null);
-    const composerHeight = ref(96);
+    const composerHeight = ref(CHAT_COMPOSER_MIN_HEIGHT);
     const composerCommands = shallowRef([]);
     const composerCommandsLoading = ref(false);
     const composerDefaultLLMProfile = shallowRef(null);
@@ -760,7 +761,7 @@ const ChatView = {
       })
     );
     const composerAttachActive = computed(() => Boolean(pendingWorkspaceDir.value));
-    const composerDisclaimer = computed(() =>
+    const chatDisclaimer = computed(() =>
       `${displayAgentName.value} can make mistakes. Check important info.`
     );
     const composerSuggestionLabels = computed(() => ({
@@ -962,7 +963,10 @@ const ChatView = {
       return classes.join(" ");
     });
     const chatMainStyle = computed(() => ({
-      "--chat-overlay-compose-h": `${Math.max(96, Math.ceil(Number(composerHeight.value) || 0))}px`,
+      "--chat-overlay-compose-h": `${Math.max(
+        CHAT_COMPOSER_MIN_HEIGHT,
+        Math.ceil(Number(composerHeight.value) || 0)
+      )}px`,
     }));
     const deskTitle = computed(() => {
       if (creatingTopic.value || !hasSelectedTopic.value || !selectedTopic.value) {
@@ -1431,7 +1435,10 @@ const ChatView = {
     }
 
     function updateComposerHeight(height) {
-      const nextHeight = Math.max(96, Math.ceil(Number(height) || 0));
+      const nextHeight = Math.max(
+        CHAT_COMPOSER_MIN_HEIGHT,
+        Math.ceil(Number(height) || 0)
+      );
       if (composerHeight.value !== nextHeight) {
         composerHeight.value = nextHeight;
       }
@@ -3923,7 +3930,7 @@ const ChatView = {
       workspaceTreeEntryClass,
       composerRef,
       composerAttachActive,
-      composerDisclaimer,
+      chatDisclaimer,
       composerInputHistory,
       composerCommands,
       composerLLMProfile,
@@ -4157,7 +4164,6 @@ const ChatView = {
                 :file-labels="composerFileLabels"
                 :send-label="composerActionLabel"
                 :submit-on-enter="!mobileMode"
-                :disclaimer="composerDisclaimer"
                 :input-history="composerInputHistory"
                 :commands="composerCommands"
                 v-model:llm-profile-value="composerLLMProfile"
@@ -4200,6 +4206,7 @@ const ChatView = {
                   :loading="historyLoading"
                   :loading-text="t('chat_history_loading')"
                   :empty-text="t('chat_empty')"
+                  :footer-text="chatDisclaimer"
                   :submit-endpoint-ref="submitEndpointRef"
                   :selected-topic-id="selectedTopicID"
                   :copied-item-id="copiedHistoryItemID"
@@ -4240,7 +4247,6 @@ const ChatView = {
               :file-labels="composerFileLabels"
               :send-label="composerActionLabel"
               :submit-on-enter="!mobileMode"
-              :disclaimer="composerDisclaimer"
               :input-history="composerInputHistory"
               :commands="composerCommands"
               v-model:llm-profile-value="composerLLMProfile"

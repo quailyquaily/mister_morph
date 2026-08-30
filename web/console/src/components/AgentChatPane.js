@@ -268,7 +268,7 @@ const AgentChatPane = {
       () => !available.value || sending.value || composerUploading.value
     );
     const composerAttachActive = computed(() => Boolean(cleanText(pendingWorkspaceDir.value)));
-    const composerDisclaimer = computed(
+    const chatDisclaimer = computed(
       () => `${agentName.value} can make mistakes. Check important info.`
     );
     const composerSuggestionLabels = computed(() => ({
@@ -1583,7 +1583,7 @@ const AgentChatPane = {
       composerAddDisabled,
       composerAttachActive,
       composerCommands,
-      composerDisclaimer,
+      chatDisclaimer,
       composerFileInput,
       composerFileLabels,
       composerFilePreviewError,
@@ -1766,6 +1766,7 @@ const AgentChatPane = {
           :items="historyItems"
           :loading="false"
           :emptyText="creatingTopic ? t('chat_new_topic_intro') : t('chat_topic_empty')"
+          :footerText="chatDisclaimer"
           :submitEndpointRef="submitEndpointRef"
           :selectedTopicId="selectedTopicID"
           :copiedItemId="copiedItemID"
@@ -1806,7 +1807,6 @@ const AgentChatPane = {
         :uploading="composerUploading"
         :file-items="composerFiles"
         :file-labels="composerFileLabels"
-        :disclaimer="composerDisclaimer"
         :commands="composerCommands"
         v-model:llm-profile-value="composerLLMProfile"
         :llm-profile-items="composerLLMProfileItems"

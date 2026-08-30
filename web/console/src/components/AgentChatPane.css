@@ -328,7 +328,7 @@
   grid-row: 1;
   height: 100%;
   padding-top: calc(var(--agent-chat-pane-head-height) + 16px);
-  padding-bottom: 20px;
+  padding-bottom: 16px;
 }
 
 .agent-chat-pane-history .chat-history-copy {

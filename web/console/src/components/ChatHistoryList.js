@@ -31,6 +31,10 @@ const ChatHistoryList = {
       type: String,
       default: "",
     },
+    footerText: {
+      type: String,
+      default: "",
+    },
     submitEndpointRef: {
       type: String,
       default: "",
@@ -176,6 +180,7 @@ const ChatHistoryList = {
       @approval-deny="emitApprovalDeny"
     />
     <p v-if="items.length === 0 && !loading" class="muted">{{ emptyText }}</p>
+    <p v-if="footerText && !loading" class="chat-history-disclaimer">{{ footerText }}</p>
   `,
 };
 
