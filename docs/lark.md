@@ -269,6 +269,9 @@ Phase 4: group trigger + contacts
 - done: `lark_user` contact identity handling and outbound sender routing
 - done: prompt block injection and request/prompt dump naming
 - done: Lark channel tools for file, photo, voice, and message reaction
+- done: asynchronous Contact avatar refresh from the sender's visible Contact profile
+
+Avatar lookup uses the sender's `open_id` after an authorized inbound message. Missing Contact permissions or visibility only disables the avatar; it does not reject the message or change Contact YAML.
 
 ## 11. Open Questions
 

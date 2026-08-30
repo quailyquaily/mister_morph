@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,7 +12,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
@@ -45,6 +48,8 @@ func TestSlackAPIUserIdentity(t *testing.T) {
 				"profile": map[string]any{
 					"display_name": "Alice",
 					"real_name":    "Alice Real",
+					"image_72":     "https://cdn.example/alice-72.png",
+					"image_192":    "https://cdn.example/alice-192.png",
 				},
 			},
 		})
@@ -63,6 +68,9 @@ func TestSlackAPIUserIdentity(t *testing.T) {
 	}
 	if identity.DisplayName != "Alice" {
 		t.Fatalf("display name = %q, want %q", identity.DisplayName, "Alice")
+	}
+	if identity.AvatarURL != "https://cdn.example/alice-192.png" {
+		t.Fatalf("avatar URL = %q, want 192px image", identity.AvatarURL)
 	}
 }
 
@@ -87,6 +95,9 @@ func TestSlackAPIBotIdentity(t *testing.T) {
 			"bot": map[string]any{
 				"name":    "Smith",
 				"user_id": "U222",
+				"icons": map[string]string{
+					"image_72": "https://cdn.example/smith.png",
+				},
 			},
 		})
 	}))
@@ -97,6 +108,88 @@ func TestSlackAPIBotIdentity(t *testing.T) {
 	}
 	if identity.UserID != "U222" || identity.Username != "Smith" || identity.DisplayName != "Smith" {
 		t.Fatalf("identity = %+v", identity)
+	}
+	if identity.AvatarURL != "https://cdn.example/smith.png" {
+		t.Fatalf("avatar URL = %q", identity.AvatarURL)
+	}
+}
+
+func TestResolveAgentIdentityDoesNotRefreshAvatarBeforeAuthorization(t *testing.T) {
+	avatarRequested := make(chan struct{}, 1)
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bots.info":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"bot": map[string]any{
+					"name":    "Smith",
+					"user_id": "U222",
+					"icons":   map[string]string{"image_72": "https://cdn.example/avatar.png"},
+				},
+			})
+		case "/avatar.png":
+			avatarRequested <- struct{}{}
+			_, _ = w.Write([]byte("\x89PNG\r\n\x1a\n"))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	store := contacts.NewFileStore(t.TempDir())
+	refresher, err := contacts.NewContactAvatarRefresher(context.Background(), store, nil)
+	if err != nil {
+		t.Fatalf("NewContactAvatarRefresher() error = %v", err)
+	}
+	defer refresher.Close()
+	state := &slackRuntimeState{
+		api:               newSlackAPI(server.Client, server.URL, "bot-token", "app-token"),
+		logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		userIdentityCache: make(map[string]slackUserIdentityCacheEntry),
+		avatarRefresher:   refresher,
+	}
+	if _, err := state.resolveAgentIdentity(context.Background(), "T111", "B222"); err != nil {
+		t.Fatalf("resolveAgentIdentity() error = %v", err)
+	}
+	select {
+	case <-avatarRequested:
+		t.Fatal("resolveAgentIdentity() refreshed avatar before authorization")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestEnqueueObservedContactAvatarUsesResolvedSlackIdentity(t *testing.T) {
+	avatarRequested := make(chan struct{}, 1)
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/avatar.png" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		avatarRequested <- struct{}{}
+		_, _ = w.Write([]byte("\x89PNG\r\n\x1a\n"))
+	}))
+	store := contacts.NewFileStore(t.TempDir())
+	if err := store.PutContact(context.Background(), contacts.Contact{
+		ContactID:       "slack:T111:U222",
+		Channel:         contacts.ChannelSlack,
+		ContactNickname: "Smith",
+	}); err != nil {
+		t.Fatalf("PutContact() error = %v", err)
+	}
+	refresher, err := contacts.NewContactAvatarRefresher(context.Background(), store, nil)
+	if err != nil {
+		t.Fatalf("NewContactAvatarRefresher() error = %v", err)
+	}
+	defer refresher.Close()
+	state := &slackRuntimeState{
+		api:             newSlackAPI(server.Client, server.URL, "bot-token", "app-token"),
+		avatarRefresher: refresher,
+		userIdentityCache: map[string]slackUserIdentityCacheEntry{
+			"T111:U222": {UserID: "U222", AvatarURL: "https://cdn.example/avatar.png", ExpiresAt: time.Now().Add(time.Hour)},
+		},
+	}
+	state.enqueueObservedContactAvatar("T111", "U222")
+	select {
+	case <-avatarRequested:
+	case <-time.After(time.Second):
+		t.Fatal("observed Contact avatar was not requested")
 	}
 }
 

@@ -98,48 +98,19 @@
 }
 
 .contacts-index-item.workspace-sidebar-item {
-  grid-template-columns: 26px minmax(0, 1fr) 18px;
+  grid-template-columns: 40px minmax(0, 1fr);
   gap: 10px;
 }
 
-.contacts-index-kind,
-.contacts-index-status {
+.contacts-index-kind {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-}
-
-.contacts-index-kind {
-  width: 26px;
-  min-width: 26px;
-  color: var(--q-c-blue);
-}
-
-.contacts-index-item.is-agent .contacts-index-kind {
-  color: var(--q-c-secondary);
-}
-
-.contacts-index-kind .icon {
-  width: 19px;
-  min-width: 19px;
-  height: 19px;
-}
-
-.contacts-index-status {
-  width: 18px;
-  min-width: 18px;
-  color: var(--text-2);
-}
-
-.contacts-index-status.is-active {
-  color: var(--ok);
-}
-
-.contacts-index-status .icon {
-  width: 15px;
-  min-width: 15px;
-  height: 15px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
 }
 
 .contacts-index-item-meta {
@@ -195,24 +166,39 @@
 }
 
 .contacts-detail-kind {
+  position: relative;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
+  width: 64px;
+  min-width: 64px;
+  height: 64px;
+}
+
+.contacts-kind-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface-1);
+  border-radius: 50%;
+  background: var(--q-c-white);
   color: var(--q-c-blue);
 }
 
-.contacts-detail-kind.is-agent {
+.contacts-kind-badge.is-agent {
   color: var(--q-c-secondary);
 }
 
-.contacts-detail-kind .icon {
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
+.contacts-kind-badge .icon {
+  width: 12px;
+  min-width: 12px;
+  height: 12px;
 }
 
 .contacts-detail-copy {

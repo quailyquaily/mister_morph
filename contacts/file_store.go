@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -304,6 +305,9 @@ func (s *FileStore) DeleteContactYAML(ctx context.Context, contactID string) (Co
 	if err != nil {
 		return ContactYAMLBlock{}, false, err
 	}
+	if deleted {
+		_ = os.Remove(s.contactAvatarPath(contactID))
+	}
 	return result, deleted, nil
 }
 
@@ -574,6 +578,7 @@ type contactProfileSection struct {
 	Paired              bool     `yaml:"paired,omitempty"`
 	Channel             string   `yaml:"channel"`
 	TGUsername          string   `yaml:"tg_username"`
+	TGUserID            string   `yaml:"tg_user_id"`
 	TGPrivateChatID     string   `yaml:"tg_private_chat_id"`
 	TGGroupChatIDs      []string `yaml:"tg_group_chat_ids"`
 	LineUserID          string   `yaml:"line_user_id"`
@@ -915,6 +920,13 @@ func contactFromProfileSection(title string, profile contactProfileSection) (Con
 		contact.ContactNickname = strings.TrimSpace(title)
 	}
 
+	userID, err := parseTelegramChatID(profile.TGUserID)
+	if err != nil {
+		return Contact{}, err
+	}
+	if userID > 0 {
+		contact.TGUserID = userID
+	}
 	privateChatID, err := parseTelegramChatID(profile.TGPrivateChatID)
 	if err != nil {
 		return Contact{}, err
@@ -1004,7 +1016,7 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 
 	if profile.Channel == "" {
 		switch {
-		case contact.TGPrivateChatID != 0 || len(contact.TGGroupChatIDs) > 0 || profile.TGUsername != "":
+		case contact.TGUserID != 0 || contact.TGPrivateChatID != 0 || len(contact.TGGroupChatIDs) > 0 || profile.TGUsername != "":
 			profile.Channel = ChannelTelegram
 		case profile.LineUserID != "" || len(profile.LineChatIDs) > 0 || strings.HasPrefix(strings.ToLower(profile.ContactID), "line:") || strings.HasPrefix(strings.ToLower(profile.ContactID), "line_user:"):
 			profile.Channel = ChannelLine
@@ -1023,6 +1035,9 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 		if alias := extractTelegramAlias(profile.ContactID); alias != "" {
 			profile.TGUsername = alias
 		}
+	}
+	if contact.TGUserID != 0 {
+		profile.TGUserID = strconv.FormatInt(contact.TGUserID, 10)
 	}
 	if contact.TGPrivateChatID != 0 {
 		profile.TGPrivateChatID = strconv.FormatInt(contact.TGPrivateChatID, 10)
@@ -1391,6 +1406,12 @@ func normalizeContact(c Contact, now time.Time) Contact {
 	if c.TGPrivateChatID <= 0 {
 		c.TGPrivateChatID = 0
 	}
+	if c.TGUserID <= 0 {
+		c.TGUserID = 0
+	}
+	if c.TGUserID == 0 && c.TGPrivateChatID > 0 {
+		c.TGUserID = c.TGPrivateChatID
+	}
 	c.TopicPreferences = normalizeStringSlice(c.TopicPreferences)
 	if len(c.TopicPreferences) == 0 {
 		c.TopicPreferences = nil
@@ -1422,7 +1443,7 @@ func normalizeContact(c Contact, now time.Time) Contact {
 
 	if c.Channel == "" {
 		switch {
-		case strings.HasPrefix(strings.ToLower(c.ContactID), "tg:"), c.TGPrivateChatID != 0, len(c.TGGroupChatIDs) > 0, c.TGUsername != "":
+		case strings.HasPrefix(strings.ToLower(c.ContactID), "tg:"), c.TGUserID != 0, c.TGPrivateChatID != 0, len(c.TGGroupChatIDs) > 0, c.TGUsername != "":
 			c.Channel = ChannelTelegram
 		case strings.HasPrefix(strings.ToLower(c.ContactID), "line:"), strings.HasPrefix(strings.ToLower(c.ContactID), "line_user:"), c.LineUserID != "", len(c.LineChatIDs) > 0:
 			c.Channel = ChannelLine
@@ -1444,6 +1465,7 @@ func normalizeContact(c Contact, now time.Time) Contact {
 	if strings.HasPrefix(strings.ToLower(c.ContactID), "tg:") && c.TGPrivateChatID == 0 {
 		id, err := parseTelegramChatID(c.ContactID[len("tg:"):])
 		if err == nil && id > 0 {
+			c.TGUserID = id
 			c.TGPrivateChatID = id
 		}
 	}
@@ -1493,7 +1515,7 @@ func normalizeContact(c Contact, now time.Time) Contact {
 		}
 	}
 
-	if c.TGUsername == "" && c.TGPrivateChatID == 0 && len(c.TGGroupChatIDs) == 0 && c.Channel == ChannelTelegram {
+	if c.TGUsername == "" && c.TGUserID == 0 && c.TGPrivateChatID == 0 && len(c.TGGroupChatIDs) == 0 && c.Channel == ChannelTelegram {
 		if alias := extractTelegramAlias(c.ContactID); alias != "" {
 			c.TGUsername = alias
 		}

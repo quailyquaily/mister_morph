@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	mixinbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/mixin"
 	"github.com/quailyquaily/mistermorph/internal/mixinapi"
@@ -176,7 +177,7 @@ func TestMixinIngressNormalizesAndCachesProfiles(t *testing.T) {
 	api := &fakeMixinAPI{
 		users: map[string]mixinapi.User{
 			testBotID:  {UserID: testBotID, IdentityNumber: "7000", FullName: "Morph"},
-			testUserID: {UserID: testUserID, IdentityNumber: "8000", FullName: "Alice"},
+			testUserID: {UserID: testUserID, IdentityNumber: "8000", FullName: "Alice", AvatarURL: "https://cdn.example/alice.png"},
 		},
 		conversations: map[string]mixinapi.Conversation{
 			testConversationID: {ConversationID: testConversationID, Category: mixinapi.ConversationCategoryGroup, Name: "Group"},
@@ -207,6 +208,49 @@ func TestMixinIngressNormalizesAndCachesProfiles(t *testing.T) {
 	}
 	if api.readUserCalls != 1 || api.readConversationCalls != 1 {
 		t.Fatalf("profile calls = user %d, conversation %d", api.readUserCalls, api.readConversationCalls)
+	}
+}
+
+func TestMixinIngressRefreshesExpiredUserProfile(t *testing.T) {
+	api := &fakeMixinAPI{
+		users: map[string]mixinapi.User{
+			testBotID:  {UserID: testBotID, IdentityNumber: "7000", FullName: "Morph"},
+			testUserID: {UserID: testUserID, IdentityNumber: "8000", FullName: "Alice", AvatarURL: "https://cdn.example/old.png"},
+		},
+		conversations: map[string]mixinapi.Conversation{
+			testConversationID: {ConversationID: testConversationID, Category: mixinapi.ConversationCategoryGroup, Name: "Group"},
+		},
+	}
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	ingress := newMixinIngress(api, api.users[testBotID], "", nil)
+	ingress.now = func() time.Time { return now }
+
+	normalize := func(messageID string) mixinbus.InboundMessage {
+		inbound, publish, err := ingress.Normalize(context.Background(), mixinapi.MessageView{
+			ConversationID: testConversationID,
+			UserID:         testUserID,
+			MessageID:      messageID,
+			Category:       mixinapi.MessageCategoryPlainText,
+			DataBase64:     base64.RawURLEncoding.EncodeToString([]byte("@7000 hello")),
+		})
+		if err != nil || !publish {
+			t.Fatalf("Normalize() = %#v, %v, %v", inbound, publish, err)
+		}
+		return inbound
+	}
+
+	first := normalize("66666666-6666-6666-6666-666666666666")
+	api.users[testUserID] = mixinapi.User{
+		UserID: testUserID, IdentityNumber: "8000", FullName: "Alice New", AvatarURL: "https://cdn.example/new.png",
+	}
+	now = now.Add(8 * 24 * time.Hour)
+	second := normalize("77777777-7777-7777-7777-777777777777")
+
+	if api.readUserCalls != 2 {
+		t.Fatalf("ReadUser() calls = %d, want 2", api.readUserCalls)
+	}
+	if first.DisplayName != "Alice" || second.DisplayName != "Alice New" {
+		t.Fatalf("display names = %q, %q", first.DisplayName, second.DisplayName)
 	}
 }
 

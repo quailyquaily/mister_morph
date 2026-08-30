@@ -4,6 +4,7 @@ import { useToast } from "quail-ui";
 import "./ContactsView.css";
 
 import AppPage from "../components/AppPage";
+import ContactAvatar from "../components/ContactAvatar";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 import { useContactsStore } from "../stores/contactsStore";
 
@@ -115,6 +116,7 @@ function channelHandles(t, item) {
 const ContactsView = {
   components: {
     AppPage,
+    ContactAvatar,
   },
   setup() {
     const t = translate;
@@ -467,6 +469,7 @@ const ContactsView = {
       primaryContactMeta,
       contactItemClass,
       contactAriaLabel,
+      endpointState,
       showIndexView,
       selectContact,
       startEdit,
@@ -537,20 +540,19 @@ const ContactsView = {
                 @click="selectContact(item)"
               >
                 <span class="contacts-index-kind" :title="kindText(item)" aria-hidden="true">
-                  <QIconCpuChip v-if="isAgent(item)" class="icon" />
-                  <QIconUserCircle v-else class="icon" />
+                  <ContactAvatar
+                    :item="item"
+                    :name="displayName(item)"
+                    :endpointRef="endpointState.selectedRef"
+                  />
+                  <span :class="isAgent(item) ? 'contacts-kind-badge is-agent' : 'contacts-kind-badge'">
+                    <QIconCpuChip v-if="isAgent(item)" class="icon" />
+                    <QIconUserCircle v-else class="icon" />
+                  </span>
                 </span>
                 <span class="workspace-sidebar-item-copy">
                   <span class="workspace-sidebar-item-title">{{ displayName(item) }}</span>
                   <span class="contacts-index-item-meta workspace-sidebar-item-meta">{{ primaryContactMeta(item) }}</span>
-                </span>
-                <span
-                  :class="isActive(item) ? 'contacts-index-status is-active' : 'contacts-index-status'"
-                  :title="statusText(item)"
-                  aria-hidden="true"
-                >
-                  <QIconCheckCircle v-if="isActive(item)" class="icon" />
-                  <QIconCloseCircle v-else class="icon" />
                 </span>
               </button>
             </div>
@@ -565,13 +567,17 @@ const ContactsView = {
           <div class="contacts-detail-shell">
             <header class="contacts-detail-head">
               <div class="contacts-detail-identity">
-                <span
-                  :class="isAgent(selectedContact) ? 'contacts-detail-kind is-agent' : 'contacts-detail-kind'"
-                  :title="kindText(selectedContact)"
-                  aria-hidden="true"
-                >
-                  <QIconCpuChip v-if="isAgent(selectedContact)" class="icon" />
-                  <QIconUserCircle v-else class="icon" />
+                <span class="contacts-detail-kind" :title="kindText(selectedContact)" aria-hidden="true">
+                  <ContactAvatar
+                    :item="selectedContact"
+                    :name="displayName(selectedContact)"
+                    :endpointRef="endpointState.selectedRef"
+                    size="detail"
+                  />
+                  <span :class="isAgent(selectedContact) ? 'contacts-kind-badge is-agent' : 'contacts-kind-badge'">
+                    <QIconCpuChip v-if="isAgent(selectedContact)" class="icon" />
+                    <QIconUserCircle v-else class="icon" />
+                  </span>
                 </span>
                 <div class="contacts-detail-copy">
                   <h3 class="contacts-detail-title workspace-document-title">{{ displayName(selectedContact) }}</h3>

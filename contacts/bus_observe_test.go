@@ -78,6 +78,46 @@ func TestObserveInboundBusMessage_TelegramSenderAndMention(t *testing.T) {
 	}
 }
 
+func TestObserveInboundBusMessageWithResult_TelegramKeepsPersistedContactID(t *testing.T) {
+	ctx := context.Background()
+	store := NewFileStore(t.TempDir())
+	svc := NewService(store)
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	if _, err := svc.UpsertContact(ctx, Contact{
+		ContactID:       "tg:1234",
+		Kind:            KindHuman,
+		Channel:         ChannelTelegram,
+		ContactNickname: "Alice",
+	}, now); err != nil {
+		t.Fatalf("UpsertContact() error = %v", err)
+	}
+
+	result, err := svc.ObserveInboundBusMessageWithResult(ctx, busruntime.BusMessage{
+		Direction:       busruntime.DirectionInbound,
+		Channel:         busruntime.ChannelTelegram,
+		ConversationKey: "tg:-100500",
+		Extensions: busruntime.MessageExtensions{
+			ChatType:        "group",
+			FromUserID:      1234,
+			FromUsername:    "alice",
+			FromDisplayName: "Alice",
+		},
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ObserveInboundBusMessageWithResult() error = %v", err)
+	}
+	if result.SenderContactID != "tg:1234" {
+		t.Fatalf("sender contact id = %q, want tg:1234", result.SenderContactID)
+	}
+	stored, found, err := svc.GetContact(ctx, "tg:1234")
+	if err != nil || !found {
+		t.Fatalf("GetContact() = (found=%v, err=%v)", found, err)
+	}
+	if stored.TGUserID != 1234 {
+		t.Fatalf("tg_user_id = %d, want 1234", stored.TGUserID)
+	}
+}
+
 func TestObserveInboundBusMessage_AgentSenderAndKindPreservation(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -44,6 +44,12 @@ type lineBotInfoResponse struct {
 	UserID string `json:"userId,omitempty"`
 }
 
+type lineUserProfile struct {
+	DisplayName string `json:"displayName,omitempty"`
+	UserID      string `json:"userId,omitempty"`
+	PictureURL  string `json:"pictureUrl,omitempty"`
+}
+
 type lineReplyRequest struct {
 	ReplyToken string            `json:"replyToken"`
 	Messages   []lineTextMessage `json:"messages"`
@@ -111,6 +117,50 @@ func (api *lineAPI) botUserID(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("line bot info returned empty user id")
 	}
 	return userID, nil
+}
+
+func (api *lineAPI) userProfile(ctx context.Context, chatType, chatID, userID string) (lineUserProfile, error) {
+	if api == nil {
+		return lineUserProfile{}, fmt.Errorf("line api is not initialized")
+	}
+	chatType = strings.ToLower(strings.TrimSpace(chatType))
+	chatID = strings.TrimSpace(chatID)
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return lineUserProfile{}, fmt.Errorf("line user id is required")
+	}
+	var path string
+	switch chatType {
+	case "user", "private":
+		path = "/v2/bot/profile/" + url.PathEscape(userID)
+	case "group":
+		if chatID == "" {
+			return lineUserProfile{}, fmt.Errorf("line group id is required")
+		}
+		path = "/v2/bot/group/" + url.PathEscape(chatID) + "/member/" + url.PathEscape(userID)
+	default:
+		return lineUserProfile{}, fmt.Errorf("unsupported line chat type %q", chatType)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api.baseURL+path, nil)
+	if err != nil {
+		return lineUserProfile{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+api.channelAccessToken)
+	req.Header.Set("Accept", "application/json")
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return lineUserProfile{}, err
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return lineUserProfile{}, parseLineAPIError(resp.StatusCode, raw)
+	}
+	var profile lineUserProfile
+	if err := json.Unmarshal(raw, &profile); err != nil {
+		return lineUserProfile{}, err
+	}
+	return profile, nil
 }
 
 func (api *lineAPI) messageContent(ctx context.Context, messageID string, maxBytes int64) ([]byte, string, error) {

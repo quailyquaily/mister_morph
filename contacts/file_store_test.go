@@ -33,6 +33,7 @@ func TestFileStoreContactsReadWrite(t *testing.T) {
 		Channel:          ChannelTelegram,
 		ContactNickname:  "Inactive Human",
 		TGUsername:       "john",
+		TGUserID:         1001,
 		TGPrivateChatID:  1001,
 		TGGroupChatIDs:   []int64{-10001},
 		TopicPreferences: []string{"planning"},
@@ -60,6 +61,9 @@ func TestFileStoreContactsReadWrite(t *testing.T) {
 	}
 	if byID[inactive.ContactID].TGPrivateChatID != 1001 {
 		t.Fatalf("active tg_private_chat_id mismatch: got %d want 1001", byID[inactive.ContactID].TGPrivateChatID)
+	}
+	if byID[inactive.ContactID].TGUserID != 1001 {
+		t.Fatalf("active tg_user_id mismatch: got %d want 1001", byID[inactive.ContactID].TGUserID)
 	}
 
 	inactiveList, err := store.ListContacts(ctx, StatusInactive)

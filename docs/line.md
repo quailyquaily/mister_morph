@@ -10,6 +10,9 @@ Current runtime capability:
 - Group trigger modes: `strict | smart | talkative`
 - No `message_react` tool in LINE runtime (LINE responses are text-only)
 - Outbound delivery with `reply` first, fallback to `push` when reply token is invalid/expired
+- Asynchronous Contact avatar refresh from the user or group/room member profile visible to the Bot
+
+Contact avatar lookup runs after an authorized sender is observed and does not delay webhook handling. A missing or inaccessible profile image leaves the Contact usable and Console displays an initial fallback.
 
 ## Runtime Architecture (ASCII)
 

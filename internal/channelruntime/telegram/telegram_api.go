@@ -142,6 +142,13 @@ type telegramGetMeResponse struct {
 	Result telegramUser `json:"result"`
 }
 
+type telegramUserProfilePhotosResponse struct {
+	OK     bool `json:"ok"`
+	Result struct {
+		Photos [][]telegramPhotoSize `json:"photos"`
+	} `json:"result"`
+}
+
 func (api *telegramAPI) getMe(ctx context.Context) (*telegramUser, error) {
 	url := fmt.Sprintf("%s/bot%s/getMe", api.baseURL, api.token)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -150,7 +157,7 @@ func (api *telegramAPI) getMe(ctx context.Context) (*telegramUser, error) {
 	}
 	resp, err := api.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, telegramTransportError(err)
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
@@ -317,7 +324,7 @@ func (api *telegramAPI) getFile(ctx context.Context, fileID string) (*telegramFi
 	}
 	resp, err := api.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, telegramTransportError(err)
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
@@ -337,6 +344,93 @@ func (api *telegramAPI) getFile(ctx context.Context, fileID string) (*telegramFi
 	return &out.Result, nil
 }
 
+func (api *telegramAPI) contactAvatar(ctx context.Context, userID int64) ([]byte, bool, error) {
+	if userID <= 0 {
+		return nil, false, fmt.Errorf("telegram user id is required")
+	}
+	endpoint := fmt.Sprintf("%s/bot%s/getUserProfilePhotos?user_id=%d&offset=0&limit=1", api.baseURL, api.token, userID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return nil, false, telegramTransportError(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, false, fmt.Errorf("telegram http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var out telegramUserProfilePhotosResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, false, err
+	}
+	if !out.OK {
+		return nil, false, fmt.Errorf("telegram getUserProfilePhotos: ok=false")
+	}
+	if len(out.Result.Photos) == 0 || len(out.Result.Photos[0]) == 0 {
+		return nil, false, nil
+	}
+	photo := out.Result.Photos[0][0]
+	for _, candidate := range out.Result.Photos[0][1:] {
+		if candidate.Width*candidate.Height > photo.Width*photo.Height {
+			photo = candidate
+		}
+	}
+	file, err := api.getFile(ctx, photo.FileID)
+	if err != nil {
+		return nil, false, err
+	}
+	fileResponse, err := api.openFile(ctx, file.FilePath)
+	if err != nil {
+		return nil, false, err
+	}
+	defer fileResponse.Body.Close()
+	const maxBytes = int64(5 << 20)
+	raw, err = io.ReadAll(io.LimitReader(fileResponse.Body, maxBytes+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(raw)) > maxBytes {
+		return nil, false, fmt.Errorf("telegram contact avatar too large")
+	}
+	if len(raw) == 0 {
+		return nil, false, fmt.Errorf("telegram contact avatar is empty")
+	}
+	return raw, true, nil
+}
+
+func (api *telegramAPI) openFile(ctx context.Context, filePath string) (*http.Response, error) {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return nil, fmt.Errorf("missing file_path")
+	}
+	endpoint := fmt.Sprintf("%s/file/bot%s/%s", api.baseURL, api.token, strings.TrimLeft(filePath, "/"))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return nil, telegramTransportError(err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("telegram download http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	return resp, nil
+}
+
+func telegramTransportError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+	}
+	return fmt.Errorf("telegram request failed: %w", err)
+}
+
 func (api *telegramAPI) downloadFileTo(ctx context.Context, filePath, dstPath string, maxBytes int64) (int64, bool, error) {
 	filePath = strings.TrimSpace(filePath)
 	dstPath = strings.TrimSpace(dstPath)
@@ -350,20 +444,11 @@ func (api *telegramAPI) downloadFileTo(ctx context.Context, filePath, dstPath st
 		maxBytes = 20 * 1024 * 1024
 	}
 
-	url := fmt.Sprintf("%s/file/bot%s/%s", api.baseURL, api.token, strings.TrimLeft(filePath, "/"))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, false, err
-	}
-	resp, err := api.http.Do(req)
+	resp, err := api.openFile(ctx, filePath)
 	if err != nil {
 		return 0, false, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return 0, false, fmt.Errorf("telegram download http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
 
 	f, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {

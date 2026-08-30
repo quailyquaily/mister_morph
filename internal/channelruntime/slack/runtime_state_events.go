@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/internal/agentpair"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
@@ -64,6 +65,7 @@ func (s *slackRuntimeState) resolveUserIdentity(ctx context.Context, teamID, use
 		UserID:      userID,
 		Username:    username,
 		DisplayName: displayName,
+		AvatarURL:   identity.AvatarURL,
 		ExpiresAt:   now.Add(slackUserIdentityCacheTTL),
 	}
 	s.mu.Unlock()
@@ -85,6 +87,7 @@ func (s *slackRuntimeState) resolveAgentIdentity(ctx context.Context, teamID, bo
 			UserID:      cached.UserID,
 			Username:    cached.Username,
 			DisplayName: cached.DisplayName,
+			AvatarURL:   cached.AvatarURL,
 		}, nil
 	}
 	s.mu.Unlock()
@@ -99,14 +102,39 @@ func (s *slackRuntimeState) resolveAgentIdentity(ctx context.Context, teamID, bo
 		return slackUserIdentity{}, err
 	}
 	s.mu.Lock()
-	s.userIdentityCache[cacheKey] = slackUserIdentityCacheEntry{
+	entry := slackUserIdentityCacheEntry{
 		UserID:      identity.UserID,
 		Username:    identity.Username,
 		DisplayName: identity.DisplayName,
+		AvatarURL:   identity.AvatarURL,
 		ExpiresAt:   now.Add(slackUserIdentityCacheTTL),
+	}
+	s.userIdentityCache[cacheKey] = entry
+	if userID := strings.TrimSpace(identity.UserID); userID != "" {
+		s.userIdentityCache[strings.ToUpper(teamID)+":"+strings.ToUpper(userID)] = entry
 	}
 	s.mu.Unlock()
 	return identity, nil
+}
+
+func (s *slackRuntimeState) enqueueObservedContactAvatar(teamID, userID string) {
+	cacheKey := strings.ToUpper(strings.TrimSpace(teamID)) + ":" + strings.ToUpper(strings.TrimSpace(userID))
+	s.mu.Lock()
+	identity, found := s.userIdentityCache[cacheKey]
+	s.mu.Unlock()
+	if found {
+		s.enqueueContactAvatar(teamID, identity.UserID, identity.AvatarURL)
+	}
+}
+
+func (s *slackRuntimeState) enqueueContactAvatar(teamID, userID, avatarURL string) {
+	if s.avatarRefresher == nil || strings.TrimSpace(teamID) == "" || strings.TrimSpace(userID) == "" {
+		return
+	}
+	contactID := "slack:" + strings.TrimSpace(teamID) + ":" + strings.TrimSpace(userID)
+	s.avatarRefresher.Enqueue(contactID, func(ctx context.Context) ([]byte, bool, error) {
+		return contacts.FetchContactAvatarURL(ctx, s.api.http, avatarURL)
+	})
 }
 
 func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.BusMessage) error {
@@ -255,6 +283,9 @@ func (s *slackRuntimeState) handleBusMessage(ctx context.Context, msg busruntime
 		}
 		if err := s.contactsService.ObserveInboundBusMessage(context.Background(), msg, time.Now().UTC()); err != nil {
 			s.logger.Warn("contacts_observe_bus_error", "channel", msg.Channel, "idempotency_key", msg.IdempotencyKey, "error", err.Error())
+		}
+		if inbound, err := slackbus.InboundMessageFromBusMessage(msg); err == nil {
+			s.enqueueObservedContactAvatar(inbound.TeamID, inbound.UserID)
 		}
 		return s.enqueueInbound(ctx, msg)
 	case busruntime.DirectionOutbound:

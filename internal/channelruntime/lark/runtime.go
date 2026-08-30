@@ -87,6 +87,11 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 	workspaceStore := workspace.NewStore(d.RuntimePaths.WorkspaceAttachmentsPath)
 	contactsSvc := contacts.NewService(contactsStore)
+	avatarRefresher, err := contacts.NewContactAvatarRefresher(ctx, contactsStore, logger.With("channel", "lark"))
+	if err != nil {
+		return err
+	}
+	defer avatarRefresher.Close()
 	larkInboundAdapter, err := larkbus.NewInboundAdapter(larkbus.InboundAdapterOptions{
 		Bus:   inprocBus,
 		Store: contactsStore,
@@ -98,6 +103,21 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	tokenClient := larkapi.NewTenantTokenClient(httpClient, strings.TrimSpace(opts.BaseURL), opts.AppID, opts.AppSecret)
 	api := newLarkAPI(httpClient, strings.TrimSpace(opts.BaseURL), tokenClient)
+	if err := avatarRefresher.Prewarm(contacts.ChannelLark, func(contact contacts.Contact) contacts.ContactAvatarFetchFunc {
+		openID := strings.TrimSpace(contact.LarkOpenID)
+		if openID == "" {
+			return nil
+		}
+		return func(ctx context.Context) ([]byte, bool, error) {
+			avatarURL, err := api.userAvatarURL(ctx, openID)
+			if err != nil {
+				return nil, false, err
+			}
+			return contacts.FetchContactAvatarURL(ctx, api.http, avatarURL)
+		}
+	}); err != nil {
+		logger.Warn("contact_avatar_prewarm_failed", "channel", "lark", "error", err.Error())
+	}
 	toolAPI := newLarkToolAPI(api)
 	larkDeliveryAdapter, err := larkbus.NewDeliveryAdapter(larkbus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts larkbus.SendTextOptions) error {
@@ -583,6 +603,16 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			}
 			if err := contactsSvc.ObserveInboundBusMessage(context.Background(), msg, time.Now().UTC()); err != nil {
 				logger.Warn("contacts_observe_bus_error", "channel", msg.Channel, "idempotency_key", msg.IdempotencyKey, "error", err.Error())
+			}
+			if inbound, err := larkbus.InboundMessageFromBusMessage(msg); err == nil {
+				openID := inbound.FromUserID
+				avatarRefresher.Enqueue("lark_user:"+openID, func(ctx context.Context) ([]byte, bool, error) {
+					avatarURL, err := api.userAvatarURL(ctx, openID)
+					if err != nil {
+						return nil, false, err
+					}
+					return contacts.FetchContactAvatarURL(ctx, api.http, avatarURL)
+				})
 			}
 			if enqueueLarkInbound == nil {
 				return fmt.Errorf("lark inbound handler is not initialized")

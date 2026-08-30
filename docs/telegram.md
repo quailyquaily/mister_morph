@@ -2,6 +2,8 @@
 
 This document describes how Telegram runtime handles one inbound message.
 
+When an authorized sender is observed, Morph asynchronously reads that user's profile photo with `getUserProfilePhotos` and `getFile`. Morph stores the numeric sender ID as `tg_user_id`, so active Contacts can also be prewarmed when the Telegram runtime starts. The downloaded image is stored in the local Contact avatar cache for seven days. This does not delay message processing, and Bot Token file URLs are never written to Contact YAML or returned to Console.
+
 Code areas:
 - `internal/channelruntime/telegram/runtime.go`
 - `internal/channelruntime/telegram/trigger.go`

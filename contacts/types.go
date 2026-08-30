@@ -38,6 +38,7 @@ type Contact struct {
 	Channel             string     `json:"channel"`
 	ContactNickname     string     `json:"nickname,omitempty"`
 	TGUsername          string     `json:"tg_username,omitempty"`
+	TGUserID            int64      `json:"tg_user_id,omitempty"`
 	TGPrivateChatID     int64      `json:"tg_private_chat_id,omitempty"`
 	TGGroupChatIDs      []int64    `json:"tg_group_chat_ids,omitempty"`
 	LineUserID          string     `json:"line_user_id,omitempty"`

@@ -1,6 +1,8 @@
 package daemonruntime
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/contacts"
 )
 
 func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
@@ -199,6 +203,14 @@ func TestContactsListRoute(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(contactsDir, "INACTIVE.md"), []byte(inactiveDoc), 0o600); err != nil {
 		t.Fatalf("write INACTIVE.md: %v", err)
 	}
+	avatarRaw, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatalf("decode avatar: %v", err)
+	}
+	contactStore := contacts.NewFileStore(contactsDir)
+	if err := contactStore.PutContactAvatar(context.Background(), "tg:@alice", avatarRaw); err != nil {
+		t.Fatalf("write contact avatar: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
@@ -222,6 +234,7 @@ func TestContactsListRoute(t *testing.T) {
 				ContactID string `json:"contact_id"`
 				Nickname  string `json:"nickname"`
 				Status    string `json:"status"`
+				AvatarURL string `json:"avatar_url"`
 			} `json:"items"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -246,6 +259,64 @@ func TestContactsListRoute(t *testing.T) {
 		}
 		if got := statusByID["slack:T001:U002"]; got != "inactive" {
 			t.Fatalf("status of slack:T001:U002 = %q, want inactive", got)
+		}
+		if got := payload.Items[1].AvatarURL; !strings.HasPrefix(got, "/contacts/avatar?contact_id=tg%3A%40alice&v=") {
+			t.Fatalf("alice avatar_url = %q, want versioned contact avatar URL", got)
+		}
+		if got := payload.Items[0].AvatarURL; got != "" {
+			t.Fatalf("bob avatar_url = %q, want empty", got)
+		}
+	})
+
+	t.Run("load contact avatar", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/contacts/avatar?contact_id=tg%3A%40alice", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if got := rec.Header().Get("Content-Type"); got != "image/png" {
+			t.Fatalf("content type = %q, want image/png", got)
+		}
+		if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+		}
+		if string(rec.Body.Bytes()) != string(avatarRaw) {
+			t.Fatal("avatar response body mismatch")
+		}
+	})
+
+	t.Run("contact avatar errors", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			method string
+			path   string
+			auth   bool
+			status int
+			allow  string
+		}{
+			{name: "missing id", method: http.MethodGet, path: "/contacts/avatar", auth: true, status: http.StatusBadRequest},
+			{name: "missing contact", method: http.MethodGet, path: "/contacts/avatar?contact_id=tg%3Amissing", auth: true, status: http.StatusNotFound},
+			{name: "unauthorized", method: http.MethodGet, path: "/contacts/avatar?contact_id=tg%3A%40alice", status: http.StatusUnauthorized},
+			{name: "method", method: http.MethodPost, path: "/contacts/avatar?contact_id=tg%3A%40alice", auth: true, status: http.StatusMethodNotAllowed, allow: "GET"},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				req := httptest.NewRequest(test.method, test.path, nil)
+				if test.auth {
+					req.Header.Set("Authorization", "Bearer token")
+				}
+				rec := httptest.NewRecorder()
+				mux.ServeHTTP(rec, req)
+				if rec.Code != test.status {
+					t.Fatalf("status = %d, want %d (%s)", rec.Code, test.status, rec.Body.String())
+				}
+				if got := rec.Header().Get("Allow"); got != test.allow {
+					t.Fatalf("Allow = %q, want %q", got, test.allow)
+				}
+			})
 		}
 	})
 
@@ -417,6 +488,9 @@ func TestContactsListRoute(t *testing.T) {
 		if strings.Contains(string(activeRaw), `contact_id: "tg:@alice"`) || strings.Contains(string(activeRaw), `contact_id: tg:@alice`) {
 			t.Fatalf("ACTIVE.md should not contain deleted contact: %s", string(activeRaw))
 		}
+		if _, found, err := contactStore.ReadContactAvatar(context.Background(), "tg:@alice"); err != nil || found {
+			t.Fatalf("avatar after contact delete = (found=%v, err=%v), want false, nil", found, err)
+		}
 	})
 
 	t.Run("delete inactive contact", func(t *testing.T) {
@@ -447,4 +521,48 @@ func TestContactsListRoute(t *testing.T) {
 			t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusNotFound, rec.Body.String())
 		}
 	})
+}
+
+func TestContactAvatarRouteDoesNotParseContactMarkdown(t *testing.T) {
+	stateDir := t.TempDir()
+	contactsDir := filepath.Join(stateDir, "contacts")
+	store := contacts.NewFileStore(contactsDir)
+	ctx := context.Background()
+	if err := store.PutContact(ctx, contacts.Contact{
+		ContactID:       "tg:@alice",
+		Channel:         contacts.ChannelTelegram,
+		ContactNickname: "Alice",
+	}); err != nil {
+		t.Fatalf("PutContact() error = %v", err)
+	}
+	avatarRaw, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatalf("decode avatar: %v", err)
+	}
+	if err := store.PutContactAvatar(ctx, "tg:@alice", avatarRaw); err != nil {
+		t.Fatalf("PutContactAvatar() error = %v", err)
+	}
+	activePath := filepath.Join(contactsDir, "ACTIVE.md")
+	activeRaw, err := os.ReadFile(activePath)
+	if err != nil {
+		t.Fatalf("read ACTIVE.md: %v", err)
+	}
+	activeRaw = append(activeRaw, []byte("\n## Broken\n\n```yaml\ncontact_id: [\n```\n")...)
+	if err := os.WriteFile(activePath, activeRaw, 0o600); err != nil {
+		t.Fatalf("write malformed ACTIVE.md: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/contacts/avatar?contact_id=tg%3A%40alice", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
 }

@@ -87,6 +87,16 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 
 	contactsStore := contacts.NewFileStore(d.RuntimePaths.ContactsDir)
 	contactsService := contacts.NewService(contactsStore)
+	avatarRefresher, err := contacts.NewContactAvatarRefresher(ctx, contactsStore, logger.With("channel", "telegram"))
+	if err != nil {
+		return nil, err
+	}
+	avatarOwnedByState := false
+	defer func() {
+		if !avatarOwnedByState {
+			avatarRefresher.Close()
+		}
+	}()
 	workspaceStore := workspace.NewStore(d.RuntimePaths.WorkspaceAttachmentsPath)
 	inboundAdapter, err := telegrambus.NewInboundAdapter(telegrambus.InboundAdapterOptions{
 		Bus:   inprocBus,
@@ -147,6 +157,20 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 		case <-time.After(2 * time.Second):
 		}
 	}
+	if err := avatarRefresher.Prewarm(contacts.ChannelTelegram, func(contact contacts.Contact) contacts.ContactAvatarFetchFunc {
+		userID := contact.TGUserID
+		if userID <= 0 {
+			userID = contact.TGPrivateChatID
+		}
+		if userID <= 0 {
+			return nil
+		}
+		return func(ctx context.Context) ([]byte, bool, error) {
+			return api.contactAvatar(ctx, userID)
+		}
+	}); err != nil {
+		logger.Warn("contact_avatar_prewarm_failed", "channel", "telegram", "error", err.Error())
+	}
 	allowedChatIDs := make(map[int64]bool)
 	for _, id := range normalizeAllowedChatIDs(opts.AllowedChatIDs) {
 		if id != 0 {
@@ -193,11 +217,13 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 		inprocBus:          inprocBus,
 		runtimeGenerations: runtimeGenerations,
 		contactsService:    contactsService,
+		avatarRefresher:    avatarRefresher,
 		pairManager:        pairManager,
 		workspaceStore:     workspaceStore,
 		inboundAdapter:     inboundAdapter,
 	})
 	ownerOwnsResources = true
+	avatarOwnedByState = true
 	if err != nil {
 		return nil, err
 	}
@@ -659,9 +685,11 @@ func (s *telegramRuntimeState) handleBusMessage(ctx context.Context, message bus
 		if message.Channel != busruntime.ChannelTelegram {
 			return fmt.Errorf("unsupported inbound channel: %s", message.Channel)
 		}
-		if err := s.contactsService.ObserveInboundBusMessage(context.Background(), message, time.Now().UTC()); err != nil {
+		result, err := s.contactsService.ObserveInboundBusMessageWithResult(context.Background(), message, time.Now().UTC())
+		if err != nil {
 			s.logger.Warn("contacts_observe_bus_error", "channel", message.Channel, "idempotency_key", message.IdempotencyKey, "error", err.Error())
 		}
+		s.enqueueContactAvatar(message, result.SenderContactID)
 		return s.enqueueInbound(ctx, message)
 	case busruntime.DirectionOutbound:
 		if message.Channel != busruntime.ChannelTelegram {
@@ -671,6 +699,20 @@ func (s *telegramRuntimeState) handleBusMessage(ctx context.Context, message bus
 	default:
 		return fmt.Errorf("unsupported direction: %s", message.Direction)
 	}
+}
+
+func (s *telegramRuntimeState) enqueueContactAvatar(message busruntime.BusMessage, contactID string) {
+	if s.avatarRefresher == nil || strings.TrimSpace(contactID) == "" {
+		return
+	}
+	inbound, err := telegrambus.InboundMessageFromBusMessage(message)
+	if err != nil || inbound.FromUserID <= 0 {
+		return
+	}
+	userID := inbound.FromUserID
+	s.avatarRefresher.Enqueue(contactID, func(ctx context.Context) ([]byte, bool, error) {
+		return s.api.contactAvatar(ctx, userID)
+	})
 }
 
 func (s *telegramRuntimeState) poll() error {

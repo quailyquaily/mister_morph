@@ -18,6 +18,7 @@ type observedContactCandidate struct {
 	Channel             string
 	Nickname            string
 	TGUsername          string
+	TelegramUserID      int64
 	TelegramChatID      int64
 	TelegramChatType    string
 	TelegramIsSender    bool
@@ -34,35 +35,45 @@ type observedContactCandidate struct {
 	SlackChannelIDs     []string
 }
 
+type ObserveInboundResult struct {
+	SenderContactID string
+}
+
 // ObserveInboundBusMessage inspects inbound bus messages and updates contacts.
 // It is best-effort for object extraction and follows merge rules for bus-driven contact updates.
 func (s *Service) ObserveInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) error {
+	_, err := s.ObserveInboundBusMessageWithResult(ctx, msg, now)
+	return err
+}
+
+// ObserveInboundBusMessageWithResult also returns the stored sender identity.
+func (s *Service) ObserveInboundBusMessageWithResult(ctx context.Context, msg busruntime.BusMessage, now time.Time) (ObserveInboundResult, error) {
 	if s == nil || !s.ready() {
-		return fmt.Errorf("nil contacts service")
+		return ObserveInboundResult{}, fmt.Errorf("nil contacts service")
 	}
 	if ctx == nil {
-		return fmt.Errorf("context is required")
+		return ObserveInboundResult{}, fmt.Errorf("context is required")
 	}
 	now = normalizeNow(now)
 	if msg.Direction != busruntime.DirectionInbound {
-		return nil
+		return ObserveInboundResult{}, nil
 	}
 
 	switch msg.Channel {
 	case busruntime.ChannelConsole:
-		return s.observeConsoleInboundBusMessage(ctx, msg, now)
+		return ObserveInboundResult{}, s.observeConsoleInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelTelegram:
 		return s.observeTelegramInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelSlack:
-		return s.observeSlackInboundBusMessage(ctx, msg, now)
+		return ObserveInboundResult{}, s.observeSlackInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelLine:
-		return s.observeLineInboundBusMessage(ctx, msg, now)
+		return ObserveInboundResult{}, s.observeLineInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelLark:
-		return s.observeLarkInboundBusMessage(ctx, msg, now)
+		return ObserveInboundResult{}, s.observeLarkInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelMixin:
-		return s.observeMixinInboundBusMessage(ctx, msg, now)
+		return ObserveInboundResult{}, s.observeMixinInboundBusMessage(ctx, msg, now)
 	default:
-		return nil
+		return ObserveInboundResult{}, nil
 	}
 }
 
@@ -88,10 +99,10 @@ func (s *Service) observeConsoleInboundBusMessage(ctx context.Context, msg busru
 	}, now)
 }
 
-func (s *Service) observeTelegramInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) error {
+func (s *Service) observeTelegramInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) (ObserveInboundResult, error) {
 	chatID, err := telegramChatIDFromConversationKey(msg.ConversationKey)
 	if err != nil {
-		return err
+		return ObserveInboundResult{}, err
 	}
 	chatType := normalizeTelegramChatType(msg.Extensions.ChatType, chatID)
 	fromUserID := msg.Extensions.FromUserID
@@ -113,6 +124,7 @@ func (s *Service) observeTelegramInboundBusMessage(ctx context.Context, msg busr
 			Channel:          ChannelTelegram,
 			Nickname:         nickname,
 			TGUsername:       fromUsername,
+			TelegramUserID:   fromUserID,
 			TelegramChatID:   chatID,
 			TelegramChatType: chatType,
 			TelegramIsSender: true,
@@ -139,7 +151,11 @@ func (s *Service) observeTelegramInboundBusMessage(ctx context.Context, msg busr
 		})
 	}
 
-	return s.applyObservedCandidates(ctx, candidates, now)
+	contacts, err := s.applyObservedCandidatesWithResult(ctx, candidates, now)
+	if err != nil || len(contacts) == 0 {
+		return ObserveInboundResult{}, err
+	}
+	return ObserveInboundResult{SenderContactID: contacts[0].ContactID}, nil
 }
 
 func (s *Service) observeSlackInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) error {
@@ -379,9 +395,15 @@ func normalizeTelegramChatType(chatType string, chatID int64) string {
 }
 
 func (s *Service) applyObservedCandidates(ctx context.Context, candidates []observedContactCandidate, now time.Time) error {
+	_, err := s.applyObservedCandidatesWithResult(ctx, candidates, now)
+	return err
+}
+
+func (s *Service) applyObservedCandidatesWithResult(ctx context.Context, candidates []observedContactCandidate, now time.Time) ([]Contact, error) {
 	if len(candidates) == 0 {
-		return nil
+		return nil, nil
 	}
+	contacts := make([]Contact, 0, len(candidates))
 	seen := map[string]bool{}
 	for _, candidate := range candidates {
 		primaryID := strings.TrimSpace(candidate.PrimaryContactID)
@@ -393,18 +415,20 @@ func (s *Service) applyObservedCandidates(ctx context.Context, candidates []obse
 			continue
 		}
 		seen[key] = true
-		if err := s.upsertObservedCandidate(ctx, candidate, now); err != nil {
-			return err
+		contact, err := s.upsertObservedCandidate(ctx, candidate, now)
+		if err != nil {
+			return nil, err
 		}
+		contacts = append(contacts, contact)
 	}
-	return nil
+	return contacts, nil
 }
 
-func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observedContactCandidate, now time.Time) error {
+func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observedContactCandidate, now time.Time) (Contact, error) {
 	now = normalizeNow(now)
 	existing, found, err := s.findObservedExistingContact(ctx, candidate)
 	if err != nil {
-		return err
+		return Contact{}, err
 	}
 
 	lastInteraction := now.UTC()
@@ -431,8 +455,7 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 		applyObservedMixinMerge(&existing, candidate)
 		applyObservedSlackMerge(&existing, candidate)
 		existing.LastInteractionAt = &lastInteraction
-		_, err := s.UpsertContact(ctx, existing, now)
-		return err
+		return s.UpsertContact(ctx, existing, now)
 	}
 
 	contact := Contact{
@@ -459,8 +482,7 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 	applyObservedLarkMerge(&contact, candidate)
 	applyObservedMixinMerge(&contact, candidate)
 	applyObservedSlackMerge(&contact, candidate)
-	_, err = s.UpsertContact(ctx, contact, now)
-	return err
+	return s.UpsertContact(ctx, contact, now)
 }
 
 func (s *Service) findObservedExistingContact(ctx context.Context, candidate observedContactCandidate) (Contact, bool, error) {
@@ -490,6 +512,9 @@ func (s *Service) findObservedExistingContact(ctx context.Context, candidate obs
 func applyObservedTelegramMerge(contact *Contact, candidate observedContactCandidate) {
 	if contact == nil {
 		return
+	}
+	if candidate.TelegramIsSender && candidate.TelegramUserID > 0 {
+		contact.TGUserID = candidate.TelegramUserID
 	}
 	chatID := candidate.TelegramChatID
 	if chatID == 0 {

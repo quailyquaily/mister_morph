@@ -136,6 +136,7 @@ type slackUserIdentityCacheEntry struct {
 	UserID      string
 	Username    string
 	DisplayName string
+	AvatarURL   string
 	ExpiresAt   time.Time
 }
 
@@ -232,6 +233,16 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 	workspaceStore := workspace.NewStore(d.RuntimePaths.WorkspaceAttachmentsPath)
 	contactsSvc := contacts.NewService(contactsStore)
+	avatarRefresher, err := contacts.NewContactAvatarRefresher(ctx, contactsStore, logger.With("channel", "slack"))
+	if err != nil {
+		return err
+	}
+	avatarOwnedByState := false
+	defer func() {
+		if !avatarOwnedByState {
+			avatarRefresher.Close()
+		}
+	}()
 	slackInboundAdapter, err := slackbus.NewInboundAdapter(slackbus.InboundAdapterOptions{
 		Bus:   inprocBus,
 		Store: contactsStore,
@@ -250,6 +261,21 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	botUserID := strings.TrimSpace(auth.UserID)
 	if botUserID == "" {
 		return fmt.Errorf("slack auth.test returned empty user_id")
+	}
+	if err := avatarRefresher.Prewarm(contacts.ChannelSlack, func(contact contacts.Contact) contacts.ContactAvatarFetchFunc {
+		userID := strings.TrimSpace(contact.SlackUserID)
+		if userID == "" {
+			return nil
+		}
+		return func(ctx context.Context) ([]byte, bool, error) {
+			identity, err := api.userIdentity(ctx, userID)
+			if err != nil {
+				return nil, false, err
+			}
+			return contacts.FetchContactAvatarURL(ctx, api.http, identity.AvatarURL)
+		}
+	}); err != nil {
+		logger.Warn("contact_avatar_prewarm_failed", "channel", "slack", "error", err.Error())
 	}
 	if len(allowedTeams) == 0 && strings.TrimSpace(auth.TeamID) != "" {
 		allowedTeams[strings.TrimSpace(auth.TeamID)] = true
@@ -342,6 +368,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		availableEmojiNames: availableEmojiNames,
 		inprocBus:           inprocBus,
 		contactsService:     contactsSvc,
+		avatarRefresher:     avatarRefresher,
 		pairManager:         pairManager,
 		workspaceStore:      workspaceStore,
 		inboundAdapter:      slackInboundAdapter,
@@ -350,6 +377,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	})
 	busOwnedByState = true
 	runtimeOwnedByState = true
+	avatarOwnedByState = true
 	if stateErr != nil {
 		return stateErr
 	}

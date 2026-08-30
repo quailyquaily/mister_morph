@@ -181,6 +181,9 @@ func (s *Service) upsertContact(ctx context.Context, contact Contact, now time.T
 		if strings.TrimSpace(contact.TGUsername) == "" && strings.TrimSpace(existing.TGUsername) != "" {
 			contact.TGUsername = strings.TrimSpace(existing.TGUsername)
 		}
+		if contact.TGUserID == 0 && existing.TGUserID != 0 {
+			contact.TGUserID = existing.TGUserID
+		}
 		if contact.TGPrivateChatID == 0 && existing.TGPrivateChatID != 0 {
 			contact.TGPrivateChatID = existing.TGPrivateChatID
 		}
@@ -278,6 +281,9 @@ func (s *Service) findPairContact(ctx context.Context, candidate Contact) (Conta
 }
 
 func pairContactIdentityMatches(a, b Contact) bool {
+	if a.TGUserID > 0 && a.TGUserID == b.TGUserID {
+		return true
+	}
 	if a.TGPrivateChatID > 0 && a.TGPrivateChatID == b.TGPrivateChatID {
 		return true
 	}
@@ -854,6 +860,9 @@ func hasMixinTarget(contact Contact) bool {
 func deriveContactID(contact Contact) string {
 	if v := strings.TrimSpace(contact.ContactID); v != "" {
 		return v
+	}
+	if contact.TGUserID > 0 {
+		return "tg:" + strconv.FormatInt(contact.TGUserID, 10)
 	}
 	if contact.TGPrivateChatID > 0 {
 		return "tg:" + strconv.FormatInt(contact.TGPrivateChatID, 10)

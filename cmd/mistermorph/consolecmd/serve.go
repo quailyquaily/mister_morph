@@ -1169,7 +1169,9 @@ func (s *server) handleProxyDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if parsedURI.Path != "/files/download" && parsedURI.Path != "/persona/avatar" {
+	switch parsedURI.Path {
+	case "/files/download", "/persona/avatar", "/contacts/avatar":
+	default:
 		writeError(w, http.StatusBadRequest, "invalid download uri")
 		return
 	}
@@ -1199,7 +1201,12 @@ func (s *server) handleProxyDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setNoCacheHeaders(w.Header())
+	if parsedURI.Path == "/contacts/avatar" {
+		copyDownloadHeader(w.Header(), download.Header, "Cache-Control")
+		copyDownloadHeader(w.Header(), download.Header, "Last-Modified")
+	} else {
+		setNoCacheHeaders(w.Header())
+	}
 	copyDownloadHeader(w.Header(), download.Header, "Content-Type")
 	copyDownloadHeader(w.Header(), download.Header, "Content-Disposition")
 	copyDownloadHeader(w.Header(), download.Header, "Content-Length")

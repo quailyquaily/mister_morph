@@ -922,7 +922,8 @@ type stateFileSpec struct {
 
 type consoleContact struct {
 	contacts.Contact
-	Status contacts.Status `json:"status"`
+	Status    contacts.Status `json:"status"`
+	AvatarURL string          `json:"avatar_url,omitempty"`
 }
 
 func runtimeStateFileSpecs(paths runtimeStatePaths) []stateFileSpec {
@@ -1001,6 +1002,33 @@ func listContactsForConsole(ctx context.Context, svc *contacts.Service) ([]conso
 		return strings.ToLower(strings.TrimSpace(out[i].ContactID)) < strings.ToLower(strings.TrimSpace(out[j].ContactID))
 	})
 	return out, nil
+}
+
+func attachContactAvatarURLs(ctx context.Context, store *contacts.FileStore, items []consoleContact) error {
+	if store == nil {
+		return errors.New("contacts store unavailable")
+	}
+	contactIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		contactIDs = append(contactIDs, item.ContactID)
+	}
+	revisions, err := store.ContactAvatarRevisions(ctx, contactIDs)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if revision, ok := revisions[items[i].ContactID]; ok {
+			items[i].AvatarURL = contactAvatarURL(items[i].ContactID, revision)
+		}
+	}
+	return nil
+}
+
+func contactAvatarURL(contactID string, revision time.Time) string {
+	query := url.Values{}
+	query.Set("contact_id", strings.TrimSpace(contactID))
+	query.Set("v", strconv.FormatInt(revision.UTC().Unix(), 10))
+	return "/contacts/avatar?" + query.Encode()
 }
 
 func attachContactStatus(items []contacts.Contact, status contacts.Status) []consoleContact {

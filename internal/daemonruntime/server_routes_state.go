@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/contacts"
@@ -132,6 +133,40 @@ func (routes *routeRegistration) registerStateRoutes() {
 		paths := statePaths
 		handleContactsChatProfile(w, r, paths.contactsDir)
 	})
+	mux.HandleFunc("/contacts/avatar", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		contactID := strings.TrimSpace(r.URL.Query().Get("contact_id"))
+		if contactID == "" {
+			http.Error(w, "contact_id is required", http.StatusBadRequest)
+			return
+		}
+		paths := statePaths
+		store := contacts.NewFileStore(paths.contactsDir)
+		avatar, found, err := store.ReadContactAvatar(r.Context(), contactID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !found {
+			http.Error(w, "contact avatar not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", avatar.ContentType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(avatar.Data)))
+		w.Header().Set("Cache-Control", "private, max-age=604800, immutable")
+		w.Header().Set("Last-Modified", avatar.ModTime.UTC().Format(http.TimeFormat))
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(avatar.Data)
+	})
 	mux.HandleFunc("/contacts/list", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", "GET")
@@ -143,9 +178,14 @@ func (routes *routeRegistration) registerStateRoutes() {
 			return
 		}
 		paths := statePaths
-		service := contacts.NewService(contacts.NewFileStore(paths.contactsDir))
+		store := contacts.NewFileStore(paths.contactsDir)
+		service := contacts.NewService(store)
 		items, err := listContactsForConsole(r.Context(), service)
 		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := attachContactAvatarURLs(r.Context(), store, items); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

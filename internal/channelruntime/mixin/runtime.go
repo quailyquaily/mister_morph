@@ -102,6 +102,26 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		return err
 	}
 	contactsService := contacts.NewService(contactsStore)
+	avatarRefresher, err := contacts.NewContactAvatarRefresher(ctx, contactsStore, logger.With("channel", "mixin"))
+	if err != nil {
+		return err
+	}
+	defer avatarRefresher.Close()
+	if err := avatarRefresher.Prewarm(contacts.ChannelMixin, func(contact contacts.Contact) contacts.ContactAvatarFetchFunc {
+		userID := strings.TrimSpace(contact.MixinUserID)
+		if userID == "" {
+			return nil
+		}
+		return func(ctx context.Context) ([]byte, bool, error) {
+			user, err := api.ReadUser(ctx, userID)
+			if err != nil {
+				return nil, false, err
+			}
+			return contacts.FetchContactAvatarURL(ctx, nil, user.AvatarURL)
+		}
+	}); err != nil {
+		logger.Warn("contact_avatar_prewarm_failed", "channel", "mixin", "error", err.Error())
+	}
 	chatInfoStore := chatinfo.NewStore(d.RuntimePaths.ContactsDir)
 	var savedChatProfiles sync.Map
 	adminValues := []string(nil)
@@ -477,6 +497,15 @@ func runMixinLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			}
 			if err := contactsService.ObserveInboundBusMessage(context.Background(), message, time.Now().UTC()); err != nil {
 				logger.Warn("contacts_observe_bus_error", "channel", message.Channel, "error", err.Error())
+			} else if inbound, parseErr := mixinbus.InboundMessageFromBusMessage(message); parseErr == nil {
+				user := ingress.user(handlerCtx, inbound.FromUserID)
+				userID := strings.TrimSpace(user.UserID)
+				avatarURL := strings.TrimSpace(user.AvatarURL)
+				if userID != "" {
+					avatarRefresher.Enqueue("mixin:"+userID, func(ctx context.Context) ([]byte, bool, error) {
+						return contacts.FetchContactAvatarURL(ctx, nil, avatarURL)
+					})
+				}
 			}
 			return enqueueInbound(handlerCtx, message)
 		case busruntime.DirectionOutbound:

@@ -149,7 +149,7 @@ async function apiFetchBlob(pathname, options = {}) {
     const resp = await fetch(`${API_BASE}${pathname}`, {
       method,
       headers,
-      cache: "no-store",
+      cache: options.cache || "no-store",
     });
     status = resp.status;
     ok = resp.ok;

@@ -443,6 +443,44 @@ func TestHandleProxyDownloadRoutesToSelectedEndpoint(t *testing.T) {
 	}
 }
 
+func TestHandleProxyDownloadRoutesContactAvatar(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		downloadStatus: http.StatusOK,
+		downloadHeader: http.Header{
+			"Content-Type":  []string{"image/png"},
+			"Cache-Control": []string{"private, max-age=604800, immutable"},
+			"Last-Modified": []string{"Sun, 30 Aug 2026 10:00:00 GMT"},
+		},
+		downloadRaw: []byte("avatar"),
+	}
+	s := &server{
+		endpointByRef: map[string]runtimeEndpoint{
+			"ep_remote": {Ref: "ep_remote", Client: client},
+		},
+	}
+
+	target := url.QueryEscape("/contacts/avatar?contact_id=tg%3A123&v=42")
+	req := httptest.NewRequest(http.MethodGet, "/console/api/proxy/download?endpoint=ep_remote&uri="+target, nil)
+	rec := httptest.NewRecorder()
+	s.handleProxyDownload(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "avatar" {
+		t.Fatalf("avatar proxy response = %d %q", rec.Code, rec.Body.String())
+	}
+	if client.lastDownloadPath != "/contacts/avatar?contact_id=tg%3A123&v=42" {
+		t.Fatalf("client download path = %q", client.lastDownloadPath)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("Content-Type = %q, want image/png", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "private, max-age=604800, immutable" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+	if got := rec.Header().Get("Last-Modified"); got != "Sun, 30 Aug 2026 10:00:00 GMT" {
+		t.Fatalf("Last-Modified = %q", got)
+	}
+}
+
 func TestHandleProxyDownloadCachesPersonaAvatar(t *testing.T) {
 	client := &stubRuntimeEndpointClient{
 		downloadStatus: http.StatusOK,

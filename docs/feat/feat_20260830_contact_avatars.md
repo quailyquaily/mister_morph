@@ -1,7 +1,7 @@
 ---
 date: 2026-08-30
 title: Contact 头像
-status: proposed
+status: implemented
 ---
 
 # Contact 头像
@@ -59,9 +59,9 @@ Contact 头像与以下图片不是同一数据：
 
 ## 4. 数据和文件
 
-### 4.1 Contact 结构保持不变
+### 4.1 Contact 不保存远端头像地址
 
-不在 `contacts.Contact` 和 Contact YAML 中增加 `avatar_url`。
+不在 `contacts.Contact` 和 Contact YAML 中增加 `avatar_url`。Telegram Contact 增加 `tg_user_id`，因为 `tg:@username` 不能传给 `getUserProfilePhotos`。该字段保存消息里的数字 user ID，不保存头像状态。
 
 原因：
 
@@ -97,7 +97,7 @@ avatars/<sha256(contact_id)>.image
 
 创建或更新 Contact 后，Channel runtime 异步刷新该发送者的头像。消息发布、Contact 更新和任务触发都不等待头像请求。
 
-Channel runtime 启动后，可以异步检查本 Channel 的已有 Contact，补齐缺失头像。这个过程：
+Channel runtime 启动后，检查本 Channel 的 active Contact，并异步补齐缺失或过期的头像。inactive Contact 不预热，避免 Contact 长期积累后在每次启动时产生大量平台请求。这个过程：
 
 - 不延迟 runtime ready；
 - 每个 runtime 同时最多发起一个头像请求；
@@ -256,18 +256,18 @@ UI 视觉和图片 fallback 不新增脆弱的像素级测试，使用前端构�
 
 ## 13. 实现 Checklist
 
-- [ ] 增加 Contact 头像文件缓存和安全校验。
-- [ ] 增加异步刷新队列和固定七天刷新规则。
-- [ ] 接入 Telegram 头像获取。
-- [ ] 复用 Slack `users.info` 的头像字段。
-- [ ] 复用 Mixin `ReadUser.AvatarURL`。
-- [ ] 接入 LINE profile 头像。
-- [ ] 接入 Lark profile 头像。
-- [ ] 增加 `/contacts/avatar` 和 `/contacts/list.avatar_url`。
-- [ ] 让 remote endpoint 的头像经过 endpoint-aware proxy。
-- [ ] 在 Contacts 列表和详情页显示圆形头像及 fallback。
-- [ ] 更新 Contacts 和 Channel 文档。
-- [ ] 运行相关 Go tests 和 Console build。
+- [x] 增加 Contact 头像文件缓存和安全校验。
+- [x] 增加异步刷新队列和固定七天刷新规则。
+- [x] 接入 Telegram 头像获取。
+- [x] 复用 Slack `users.info` 的头像字段。
+- [x] 复用 Mixin `ReadUser.AvatarURL`。
+- [x] 接入 LINE profile 头像。
+- [x] 接入 Lark profile 头像。
+- [x] 增加 `/contacts/avatar` 和 `/contacts/list.avatar_url`。
+- [x] 让 remote endpoint 的头像经过 endpoint-aware proxy。
+- [x] 在 Contacts 列表和详情页显示圆形头像及 fallback。
+- [x] 更新 Contacts 和 Channel 文档。
+- [x] 运行相关 Go tests 和 Console build。
 
 ## 14. 参考
 
@@ -275,3 +275,20 @@ UI 视觉和图片 fallback 不新增脆弱的像素级测试，使用前端构�
 - [Slack users.info](https://api.slack.com/methods/users.info)
 - [Mixin Search User](https://developers.mixin.one/docs/api/users/search)
 - [LINE Messaging API: Get user profile](https://developers.line.biz/en/docs/messaging-api/receiving-messages)
+
+## 15. Code review 修正
+
+2026-08-30 的实现审查发现以下问题：
+
+- [x] Telegram 用户从数字 `contact_id` 获得 username 后，头像必须继续写入已持久化的 Contact key。
+- [x] `/contacts/avatar` 不能为每张图片重新解析完整 Contacts 文件。
+- [x] 无头像的负缓存必须清理过期项，不能在 runtime 生命周期内无界增长。
+- [x] Contact 删除后，已在进行的头像请求不能重新创建缓存文件。
+- [x] Slack 只能在消息通过 allowlist 和配对判断后刷新头像。
+- [x] Mixin 用户资料缓存必须过期，否则头像 URL 变化后无法刷新。
+
+## 16. 启动预热
+
+- [x] Channel runtime 启动时预热本 Channel 的 active Contact。
+- [x] 预热复用现有七天缓存、负缓存、去重和单 worker 队列。
+- [x] Telegram 持久化 `tg_user_id`，使 `tg:@username` Contact 能在后续启动时刷新头像。

@@ -59,6 +59,21 @@ type larkCodeResponse struct {
 	Msg  string `json:"msg"`
 }
 
+type larkUserProfileResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		User struct {
+			Avatar struct {
+				Avatar72     string `json:"avatar_72"`
+				Avatar240    string `json:"avatar_240"`
+				Avatar640    string `json:"avatar_640"`
+				AvatarOrigin string `json:"avatar_origin"`
+			} `json:"avatar"`
+		} `json:"user"`
+	} `json:"data"`
+}
+
 func newLarkAPI(httpClient *http.Client, baseURL string, tokenClient *larkapi.TenantTokenClient) *larkAPI {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -173,6 +188,53 @@ func (api *larkAPI) setEmojiReaction(ctx context.Context, messageID, emojiType s
 	return api.postJSON(ctx, endpoint, map[string]any{
 		"reaction_type": map[string]string{"emoji_type": emojiType},
 	})
+}
+
+func (api *larkAPI) userAvatarURL(ctx context.Context, openID string) (string, error) {
+	if api == nil || api.tokenClient == nil {
+		return "", fmt.Errorf("lark api is not initialized")
+	}
+	openID = strings.TrimSpace(openID)
+	if openID == "" {
+		return "", fmt.Errorf("lark open id is required")
+	}
+	token, err := api.tokenClient.Token(ctx)
+	if err != nil {
+		return "", err
+	}
+	endpoint := api.baseURL + "/contact/v3/users/" + url.PathEscape(openID) + "?user_id_type=open_id"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("lark user profile http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var out larkUserProfileResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", err
+	}
+	if out.Code != 0 {
+		return "", fmt.Errorf("lark user profile failed: %s", strings.TrimSpace(out.Msg))
+	}
+	return firstLarkAvatarURL(out.Data.User.Avatar.Avatar240, out.Data.User.Avatar.Avatar640, out.Data.User.Avatar.AvatarOrigin, out.Data.User.Avatar.Avatar72), nil
+}
+
+func firstLarkAvatarURL(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (api *larkAPI) sendMessageContent(ctx context.Context, receiveIDType, receiveID, msgType string, content any) error {

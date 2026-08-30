@@ -1,12 +1,18 @@
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import channelDiscordLogoURL from "../assets/images/channels/discord.svg";
 import channelLarkLogoURL from "../assets/images/channels/lark.svg";
 import channelLineLogoURL from "../assets/images/channels/line.svg";
+import channelMixinLogoURL from "../assets/images/channels/mixin.svg";
 import channelSlackLogoURL from "../assets/images/channels/slack.svg";
 import channelTelegramLogoURL from "../assets/images/channels/telegram.svg";
-import { endpointState, runtimeApiFetchForEndpoint, translate } from "../core/context";
+import {
+  endpointState,
+  runtimeApiDownloadForEndpoint,
+  runtimeApiFetchForEndpoint,
+  translate,
+} from "../core/context";
 import { useContactsStore } from "../stores/contactsStore";
 import MarkdownEditor from "./MarkdownEditor";
 import "./AppMarkdownEditor.css";
@@ -15,6 +21,7 @@ const CHANNEL_LOGOS = {
   discord: channelDiscordLogoURL,
   lark: channelLarkLogoURL,
   line: channelLineLogoURL,
+  mixin: channelMixinLogoURL,
   slack: channelSlackLogoURL,
   telegram: channelTelegramLogoURL,
 };
@@ -37,12 +44,15 @@ function platformFromReferenceID(referenceID) {
   return protocol;
 }
 
-function contactPlatform(contact) {
-  return trimText(contact?.channel).toLowerCase() || platformFromReferenceID(contact?.contact_id);
-}
-
 function conversationPlatform(conversation) {
   return trimText(conversation?.platform).toLowerCase() || platformFromReferenceID(conversation?.chat_id);
+}
+
+function initialAvatarDataURL(value) {
+  const initial = Array.from(trimText(value))[0]?.toUpperCase() || "?";
+  const escaped = initial.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><rect width="28" height="28" rx="14" fill="#fff"/><text x="14" y="14" dy=".35em" text-anchor="middle" fill="#426f9e" font-family="system-ui,sans-serif" font-size="12" font-weight="650">${escaped}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function safeMentionLabel(value) {
@@ -56,7 +66,7 @@ function contactDisplayName(contact, t) {
   return trimText(contact?.nickname) || trimText(contact?.contact_id) || t("contacts_unnamed");
 }
 
-function mentionItemsForContacts(contacts, t) {
+function mentionItemsForContacts(contacts, avatarSources, t) {
   const items = [];
   for (const contact of Array.isArray(contacts) ? contacts : []) {
     const contactID = trimText(contact?.contact_id);
@@ -72,7 +82,7 @@ function mentionItemsForContacts(contacts, t) {
       title,
       subtitle: channel.toUpperCase(),
       value: `[${label}](${contactID})`,
-      image: CHANNEL_LOGOS[contactPlatform(contact)] || "",
+      image: trimText(avatarSources?.[contactID]) || initialAvatarDataURL(title),
     });
   }
   return items;
@@ -100,7 +110,7 @@ function conversationItemsForProfiles(profiles) {
       title,
       subtitle: [platform, type].filter(Boolean).map((value) => value.toUpperCase()).join(" · "),
       value: `[${label}](${chatID})`,
-      image: CHANNEL_LOGOS[platform] || "",
+      image: CHANNEL_LOGOS[platform] || initialAvatarDataURL(title),
     });
   }
   return items.sort((left, right) => left.title.localeCompare(right.title));
@@ -146,14 +156,80 @@ const AppMarkdownEditor = {
     const editorRef = ref(null);
     const contactsStore = useContactsStore();
     const { items: contacts, loading: contactsLoading, error: contactsError } = storeToRefs(contactsStore);
-    const mentionItems = computed(() => mentionItemsForContacts(contacts.value, t));
+    const contactAvatarSources = ref({});
+    const mentionItems = computed(() => mentionItemsForContacts(contacts.value, contactAvatarSources.value, t));
     const conversationItems = ref([]);
     const conversationsError = ref("");
     const conversationsLoading = ref(false);
     let conversationsRequestSeq = 0;
+    let contactAvatarsRequestSeq = 0;
+    let contactAvatarsLoading = false;
+    const attemptedContactAvatars = new Set();
+    const contactAvatarObjectURLs = new Set();
 
     function loadContacts() {
       void contactsStore.load({ perfSource: "markdown-editor-toolbar" }).catch(() => {});
+    }
+
+    function clearContactAvatars() {
+      contactAvatarsRequestSeq += 1;
+      contactAvatarsLoading = false;
+      attemptedContactAvatars.clear();
+      contactAvatarSources.value = {};
+      for (const objectURL of contactAvatarObjectURLs) {
+        URL.revokeObjectURL(objectURL);
+      }
+      contactAvatarObjectURLs.clear();
+    }
+
+    async function loadContactAvatars() {
+      if (contactAvatarsLoading) {
+        return;
+      }
+      const endpointRef = trimText(endpointState.selectedRef);
+      if (!endpointRef) {
+        return;
+      }
+      const candidates = contacts.value.filter((contact) => {
+        const contactID = trimText(contact?.contact_id);
+        const avatarPath = trimText(contact?.avatar_url);
+        const requestKey = `${contactID}\n${avatarPath}`;
+        if (!contactID || !avatarPath || contactAvatarSources.value[contactID] || attemptedContactAvatars.has(requestKey)) {
+          return false;
+        }
+        attemptedContactAvatars.add(requestKey);
+        return true;
+      });
+      if (candidates.length === 0) {
+        return;
+      }
+
+      contactAvatarsLoading = true;
+      const requestSeq = ++contactAvatarsRequestSeq;
+      try {
+        await Promise.all(
+          candidates.map(async (contact) => {
+            const contactID = trimText(contact.contact_id);
+            try {
+              const blob = await runtimeApiDownloadForEndpoint(endpointRef, trimText(contact.avatar_url), {
+                cache: "force-cache",
+              });
+              if (requestSeq !== contactAvatarsRequestSeq) {
+                return;
+              }
+              const objectURL = URL.createObjectURL(blob);
+              contactAvatarObjectURLs.add(objectURL);
+              contactAvatarSources.value = { ...contactAvatarSources.value, [contactID]: objectURL };
+            } catch {
+              // Keep the initial fallback when an avatar cannot be loaded.
+            }
+          })
+        );
+      } finally {
+        if (requestSeq === contactAvatarsRequestSeq) {
+          contactAvatarsLoading = false;
+        }
+      }
     }
 
     async function loadConversations() {
@@ -200,6 +276,7 @@ const AppMarkdownEditor = {
     }
 
     function endpointChanged() {
+      clearContactAvatars();
       loadContacts();
       conversationsRequestSeq += 1;
       conversationItems.value = [];
@@ -208,15 +285,16 @@ const AppMarkdownEditor = {
     }
 
     watch(() => endpointState.selectedRef, endpointChanged, { immediate: true });
+    onBeforeUnmount(clearContactAvatars);
 
     return {
       contactsError,
       contactsLoading,
       conversationItems,
       conversationsError,
-      conversationsLoading,
       editorRef,
       insertReference,
+      loadContactAvatars,
       loadConversations,
       mentionItems,
       t,
@@ -249,6 +327,7 @@ const AppMarkdownEditor = {
           :emptyHit="contactsError ? t('markdown_editor_mention_load_failed') : t('markdown_editor_mention_empty')"
           :disabled="disabled || readOnly"
           :loading="contactsLoading"
+          @click.capture="loadContactAvatars"
           @change="insertReference"
         >
           <span class="markdown-editor-toolbar-glyph" aria-hidden="true">
@@ -268,7 +347,6 @@ const AppMarkdownEditor = {
           :aria-label="t('markdown_editor_conversation')"
           :emptyHit="conversationsError ? t('markdown_editor_conversation_load_failed') : t('markdown_editor_conversation_empty')"
           :disabled="disabled || readOnly"
-          :loading="conversationsLoading"
           @click.capture="loadConversations"
           @keydown.down.capture="loadConversations"
           @keydown.enter.capture="loadConversations"

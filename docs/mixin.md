@@ -116,6 +116,8 @@ In a group, include the bot mention before either command.
 
 Mixin users are stored as `mixin:<user_uuid>`. Conversations are referenced as `mixin:<conversation_uuid>`. A user's public Mixin ID is kept for display and group mentions, but UUIDs remain the canonical identifiers.
 
+The ingress user lookup already returns `avatar_url`. Morph reuses that result to refresh the Contact avatar asynchronously; it does not make a second user lookup or store the remote URL in Contact YAML.
+
 An administrator can pair two Morph Agents through their existing private conversations. Configure the administrator with a Mixin user UUID:
 
 ```yaml

@@ -69,6 +69,7 @@ type slackUserIdentity struct {
 	UserID      string
 	Username    string
 	DisplayName string
+	AvatarURL   string
 }
 
 type slackBotInfoResponse struct {
@@ -77,6 +78,9 @@ type slackBotInfoResponse struct {
 	Bot   struct {
 		Name   string `json:"name,omitempty"`
 		UserID string `json:"user_id,omitempty"`
+		Icons  struct {
+			Image72 string `json:"image_72,omitempty"`
+		} `json:"icons,omitempty"`
 	} `json:"bot,omitempty"`
 }
 
@@ -89,6 +93,8 @@ type slackUserInfoResponse struct {
 		Profile struct {
 			DisplayName string `json:"display_name,omitempty"`
 			RealName    string `json:"real_name,omitempty"`
+			Image72     string `json:"image_72,omitempty"`
+			Image192    string `json:"image_192,omitempty"`
 		} `json:"profile,omitempty"`
 	} `json:"user,omitempty"`
 }
@@ -203,7 +209,17 @@ func (api *slackAPI) userIdentity(ctx context.Context, userID string) (slackUser
 		UserID:      resolvedUserID,
 		Username:    username,
 		DisplayName: displayName,
+		AvatarURL:   firstNonEmptyString(out.User.Profile.Image192, out.User.Profile.Image72),
 	}, nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (api *slackAPI) botIdentity(ctx context.Context, botID string) (slackUserIdentity, error) {
@@ -246,6 +262,7 @@ func (api *slackAPI) botIdentity(ctx context.Context, botID string) (slackUserId
 		UserID:      userID,
 		Username:    name,
 		DisplayName: name,
+		AvatarURL:   strings.TrimSpace(out.Bot.Icons.Image72),
 	}, nil
 }
 

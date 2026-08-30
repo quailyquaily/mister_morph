@@ -164,6 +164,43 @@ func TestLarkAPISetEmojiReaction(t *testing.T) {
 	}
 }
 
+func TestLarkAPIUserAvatarURL(t *testing.T) {
+	t.Parallel()
+
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case larkapi.TenantAccessTokenPath:
+			writeTestJSON(w, map[string]any{"code": 0, "msg": "success", "tenant_access_token": "tenant-token", "expire": 7200})
+		case "/contact/v3/users/ou_alice":
+			if got := r.URL.Query().Get("user_id_type"); got != "open_id" {
+				t.Fatalf("user_id_type = %q, want open_id", got)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer tenant-token" {
+				t.Fatalf("authorization = %q", got)
+			}
+			writeTestJSON(w, map[string]any{
+				"code": 0,
+				"msg":  "success",
+				"data": map[string]any{"user": map[string]any{"avatar": map[string]string{
+					"avatar_72":  "https://cdn.example/alice-72.png",
+					"avatar_240": "https://cdn.example/alice-240.png",
+				}}},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+
+	api := newLarkAPI(server.Client, server.URL, larkapi.NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
+	got, err := api.userAvatarURL(context.Background(), "ou_alice")
+	if err != nil {
+		t.Fatalf("userAvatarURL() error = %v", err)
+	}
+	if got != "https://cdn.example/alice-240.png" {
+		t.Fatalf("userAvatarURL() = %q, want 240px avatar", got)
+	}
+}
+
 func writeTestJSON(w http.ResponseWriter, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)

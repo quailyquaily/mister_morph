@@ -1,0 +1,12 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="256" cy="256" r="234" fill="white"/>
+<path d="M120 149L174 174V338L120 365V149Z" fill="url(#mixin-gradient)"/>
+<path d="M338 174L392 149V365L338 338V174Z" fill="url(#mixin-gradient)"/>
+<path d="M256 200L310 230V291L256 321L202 291V230L256 200Z" fill="url(#mixin-gradient)"/>
+<defs>
+<linearGradient id="mixin-gradient" x1="256" y1="149" x2="256" y2="365" gradientUnits="userSpaceOnUse">
+<stop stop-color="#28C3F5"/>
+<stop offset="1" stop-color="#2865E8"/>
+</linearGradient>
+</defs>
+</svg>

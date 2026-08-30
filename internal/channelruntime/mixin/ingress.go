@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
@@ -24,6 +25,7 @@ import (
 const (
 	mixinImageMaxBytes = int64(5 << 20)
 	mixinFileMaxBytes  = int64(20 << 20)
+	mixinUserCacheTTL  = 7 * 24 * time.Hour
 )
 
 var errMixinAttachmentDownload = errors.New("mixin attachment download failed")
@@ -50,18 +52,25 @@ type mixinIngress struct {
 	logger    *slog.Logger
 	cacheDir  string
 	authorize func(context.Context, mixinbus.InboundMessage) (bool, error)
+	now       func() time.Time
 
 	mu                        sync.Mutex
-	users                     map[string]mixinapi.User
+	users                     map[string]mixinUserCacheEntry
 	conversations             map[string]mixinapi.Conversation
 	onConversationInvalidated func(string)
+}
+
+type mixinUserCacheEntry struct {
+	user      mixinapi.User
+	expiresAt time.Time
 }
 
 func newMixinIngress(api mixinAPI, bot mixinapi.User, cacheDir string, logger *slog.Logger) *mixinIngress {
 	return &mixinIngress{
 		api: api, bot: bot, cacheDir: strings.TrimSpace(cacheDir),
 		logger: logger,
-		users:  make(map[string]mixinapi.User), conversations: make(map[string]mixinapi.Conversation),
+		now:    time.Now,
+		users:  make(map[string]mixinUserCacheEntry), conversations: make(map[string]mixinapi.Conversation),
 	}
 }
 
@@ -243,21 +252,27 @@ func attachmentDisplayName(payload mixinAttachmentPayload, fallback string) stri
 }
 
 func (i *mixinIngress) user(ctx context.Context, userID string) mixinapi.User {
+	now := i.now()
 	i.mu.Lock()
-	user, found := i.users[userID]
+	entry, found := i.users[userID]
 	i.mu.Unlock()
-	if found {
-		return user
+	if found && entry.expiresAt.After(now) {
+		return entry.user
 	}
-	user = mixinapi.User{UserID: userID}
+	user := mixinapi.User{UserID: userID}
 	if i.api != nil {
 		if fetched, err := i.api.ReadUser(ctx, userID); err == nil {
 			user = fetched
 			i.mu.Lock()
-			i.users[userID] = user
+			i.users[userID] = mixinUserCacheEntry{user: user, expiresAt: now.Add(mixinUserCacheTTL)}
 			i.mu.Unlock()
-		} else if i.logger != nil {
-			i.logger.Warn("mixin_profile_fetch_failed", "user_id", userID, "error", err.Error())
+		} else {
+			if i.logger != nil {
+				i.logger.Warn("mixin_profile_fetch_failed", "user_id", userID, "error", err.Error())
+			}
+			if found {
+				return entry.user
+			}
 		}
 	}
 	return user

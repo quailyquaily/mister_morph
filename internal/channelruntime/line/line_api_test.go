@@ -103,6 +103,41 @@ func TestLineAPIBotUserID(t *testing.T) {
 	}
 }
 
+func TestLineAPIUserProfile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		chatType string
+		chatID   string
+		wantPath string
+	}{
+		{name: "private", chatType: "user", chatID: "Ualice", wantPath: "/v2/bot/profile/Ualice"},
+		{name: "group", chatType: "group", chatID: "Cgroup", wantPath: "/v2/bot/group/Cgroup/member/Ualice"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tt.wantPath {
+					t.Fatalf("path = %q, want %q", r.URL.Path, tt.wantPath)
+				}
+				if got := r.Header.Get("Authorization"); got != "Bearer line-token" {
+					t.Fatalf("authorization = %q", got)
+				}
+				_, _ = w.Write([]byte(`{"displayName":"Alice","userId":"Ualice","pictureUrl":"https://cdn.example/alice.png"}`))
+			}))
+
+			profile, err := newLineAPI(server.Client, server.URL, "line-token").userProfile(context.Background(), tt.chatType, tt.chatID, "Ualice")
+			if err != nil {
+				t.Fatalf("userProfile() error = %v", err)
+			}
+			if profile.PictureURL != "https://cdn.example/alice.png" || profile.DisplayName != "Alice" {
+				t.Fatalf("profile = %+v", profile)
+			}
+		})
+	}
+}
+
 func TestLineAPIMessageContent(t *testing.T) {
 	t.Parallel()
 

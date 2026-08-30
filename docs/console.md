@@ -104,6 +104,7 @@ Stack:
   - dedicated sidebar entry
   - structured list rendering from `ACTIVE.md` + `INACTIVE.md`
   - status filter (`all|active|inactive`)
+  - circular cached avatars with a stable initial fallback; local and remote endpoints use the same authenticated proxy path
 - Audit:
   - browse Guard audit files
   - cursor-based reads for large JSONL logs (`limit` + opaque `cursor`)
@@ -184,6 +185,9 @@ Runtime routes used through `/proxy`:
   - `DELETE /persona/avatar`
 - Contacts:
   - `GET /contacts/list?status=all|active|inactive`
+  - `GET /contacts/avatar?contact_id=<contact_id>`
+
+`/contacts/list` may return an endpoint-relative `avatar_url` for a Contact whose cached avatar exists. The URL is derived state and is not written to Contact YAML. Console fetches the image through the selected endpoint, so a remote Contact avatar is never read from the local runtime by mistake.
 - Audit:
   - `GET /audit/files`
   - `GET /audit/logs?file=<name>&limit=<n>[&cursor=<opaque>]`

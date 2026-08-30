@@ -37,6 +37,7 @@ type telegramRuntimeStateConfig struct {
 	runtimeBundle      runtimecore.ChannelRuntimeBundle
 	runtimeGenerations *runtimecore.RuntimeGenerationManager
 	contactsService    *contacts.Service
+	avatarRefresher    *contacts.ContactAvatarRefresher
 	pairManager        *agentpair.Manager
 	workspaceStore     *workspace.Store
 	inboundAdapter     *telegrambus.InboundAdapter
@@ -76,6 +77,7 @@ type telegramRuntimeState struct {
 	inboundAdapter      *telegrambus.InboundAdapter
 	deliveryAdapter     *telegrambus.DeliveryAdapter
 	contactsService     *contacts.Service
+	avatarRefresher     *contacts.ContactAvatarRefresher
 	pairManager         *agentpair.Manager
 	workspaceStore      *workspace.Store
 	runControl          *runtimecontrol.RunControl
@@ -152,6 +154,7 @@ func newTelegramRuntimeState(config telegramRuntimeStateConfig) (*telegramRuntim
 		runtimeGenerations: config.runtimeGenerations,
 		inboundAdapter:     config.inboundAdapter,
 		contactsService:    config.contactsService,
+		avatarRefresher:    config.avatarRefresher,
 		pairManager:        config.pairManager,
 		workspaceStore:     config.workspaceStore,
 		runControl:         runtimecontrol.New(),
@@ -242,6 +245,9 @@ func (s *telegramRuntimeState) close() {
 		}
 		if s.stopWorkers != nil {
 			s.stopWorkers()
+		}
+		if s.avatarRefresher != nil {
+			s.avatarRefresher.Close()
 		}
 		if s.runner != nil {
 			s.runner.WaitClosed()

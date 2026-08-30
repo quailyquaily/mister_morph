@@ -105,6 +105,8 @@ The runtime calls `conversations.info` to cache conversation names and types for
 - Direct message: `im:read`
 - Group direct message: `mpim:read`
 
+The existing `users.info` lookup also supplies the sender's Contact avatar. Morph downloads the selected `profile.image_*` URL asynchronously and caches the image for seven days. The avatar is derived state and does not add fields to Contact YAML.
+
 After adding or changing any scope:
 
 1. Click `Reinstall to Workspace`.

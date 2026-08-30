@@ -20,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
@@ -124,6 +125,11 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 	workspaceStore := workspace.NewStore(d.RuntimePaths.WorkspaceAttachmentsPath)
 	contactsSvc := contacts.NewService(contactsStore)
+	avatarRefresher, err := contacts.NewContactAvatarRefresher(ctx, contactsStore, logger.With("channel", "line"))
+	if err != nil {
+		return err
+	}
+	defer avatarRefresher.Close()
 	lineInboundAdapter, err := linebus.NewInboundAdapter(linebus.InboundAdapterOptions{
 		Bus:   inprocBus,
 		Store: contactsStore,
@@ -134,6 +140,29 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	baseURL := strings.TrimSpace(opts.BaseURL)
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	api := newLineAPI(httpClient, baseURL, opts.ChannelAccessToken)
+	if err := avatarRefresher.Prewarm(contacts.ChannelLine, func(contact contacts.Contact) contacts.ContactAvatarFetchFunc {
+		userID := refid.NormalizeLineID(contact.LineUserID)
+		if userID == "" {
+			return nil
+		}
+		chatType, chatID := "private", userID
+		for _, candidate := range contact.LineChatIDs {
+			candidate = refid.NormalizeLineID(candidate)
+			if candidate != "" && !refid.LineIDLooksLikeUserID(candidate) {
+				chatType, chatID = "group", candidate
+				break
+			}
+		}
+		return func(ctx context.Context) ([]byte, bool, error) {
+			profile, err := api.userProfile(ctx, chatType, chatID, userID)
+			if err != nil {
+				return nil, false, err
+			}
+			return contacts.FetchContactAvatarURL(ctx, api.http, profile.PictureURL)
+		}
+	}); err != nil {
+		logger.Warn("contact_avatar_prewarm_failed", "channel", "line", "error", err.Error())
+	}
 	lineDeliveryAdapter, err := linebus.NewDeliveryAdapter(linebus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts linebus.SendTextOptions) error {
 			deliverTarget, ok := target.(linebus.DeliveryTarget)
@@ -670,6 +699,16 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			}
 			if err := contactsSvc.ObserveInboundBusMessage(context.Background(), msg, time.Now().UTC()); err != nil {
 				logger.Warn("contacts_observe_bus_error", "channel", msg.Channel, "idempotency_key", msg.IdempotencyKey, "error", err.Error())
+			}
+			if inbound, err := linebus.InboundMessageFromBusMessage(msg); err == nil {
+				chatType, chatID, userID := inbound.ChatType, inbound.ChatID, inbound.FromUserID
+				avatarRefresher.Enqueue("line_user:"+userID, func(ctx context.Context) ([]byte, bool, error) {
+					profile, err := api.userProfile(ctx, chatType, chatID, userID)
+					if err != nil {
+						return nil, false, err
+					}
+					return contacts.FetchContactAvatarURL(ctx, api.http, profile.PictureURL)
+				})
 			}
 			if enqueueLineInbound == nil {
 				return fmt.Errorf("line inbound handler is not initialized")

@@ -36,6 +36,7 @@ type slackRuntimeStateConfig struct {
 	availableEmojiNames []string
 	inprocBus           *busruntime.Inproc
 	contactsService     *contacts.Service
+	avatarRefresher     *contacts.ContactAvatarRefresher
 	pairManager         *agentpair.Manager
 	workspaceStore      *workspace.Store
 	inboundAdapter      *slackbus.InboundAdapter
@@ -75,6 +76,7 @@ type slackRuntimeState struct {
 	availableEmojiNames           []string
 	availableEmojiList            string
 	contactsService               *contacts.Service
+	avatarRefresher               *contacts.ContactAvatarRefresher
 	pairManager                   *agentpair.Manager
 	workspaceStore                *workspace.Store
 	inboundAdapter                *slackbus.InboundAdapter
@@ -150,6 +152,7 @@ func newSlackRuntimeState(config slackRuntimeStateConfig) (*slackRuntimeState, e
 		availableEmojiNames:           append([]string(nil), config.availableEmojiNames...),
 		availableEmojiList:            strings.Join(config.availableEmojiNames, ","),
 		contactsService:               config.contactsService,
+		avatarRefresher:               config.avatarRefresher,
 		pairManager:                   config.pairManager,
 		workspaceStore:                config.workspaceStore,
 		inboundAdapter:                config.inboundAdapter,
@@ -232,6 +235,9 @@ func (s *slackRuntimeState) close() {
 		}
 		if s.stopWorkers != nil {
 			s.stopWorkers()
+		}
+		if s.avatarRefresher != nil {
+			s.avatarRefresher.Close()
 		}
 		if s.runner != nil {
 			s.runner.WaitClosed()
