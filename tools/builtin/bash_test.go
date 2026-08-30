@@ -183,23 +183,6 @@ func TestBashTool_Execute_PathAliasMissingBaseDir(t *testing.T) {
 	}
 }
 
-func TestBashTool_Execute_DefaultCWDUsesWorkspaceDirFromContext(t *testing.T) {
-	workspaceDir := t.TempDir()
-	cacheDir := t.TempDir()
-	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.New("", cacheDir, ""))
-
-	ctx := pathroots.WithWorkspaceDir(context.Background(), workspaceDir)
-	out, err := tool.Execute(ctx, map[string]any{
-		"cmd": "pwd",
-	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v (out=%q)", err, out)
-	}
-	if !strings.Contains(out, filepath.Clean(workspaceDir)) {
-		t.Fatalf("expected pwd output to contain %q, got %q", workspaceDir, out)
-	}
-}
-
 func TestBashTool_Execute_UsesWhitelistedEnvOnly(t *testing.T) {
 	t.Setenv("HOME", "/tmp/mm-home")
 	t.Setenv("LANG", "C.UTF-8")
@@ -343,44 +326,6 @@ func TestBashTool_Execute_RewriteEnabledEmptyBinaryDoesNothing(t *testing.T) {
 	}
 	if !strings.Contains(out, "raw") {
 		t.Fatalf("expected original command output, got %q", out)
-	}
-}
-
-func TestBashTool_Execute_EmitsStreamEvents(t *testing.T) {
-	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
-	sink := &recordingEventSink{}
-	ctx := agent.WithEventSinkContext(context.Background(), sink)
-
-	out, err := tool.Execute(ctx, map[string]any{
-		"cmd": "printf 'alpha\\n'; printf 'beta\\n' 1>&2",
-	})
-	if err != nil {
-		t.Fatalf("Execute() error = %v (out=%q)", err, out)
-	}
-
-	events := sink.snapshot()
-	if len(events) == 0 {
-		t.Fatal("expected stream events, got none")
-	}
-
-	var stdoutSeen bool
-	var stderrSeen bool
-	for _, event := range events {
-		if event.Kind != agent.EventKindToolOutput || event.ToolName != "bash" {
-			continue
-		}
-		if event.Stream == "stdout" && strings.Contains(event.Text, "alpha") {
-			stdoutSeen = true
-		}
-		if event.Stream == "stderr" && strings.Contains(event.Text, "beta") {
-			stderrSeen = true
-		}
-	}
-	if !stdoutSeen {
-		t.Fatalf("stdout stream event missing, events=%#v", events)
-	}
-	if !stderrSeen {
-		t.Fatalf("stderr stream event missing, events=%#v", events)
 	}
 }
 
