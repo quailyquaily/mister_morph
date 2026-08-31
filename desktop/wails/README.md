@@ -126,6 +126,8 @@ The macOS packaging script signs the `.app` bundle in two modes:
 - with `CODESIGN_IDENTITY`: Developer ID signing, plus DMG notarization if Apple notarization credentials are also present
 - without `CODESIGN_IDENTITY`: ad hoc signing for local builds or test-user distribution
 
+The DMG opens as a fixed Finder window with a MisterMorph background, the app on the left, and an Applications shortcut on the right. Users install it by dragging the app onto Applications.
+
 The tag release workflow requires these GitHub Actions secrets for the macOS DMG job:
 
 - `APPLE_CERTIFICATE_BASE64`: base64-encoded `.p12` containing the Developer ID Application certificate and private key

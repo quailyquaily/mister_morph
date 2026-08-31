@@ -120,6 +120,43 @@ func TestDesktopPackagesRegisterMisterMorphApplicationID(t *testing.T) {
 	}
 }
 
+func TestDarwinPackageBuildsStyledDMG(t *testing.T) {
+	script := readRepoFile(t, "desktop", "wails", "packaging", "package-darwin.sh")
+
+	for _, token := range []string{
+		"DMG_BACKGROUND_SOURCE",
+		"DMG_STAGING_DIR",
+		".background",
+		`ln -s "/Applications"`,
+		"osascript",
+		"-format UDRW",
+		"hdiutil attach",
+		"hdiutil detach",
+		"hdiutil convert",
+	} {
+		if !strings.Contains(script, token) {
+			t.Errorf("macOS package script missing %q", token)
+		}
+	}
+
+	assertOrdered(t, script,
+		"\t-format UDRW",
+		"\nhdiutil attach",
+		"\nosascript -",
+		"\tif hdiutil detach",
+		"\nhdiutil convert",
+		`echo "signing DMG`,
+	)
+
+	background := readRepoFile(t, "desktop", "wails", "packaging", "dmg-background.svg")
+	if !strings.Contains(background, `viewBox="0 0 760 480"`) {
+		t.Fatal("DMG background must match the Finder window content size")
+	}
+	if len(readRepoFile(t, "desktop", "wails", "packaging", "dmg-background.png")) == 0 {
+		t.Fatal("DMG background PNG is empty")
+	}
+}
+
 func assertOrdered(t *testing.T, text string, tokens ...string) {
 	t.Helper()
 	previous := -1

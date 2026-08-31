@@ -13,16 +13,25 @@ DESKTOP_BIN="${DESKTOP_BIN:-${ROOT_DIR}/dist/MisterMorph}"
 BACKEND_BIN="${BACKEND_BIN:-${ROOT_DIR}/dist/mistermorphc}"
 BUNDLED_BACKEND_NAME="${BUNDLED_BACKEND_NAME:-mistermorphc}"
 ICON_PNG="${ICON_PNG:-${ROOT_DIR}/desktop/wails/packaging/appicon.png}"
+DMG_BACKGROUND_SOURCE="${DMG_BACKGROUND_SOURCE:-${ROOT_DIR}/desktop/wails/packaging/dmg-background.png}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
 APP_DIR="${OUT_DIR}/${APP_BUNDLE_NAME}.app"
 DMG_PATH="${DMG_PATH:-${OUT_DIR}/mistermorph-desktop-darwin-${ARCH}.dmg}"
+DMG_VOLUME_NAME="${DMG_VOLUME_NAME:-${APP_DISPLAY_NAME} Installer}"
 TARBALL_PATH="${TARBALL_PATH:-${OUT_DIR}/mistermorph-desktop-darwin-${ARCH}.tar.gz}"
-ICONSET_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mistermorph-iconset.XXXXXX")"
-ICONSET_DIR="${ICONSET_ROOT}/mistermorph.iconset"
+WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mistermorph-darwin-package.XXXXXX")"
+ICONSET_DIR="${WORK_ROOT}/mistermorph.iconset"
+DMG_STAGING_DIR="${WORK_ROOT}/dmg"
+DMG_MOUNT_DIR="${WORK_ROOT}/mount"
+RW_DMG_PATH="${WORK_ROOT}/mistermorph-rw.dmg"
 ICNS_PATH="${OUT_DIR}/mistermorph.icns"
+DMG_ATTACHED=false
 
 cleanup() {
-  rm -rf "${ICONSET_ROOT}"
+	if [[ "${DMG_ATTACHED}" == "true" ]]; then
+		hdiutil detach "${DMG_MOUNT_DIR}" -quiet >/dev/null 2>&1 || true
+	fi
+	rm -rf "${WORK_ROOT}"
 }
 trap cleanup EXIT
 
@@ -34,7 +43,7 @@ require_file() {
   fi
 }
 
-for command_name in hdiutil iconutil sips tar; do
+for command_name in codesign ditto hdiutil iconutil osascript sips tar; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "missing required command: ${command_name}" >&2
     exit 1
@@ -44,11 +53,12 @@ done
 require_file "${DESKTOP_BIN}"
 require_file "${BACKEND_BIN}"
 require_file "${ICON_PNG}"
+require_file "${DMG_BACKGROUND_SOURCE}"
 
 mkdir -p "${OUT_DIR}" "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
 rm -rf "${APP_DIR}" "${DMG_PATH}" "${TARBALL_PATH}" "${ICNS_PATH}"
 mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
-mkdir -p "${ICONSET_DIR}"
+mkdir -p "${ICONSET_DIR}" "${DMG_STAGING_DIR}/.background" "${DMG_MOUNT_DIR}"
 
 render_icon() {
   local size="$1"
@@ -139,12 +149,71 @@ if [[ -n "${CODESIGN_IDENTITY}" && ( -z "${APPLE_ID}" || -z "${APPLE_TEAM_ID}" |
   echo "skipping notarization because Apple notarization credentials are incomplete"
 fi
 
+ditto "${APP_DIR}" "${DMG_STAGING_DIR}/${APP_BUNDLE_NAME}.app"
+ln -s "/Applications" "${DMG_STAGING_DIR}/Applications"
+cp "${DMG_BACKGROUND_SOURCE}" "${DMG_STAGING_DIR}/.background/background.png"
+
 hdiutil create \
-  -volname "${APP_BUNDLE_NAME}" \
-  -srcfolder "${APP_DIR}" \
-  -ov \
-  -format UDZO \
-  "${DMG_PATH}" >/dev/null
+	-volname "${DMG_VOLUME_NAME}" \
+	-srcfolder "${DMG_STAGING_DIR}" \
+	-ov \
+	-format UDRW \
+	"${RW_DMG_PATH}" >/dev/null
+
+hdiutil attach \
+	-readwrite \
+	-noverify \
+	-noautoopen \
+	-mountpoint "${DMG_MOUNT_DIR}" \
+	"${RW_DMG_PATH}" >/dev/null
+DMG_ATTACHED=true
+
+osascript - "${DMG_VOLUME_NAME}" "${APP_BUNDLE_NAME}.app" <<'APPLESCRIPT'
+on run arguments
+	set volumeName to item 1 of arguments
+	set appItemName to item 2 of arguments
+	tell application "Finder"
+		set targetDisk to disk volumeName
+		tell targetDisk
+			open
+			set current view of container window to icon view
+			set toolbar visible of container window to false
+			set statusbar visible of container window to false
+			set bounds of container window to {100, 100, 860, 608}
+			set viewOptions to icon view options of container window
+			set arrangement of viewOptions to not arranged
+			set icon size of viewOptions to 128
+			set text size of viewOptions to 14
+			set label position of viewOptions to bottom
+			set background picture of viewOptions to file ".background:background.png"
+			set position of item appItemName to {200, 245}
+			set position of item "Applications" to {560, 245}
+			update without registering applications
+			delay 2
+			close container window
+		end tell
+	end tell
+end run
+APPLESCRIPT
+
+sync
+for attempt in 1 2 3 4 5; do
+	if hdiutil detach "${DMG_MOUNT_DIR}" -quiet; then
+		DMG_ATTACHED=false
+		break
+	fi
+	sleep 1
+done
+if [[ "${DMG_ATTACHED}" == "true" ]]; then
+	echo "failed to detach DMG staging volume" >&2
+	exit 1
+fi
+
+hdiutil convert \
+	"${RW_DMG_PATH}" \
+	-format UDZO \
+	-imagekey zlib-level=9 \
+	-o "${DMG_PATH}" >/dev/null
 
 if [[ -n "${CODESIGN_IDENTITY}" ]]; then
   echo "signing DMG..."
