@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -229,9 +230,6 @@ func (o *FileOwner) Update(ctx context.Context, update AgentSettingsUpdate) (Age
 	if o == nil {
 		return AgentSettingsView{}, fmt.Errorf("agent settings owner is nil")
 	}
-	if update.MigrateSecrets {
-		return o.migratePlaintextSecrets(ctx)
-	}
 	previousDoc, err := loadYAMLDocument(o.configPath)
 	if err != nil && !os.IsNotExist(err) {
 		return AgentSettingsView{}, err
@@ -287,88 +285,6 @@ func (o *FileOwner) Update(ctx context.Context, update AgentSettingsUpdate) (Age
 	return view, nil
 }
 
-func (o *FileOwner) migratePlaintextSecrets(ctx context.Context) (AgentSettingsView, error) {
-	if o.osStore == nil {
-		return AgentSettingsView{}, &StatusError{
-			Status:  http.StatusServiceUnavailable,
-			Message: "system secret store is unavailable",
-		}
-	}
-	doc, err := loadYAMLDocument(o.configPath)
-	if err != nil {
-		return AgentSettingsView{}, err
-	}
-	settings, err := readFileSettingsWithSource(o.configPath, o.secretSource)
-	if err != nil {
-		return AgentSettingsView{}, err
-	}
-	llmNode := agentSettingsYAMLLLMNode(doc)
-	nodes := llmPlaintextSecretNodes(llmNode, settings.LLM.Provider)
-	profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
-	for _, profile := range settings.LLM.Profiles {
-		profileNode := configbootstrap.FindMappingValue(profilesNode, strings.TrimSpace(profile.Name))
-		nodes = append(nodes, llmPlaintextSecretNodes(profileNode, profile.Provider)...)
-	}
-	var newSecretIDs []string
-	committed := false
-	defer func() {
-		if !committed {
-			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
-		}
-	}()
-	for _, node := range nodes {
-		value := strings.TrimSpace(node.Value)
-		id, err := secref.NewOSSecretID()
-		if err != nil {
-			return AgentSettingsView{}, err
-		}
-		if err := o.osStore.Put(ctx, id, []byte(value)); err != nil {
-			return AgentSettingsView{}, err
-		}
-		newSecretIDs = append(newSecretIDs, id)
-		node.Value = secref.OSSecretRef(id)
-		node.Tag = "!!str"
-	}
-	if len(newSecretIDs) == 0 {
-		return o.View(ctx)
-	}
-	serialized, err := configbootstrap.MarshalDocument(doc)
-	if err != nil {
-		return AgentSettingsView{}, err
-	}
-	effectiveLLM, err := settingsFromRuntimeReader(o.CurrentReader())
-	if err != nil {
-		return AgentSettingsView{}, err
-	}
-	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
-		return AgentSettingsView{}, &StatusError{Status: http.StatusBadRequest, Message: err.Error()}
-	}
-	if err := fsstore.WriteTextAtomic(o.configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600}); err != nil {
-		return AgentSettingsView{}, err
-	}
-	committed = true
-	return o.persistedView(serialized)
-}
-
-func llmPlaintextSecretNodes(node *yaml.Node, provider string) []*yaml.Node {
-	seen := map[*yaml.Node]bool{}
-	nodes := []*yaml.Node{}
-	for _, field := range llmSecretFieldNames {
-		for _, current := range agentSettingsYAMLFieldNodes(node, provider, field) {
-			value := strings.TrimSpace(current.Value)
-			if value == "" || seen[current] || strings.Contains(value, "${") {
-				continue
-			}
-			if _, ok := secref.ParseSingleRef(value); ok {
-				continue
-			}
-			seen[current] = true
-			nodes = append(nodes, current)
-		}
-	}
-	return nodes
-}
-
 func deleteOSSecretIDs(ctx context.Context, store secref.OSStore, ids []string) {
 	if store == nil {
 		return
@@ -379,16 +295,9 @@ func deleteOSSecretIDs(ctx context.Context, store secref.OSStore, ids []string) 
 }
 
 func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSettingsUpdate) ([]string, error) {
-	var newSecretIDs []string
 	if o == nil || update == nil || o.osStore == nil {
 		return nil, nil
 	}
-	complete := false
-	defer func() {
-		if !complete {
-			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
-		}
-	}()
 	doc, err := loadYAMLDocument(o.configPath)
 	if err != nil {
 		return nil, err
@@ -407,16 +316,15 @@ func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSe
 		{name: "bedrock_aws_secret", value: &update.LLM.BedrockAWSSecret},
 		{name: "cloudflare_api_token", value: &update.LLM.CloudflareAPIToken},
 	}
-	defaultUpdates := make([]llmSecretUpdate, 0, len(fields))
+	updates := make([]llmSecretUpdate, 0, len(fields))
 	for _, field := range fields {
 		if field.value == nil || *field.value == nil {
 			continue
 		}
 		value := **field.value
-		defaultUpdates = append(defaultUpdates, llmSecretUpdate{name: field.name, value: &value, target: field.value})
-	}
-	if err := o.storeLLMSecretUpdates(ctx, nil, "", defaultUpdates, &newSecretIDs); err != nil {
-		return nil, err
+		updates = append(updates, llmSecretUpdate{
+			name: field.name, configKey: llmSecretConfigKey("llm", field.name), value: &value, target: field.value,
+		})
 	}
 	if update.LLM.Profile != nil {
 		profile := update.LLM.Profile
@@ -430,15 +338,12 @@ func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSe
 				break
 			}
 		}
-		profileUpdates := []llmSecretUpdate{
-			{name: "api_key", value: &profile.APIKey, preserveExisting: !profile.secretFieldProvided("api_key", profile.APIKey)},
-			{name: "bedrock_aws_key", value: &profile.BedrockAWSKey, preserveExisting: !profile.secretFieldProvided("bedrock_aws_key", profile.BedrockAWSKey)},
-			{name: "bedrock_aws_secret", value: &profile.BedrockAWSSecret, preserveExisting: !profile.secretFieldProvided("bedrock_aws_secret", profile.BedrockAWSSecret)},
-			{name: "cloudflare_api_token", value: &profile.CloudflareAPIToken, preserveExisting: !profile.secretFieldProvided("cloudflare_api_token", profile.CloudflareAPIToken)},
-		}
-		if err := o.storeLLMSecretUpdates(ctx, profileNode, provider, profileUpdates, &newSecretIDs); err != nil {
-			return nil, err
-		}
+		updates = append(updates,
+			llmSecretUpdate{node: profileNode, provider: provider, name: "api_key", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "api_key"), value: &profile.APIKey, preserveExisting: !profile.secretFieldProvided("api_key", profile.APIKey)},
+			llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_key", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_key"), value: &profile.BedrockAWSKey, preserveExisting: !profile.secretFieldProvided("bedrock_aws_key", profile.BedrockAWSKey)},
+			llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_secret", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_secret"), value: &profile.BedrockAWSSecret, preserveExisting: !profile.secretFieldProvided("bedrock_aws_secret", profile.BedrockAWSSecret)},
+			llmSecretUpdate{node: profileNode, provider: provider, name: "cloudflare_api_token", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "cloudflare_api_token"), value: &profile.CloudflareAPIToken, preserveExisting: !profile.secretFieldProvided("cloudflare_api_token", profile.CloudflareAPIToken)},
+		)
 	}
 	if update.LLM.Profiles != nil {
 		profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
@@ -452,23 +357,27 @@ func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSe
 					break
 				}
 			}
-			profileUpdates := []llmSecretUpdate{
-				{name: "api_key", value: &profile.APIKey, preserveExisting: true},
-				{name: "bedrock_aws_key", value: &profile.BedrockAWSKey, preserveExisting: true},
-				{name: "bedrock_aws_secret", value: &profile.BedrockAWSSecret, preserveExisting: true},
-				{name: "cloudflare_api_token", value: &profile.CloudflareAPIToken, preserveExisting: true},
-			}
-			if err := o.storeLLMSecretUpdates(ctx, profileNode, provider, profileUpdates, &newSecretIDs); err != nil {
-				return nil, err
-			}
+			updates = append(updates,
+				llmSecretUpdate{node: profileNode, provider: provider, name: "api_key", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "api_key"), value: &profile.APIKey, preserveExisting: true},
+				llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_key", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_key"), value: &profile.BedrockAWSKey, preserveExisting: true},
+				llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_secret", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_secret"), value: &profile.BedrockAWSSecret, preserveExisting: true},
+				llmSecretUpdate{node: profileNode, provider: provider, name: "cloudflare_api_token", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "cloudflare_api_token"), value: &profile.CloudflareAPIToken, preserveExisting: true},
+			)
 		}
 	}
-	complete = true
+	newSecretIDs, err := o.storeLLMSecretUpdates(ctx, updates)
+	if err != nil {
+		slog.Warn("os_secret_store_write_failed", "scope", "agent_settings", "error", err)
+		return nil, nil
+	}
 	return newSecretIDs, nil
 }
 
 type llmSecretUpdate struct {
+	node             *yaml.Node
+	provider         string
 	name             string
+	configKey        string
 	value            *string
 	target           **string
 	preserveExisting bool
@@ -476,16 +385,19 @@ type llmSecretUpdate struct {
 
 func (o *FileOwner) storeLLMSecretUpdates(
 	ctx context.Context,
-	node *yaml.Node,
-	provider string,
 	updates []llmSecretUpdate,
-	newSecretIDs *[]string,
-) error {
+) ([]string, error) {
+	type replacement struct {
+		update llmSecretUpdate
+		value  string
+	}
+	var newSecretIDs []string
+	var replacements []replacement
 	for _, update := range updates {
 		value := strings.TrimSpace(*update.value)
 		if value == "" {
 			if update.preserveExisting {
-				if id := osSecretIDFromYAML(node, provider, update.name); id != "" {
+				if id := osSecretIDFromYAML(update.node, update.provider, update.name); id != "" {
 					*update.value = secref.OSSecretRef(id)
 				}
 			}
@@ -496,20 +408,38 @@ func (o *FileOwner) storeLLMSecretUpdates(
 		}
 		id, err := secref.NewOSSecretID()
 		if err != nil {
-			return err
+			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
+			return nil, fmt.Errorf("%s: %w", update.name, err)
 		}
-		if err := o.osStore.Put(ctx, id, []byte(value)); err != nil {
-			return err
+		if err := o.osStore.Put(ctx, id, update.configKey, []byte(value)); err != nil {
+			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
+			return nil, fmt.Errorf("%s: %w", update.name, err)
 		}
-		*newSecretIDs = append(*newSecretIDs, id)
-		ref := secref.OSSecretRef(id)
-		if update.target != nil {
-			*update.target = &ref
+		newSecretIDs = append(newSecretIDs, id)
+		replacements = append(replacements, replacement{update: update, value: secref.OSSecretRef(id)})
+	}
+	for _, replacement := range replacements {
+		if replacement.update.target != nil {
+			value := replacement.value
+			*replacement.update.target = &value
 		} else {
-			*update.value = ref
+			*replacement.update.value = replacement.value
 		}
 	}
-	return nil
+	return newSecretIDs, nil
+}
+
+func llmSecretConfigKey(prefix, field string) string {
+	suffix := field
+	switch field {
+	case "bedrock_aws_key":
+		suffix = "bedrock.aws_key"
+	case "bedrock_aws_secret":
+		suffix = "bedrock.aws_secret"
+	case "cloudflare_api_token":
+		suffix = "cloudflare.api_token"
+	}
+	return prefix + "." + suffix
 }
 
 func isSecretReference(value string) bool {

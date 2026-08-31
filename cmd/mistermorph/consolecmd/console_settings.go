@@ -163,7 +163,6 @@ type consoleSettingsUpdatePayload struct {
 	Lark            *consoleLarkSettingsUpdatePayload     `json:"lark,omitempty"`
 	Mixin           *consoleMixinSettingsUpdatePayload    `json:"mixin,omitempty"`
 	Guard           *consoleGuardSettingsUpdatePayload    `json:"guard,omitempty"`
-	MigrateSecrets  bool                                  `json:"migrate_secrets,omitempty"`
 }
 
 type consoleSettingsEnvManagedPayload struct {
@@ -195,108 +194,59 @@ func prepareConsoleSecretUpdates(ctx context.Context, req *consoleSettingsUpdate
 	if req == nil || store == nil {
 		return nil, nil
 	}
-	fields := make([]**string, 0, 6)
+	type secretField struct {
+		name  string
+		value **string
+	}
+	fields := make([]secretField, 0, 6)
 	if req.Telegram != nil {
-		fields = append(fields, &req.Telegram.BotToken)
+		fields = append(fields, secretField{name: "telegram.bot_token", value: &req.Telegram.BotToken})
 	}
 	if req.Slack != nil {
-		fields = append(fields, &req.Slack.BotToken, &req.Slack.AppToken)
+		fields = append(fields,
+			secretField{name: "slack.bot_token", value: &req.Slack.BotToken},
+			secretField{name: "slack.app_token", value: &req.Slack.AppToken},
+		)
 	}
 	if req.Line != nil {
-		fields = append(fields, &req.Line.ChannelAccessToken, &req.Line.ChannelSecret)
+		fields = append(fields,
+			secretField{name: "line.channel_access_token", value: &req.Line.ChannelAccessToken},
+			secretField{name: "line.channel_secret", value: &req.Line.ChannelSecret},
+		)
 	}
 	if req.Lark != nil {
-		fields = append(fields, &req.Lark.AppSecret)
+		fields = append(fields, secretField{name: "lark.app_secret", value: &req.Lark.AppSecret})
 	}
+	type replacement struct {
+		field secretField
+		value string
+	}
+	var replacements []replacement
 	for _, field := range fields {
-		if field == nil || *field == nil {
+		if field.value == nil || *field.value == nil {
 			continue
 		}
-		value := strings.TrimSpace(**field)
+		value := strings.TrimSpace(**field.value)
 		if _, ok := secref.ParseSingleRef(value); value == "" || ok {
 			continue
 		}
 		id, err := secref.NewOSSecretID()
 		if err != nil {
 			deleteConsoleOSSecretIDs(ctx, store, newSecretIDs)
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", field.name, err)
 		}
-		if err := store.Put(ctx, id, []byte(value)); err != nil {
+		if err := store.Put(ctx, id, field.name, []byte(value)); err != nil {
 			deleteConsoleOSSecretIDs(ctx, store, newSecretIDs)
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", field.name, err)
 		}
 		newSecretIDs = append(newSecretIDs, id)
-		ref := secref.OSSecretRef(id)
-		*field = &ref
+		replacements = append(replacements, replacement{field: field, value: secref.OSSecretRef(id)})
+	}
+	for _, replacement := range replacements {
+		value := replacement.value
+		*replacement.field.value = &value
 	}
 	return newSecretIDs, nil
-}
-
-func migrateConsolePlaintextSecrets(ctx context.Context, configPath string, store secref.OSStore) error {
-	if store == nil {
-		return secref.ErrOSStoreUnavailable
-	}
-	doc, err := loadYAMLDocument(configPath)
-	if err != nil {
-		return err
-	}
-	root, err := configbootstrap.DocumentMapping(doc)
-	if err != nil {
-		return err
-	}
-	fields := []struct {
-		section string
-		name    string
-	}{
-		{section: "telegram", name: "bot_token"},
-		{section: "slack", name: "bot_token"},
-		{section: "slack", name: "app_token"},
-		{section: "line", name: "channel_access_token"},
-		{section: "line", name: "channel_secret"},
-		{section: "lark", name: "app_secret"},
-	}
-	var newSecretIDs []string
-	committed := false
-	defer func() {
-		if !committed {
-			deleteConsoleOSSecretIDs(ctx, store, newSecretIDs)
-		}
-	}()
-	for _, field := range fields {
-		section := configbootstrap.FindMappingValue(root, field.section)
-		node := configbootstrap.FindMappingValue(section, field.name)
-		if node == nil {
-			continue
-		}
-		value := strings.TrimSpace(node.Value)
-		_, isRef := secref.ParseSingleRef(value)
-		if value == "" || strings.Contains(value, "${") || isRef {
-			continue
-		}
-		id, err := secref.NewOSSecretID()
-		if err != nil {
-			return err
-		}
-		if err := store.Put(ctx, id, []byte(value)); err != nil {
-			return err
-		}
-		newSecretIDs = append(newSecretIDs, id)
-		node.Value = secref.OSSecretRef(id)
-		node.Tag = "!!str"
-	}
-	if len(newSecretIDs) == 0 {
-		committed = true
-		return nil
-	}
-	serialized, err := configbootstrap.MarshalDocument(doc)
-	if err != nil {
-		return err
-	}
-	if err := fsstore.WriteTextAtomic(configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600}); err != nil {
-		return err
-	}
-	committed = true
-	return nil
 }
 
 func (s *server) handleConsoleSettings(w http.ResponseWriter, r *http.Request) {
@@ -360,17 +310,6 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if req.MigrateSecrets {
-		if err := migrateConsolePlaintextSecrets(r.Context(), configPath, s.secretStore); err != nil {
-			writeError(w, http.StatusServiceUnavailable, err.Error())
-			return
-		}
-		current, err = readConsoleSettings(configPath)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
 	previousDoc, err := loadYAMLDocument(configPath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -379,8 +318,8 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 	previousSecretIDs := secref.OSSecretIDsInYAML(previousDoc)
 	newSecretIDs, err := prepareConsoleSecretUpdates(r.Context(), &req, s.secretStore)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-		return
+		s.logger().Warn("os_secret_store_write_failed", "scope", "console_settings", "error", err)
+		newSecretIDs = nil
 	}
 	committed := false
 	defer func() {

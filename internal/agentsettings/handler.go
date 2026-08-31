@@ -113,10 +113,9 @@ type SkillsSettingsUpdate struct {
 }
 
 type AgentSettingsUpdate struct {
-	LLM            LLMSettingsUpdate     `json:"llm"`
-	Skills         *SkillsSettingsUpdate `json:"skills,omitempty"`
-	Tools          *ToolsSettingsUpdate  `json:"tools,omitempty"`
-	MigrateSecrets bool                  `json:"migrate_secrets,omitempty"`
+	LLM    LLMSettingsUpdate     `json:"llm"`
+	Skills *SkillsSettingsUpdate `json:"skills,omitempty"`
+	Tools  *ToolsSettingsUpdate  `json:"tools,omitempty"`
 }
 
 type AgentSettingsView struct {

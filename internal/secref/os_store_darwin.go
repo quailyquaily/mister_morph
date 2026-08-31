@@ -5,6 +5,7 @@ package secref
 import (
 	"context"
 	"runtime"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -12,9 +13,21 @@ import (
 )
 
 const (
-	errSecSuccess      int32 = 0
-	errSecItemNotFound int32 = -25300
+	errSecSuccess      int32  = 0
+	errSecItemNotFound int32  = -25300
+	secLabelItemAttr   uint32 = 0x6c61626c // 'labl'
 )
+
+type secKeychainAttribute struct {
+	tag    uint32
+	length uint32
+	data   uintptr
+}
+
+type secKeychainAttributeList struct {
+	count      uint32
+	attributes uintptr
+}
 
 type darwinKeychainStore struct {
 	once sync.Once
@@ -88,7 +101,7 @@ func (s *darwinKeychainStore) Get(ctx context.Context, id string) ([]byte, error
 	return value, nil
 }
 
-func (s *darwinKeychainStore) Put(ctx context.Context, id string, value []byte) error {
+func (s *darwinKeychainStore) Put(ctx context.Context, id, configKey string, value []byte) error {
 	if err := validateOSSecretID(id); err != nil {
 		return err
 	}
@@ -98,10 +111,18 @@ func (s *darwinKeychainStore) Put(ctx context.Context, id string, value []byte) 
 	if !s.ready() {
 		return ErrOSStoreUnavailable
 	}
+	label := "MisterMorph"
+	if configKey = strings.TrimSpace(configKey); configKey != "" {
+		label += " · " + configKey
+	}
+	labelBytes := []byte(label)
+	attribute := secKeychainAttribute{tag: secLabelItemAttr, length: uint32(len(labelBytes)), data: uintptr(unsafe.Pointer(bytesPointer(labelBytes)))}
+	attributes := secKeychainAttributeList{count: 1, attributes: uintptr(unsafe.Pointer(&attribute))}
+
 	_, item, status := s.find(id)
 	if status == errSecSuccess {
 		defer s.releaseCoreFoundation(item)
-		status = s.modifyItem(item, 0, uint32(len(value)), bytesPointer(value))
+		status = s.modifyItem(item, uintptr(unsafe.Pointer(&attributes)), uint32(len(value)), bytesPointer(value))
 	} else if status == errSecItemNotFound {
 		service := []byte(osKeyringService)
 		account := []byte(id)
@@ -110,12 +131,21 @@ func (s *darwinKeychainStore) Put(ctx context.Context, id string, value []byte) 
 			uint32(len(service)), bytesPointer(service),
 			uint32(len(account)), bytesPointer(account),
 			uint32(len(value)), bytesPointer(value),
-			nil,
+			&item,
 		)
+		if item != 0 {
+			defer s.releaseCoreFoundation(item)
+		}
+		if status == errSecSuccess {
+			status = s.modifyItem(item, uintptr(unsafe.Pointer(&attributes)), uint32(len(value)), bytesPointer(value))
+		}
 		runtime.KeepAlive(service)
 		runtime.KeepAlive(account)
 	}
 	runtime.KeepAlive(value)
+	runtime.KeepAlive(labelBytes)
+	runtime.KeepAlive(attribute)
+	runtime.KeepAlive(attributes)
 	if status != errSecSuccess {
 		return ErrOSStoreUnavailable
 	}

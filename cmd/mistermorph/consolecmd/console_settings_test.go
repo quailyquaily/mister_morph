@@ -18,7 +18,9 @@ import (
 type consoleSettingsTestOSStore struct {
 	values  map[string]string
 	puts    []string
+	labels  map[string]string
 	deletes []string
+	putErr  error
 }
 
 func (s *consoleSettingsTestOSStore) Get(_ context.Context, id string) ([]byte, error) {
@@ -29,12 +31,19 @@ func (s *consoleSettingsTestOSStore) Get(_ context.Context, id string) ([]byte, 
 	return []byte(value), nil
 }
 
-func (s *consoleSettingsTestOSStore) Put(_ context.Context, id string, value []byte) error {
+func (s *consoleSettingsTestOSStore) Put(_ context.Context, id, configKey string, value []byte) error {
+	if s.putErr != nil {
+		return s.putErr
+	}
 	if s.values == nil {
 		s.values = map[string]string{}
 	}
 	s.values[id] = string(value)
 	s.puts = append(s.puts, id)
+	if s.labels == nil {
+		s.labels = map[string]string{}
+	}
+	s.labels[id] = configKey
 	return nil
 }
 
@@ -75,6 +84,9 @@ func TestHandleConsoleSettingsRotatesChannelSecretsIntoOSStore(t *testing.T) {
 		t.Fatalf("store operations puts=%v deletes=%v", store.puts, store.deletes)
 	}
 	newID := store.puts[0]
+	if store.labels[newID] != "telegram.bot_token" {
+		t.Fatalf("stored config key = %q, want telegram.bot_token", store.labels[newID])
+	}
 	raw, _ := os.ReadFile(configPath)
 	if strings.Contains(string(raw), "new-token") || !strings.Contains(string(raw), secref.OSSecretRef(newID)) {
 		t.Fatalf("channel token was not stored as OS ref:\n%s", raw)
@@ -124,10 +136,9 @@ func TestHandleConsoleSettingsKeepsSharedOSSecret(t *testing.T) {
 	}
 }
 
-func TestHandleConsoleSettingsMigratesPlaintextChannelSecrets(t *testing.T) {
+func TestHandleConsoleSettingsFallsBackToPlaintextWhenOSStoreWriteFails(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	config := "telegram:\n  bot_token: telegram-secret\nslack:\n  bot_token: slack-secret\n  app_token: ${SLACK_APP_TOKEN}\n"
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte("console:\n  managed_runtimes: [telegram]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
@@ -139,8 +150,8 @@ func TestHandleConsoleSettingsMigratesPlaintextChannelSecrets(t *testing.T) {
 			viper.Set("config", nil)
 		}
 	})
-	store := &consoleSettingsTestOSStore{values: map[string]string{}}
-	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(`{"migrate_secrets":true}`))
+	store := &consoleSettingsTestOSStore{putErr: secref.ErrOSStoreUnavailable}
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(`{"telegram":{"bot_token":"plaintext-fallback"}}`))
 	rec := httptest.NewRecorder()
 
 	(&server{secretStore: store}).handleConsoleSettings(rec, req)
@@ -151,14 +162,8 @@ func TestHandleConsoleSettingsMigratesPlaintextChannelSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "telegram-secret") || strings.Contains(string(raw), "slack-secret") {
-		t.Fatalf("config still contains plaintext tokens:\n%s", raw)
-	}
-	if !strings.Contains(string(raw), "${SLACK_APP_TOKEN}") {
-		t.Fatalf("environment reference was changed:\n%s", raw)
-	}
-	if len(store.values) != 2 {
-		t.Fatalf("stored secret count = %d, want 2", len(store.values))
+	if !strings.Contains(string(raw), "bot_token: plaintext-fallback") || strings.Contains(string(raw), "${secret:") {
+		t.Fatalf("failed store write did not fall back to plaintext:\n%s", raw)
 	}
 }
 

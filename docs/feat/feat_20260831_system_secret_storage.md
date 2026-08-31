@@ -26,10 +26,10 @@ MisterMorph 的 API key、Bot token、OAuth token 和云平台凭据目前可能
 1. 桌面或有登录会话的本地运行，默认把新 secret 存进系统密钥管理器。
 2. 无桌面会话的 Linux 服务、容器和 CI 继续优先使用环境变量或 AWS Secrets Manager。
 3. `config.yaml` 保留现有字符串字段，不把每个字段改成 `{source, id}` 对象，也不增加平行的 `api_key_ref` 字段。
-4. 系统密钥管理器引用使用 `secret://os/<opaque-id>`，并且必须占满整个 scalar value。
+4. 系统密钥管理器引用使用 `${secret:<opaque-id>}`，并且必须占满整个 scalar value。
 5. 现有 `${ENV_VAR}` 和 `${aws-sm:...}` 语法保持兼容。
 6. secret 只在配置快照建立时解析一次。请求路径不重复访问 Keychain、Credential Manager、Secret Service 或 AWS。
-7. 引用解析失败时明确报错，不自动退回明文文件，也不静默尝试其他来源。
+7. 已保存引用解析失败时明确报错，不自动尝试其他来源。Settings 保存新 secret 时若系统密钥管理器写入失败，则记录 warning，并按旧行为把本次提交值写入配置文件。
 8. 第一版不新增直接 AWS KMS 密文后端。AWS 环境继续使用已经实现的 AWS Secrets Manager 引用；Secrets Manager 本身使用 KMS 保护 secret。
 
 这套设计不引入通用插件系统，也不为每个 Provider 增加一层包装。现有 `internal/secref` 扩展为统一入口即可。
@@ -71,11 +71,11 @@ MisterMorph 的 API key、Bot token、OAuth token 和云平台凭据目前可能
 - Windows 桌面：Credential Manager。
 - Linux 桌面：Secret Service。
 - Linux 服务、容器、CI：环境变量或 AWS Secrets Manager。
-- 系统密钥管理器不可用时：提示用户选择环境变量、AWS Secrets Manager 或保留明文；不得静默写回明文。
+- 系统密钥管理器不可用时：启动时记录 warning；Settings 保存回退到 0600 配置文件。服务部署仍建议使用环境变量或 AWS Secrets Manager。
 
 ### 5.1 Secret 字段清单
 
-第一版自动写入、隐藏和迁移以下 Console 可编辑字段：
+第一版自动写入和隐藏以下 Console 可编辑字段：
 
 | 配置字段 | 说明 |
 | --- | --- |
@@ -90,7 +90,7 @@ MisterMorph 的 API key、Bot token、OAuth token 和云平台凭据目前可能
 
 交互式 `install` 采集到的 LLM API key 或 Cloudflare token 也写入系统密钥管理器。非交互式安装不读取系统密钥管理器，生成的模板继续使用环境变量引用。
 
-引用解析本身不限制字段名。因此 `llm.image.api_key`、`auth_profiles.<name>.credential.secret`、`console.password` 和其他 scalar secret 可以手工使用 `secret://os/...`、`${ENV_VAR}` 或 `${aws-sm:...}`。第一版不为这些没有对应编辑界面的字段增加专用写入 API。
+引用解析本身不限制字段名。因此 `llm.image.api_key`、`auth_profiles.<name>.credential.secret`、`console.password` 和其他 scalar secret 可以手工使用 `${secret:...}`、`${ENV_VAR}` 或 `${aws-sm:...}`。第一版不为这些没有对应编辑界面的字段增加专用写入 API。
 
 下列凭据有独立的生命周期，暂不迁移：
 
@@ -107,26 +107,26 @@ OAuth token 会自动刷新，Mixin keystore 也不是单一 scalar。它们应�
 
 ```yaml
 llm:
-  api_key: "secret://os/01K4E2Q4S2V5N9X5J6R4M8A7TC"
+  api_key: "${secret:01K4E2Q4S2V5N9X5J6R4M8A7TC}"
 ```
 
 规则：
 
-- `secret://os/` 后面是 Morph 生成的 opaque id。
+- `secret:` 后面是 Morph 生成的 opaque id。
 - id 至少包含 128 bit 不可预测随机数据；可使用 16 bytes 以上随机值的 base64url 编码。
 - id 不包含 Provider 名、用户名称、配置路径、endpoint 地址或 secret 的一部分。
-- 引用必须是 scalar 的完整内容，不支持 `prefix-secret://os/...-suffix`。
+- 引用必须是 scalar 的完整内容，不支持 `prefix-${secret:...}-suffix`。
 - 同一个引用可被多个运行时字段使用，但 UI 默认每次保存都生成新 id，避免无意共享生命周期。
 - 复制 `config.yaml` 到另一台机器不会复制 secret。目标机器应报告引用不存在，而不是得到空字符串。
 
 操作系统中的记录至少包含：
 
-- service：稳定的 MisterMorph application id；
+- service：`com.mistermorph`；
 - account：opaque id；
 - secret：原始字节；
-- 可选 label：仅供系统 UI 展示，不参与定位。
+- label：`MisterMorph · <config-path.key-name>`，仅供系统 UI 展示，不参与定位。
 
-label 可以写成 `MisterMorph LLM credential`，但不能包含 secret、完整 endpoint 或本机路径。
+例如 `llm.profiles.reasoning.api_key` 对应 `MisterMorph · llm.profiles.reasoning.api_key`。label 不包含 secret、完整 endpoint 或本机路径。系统只读写 `com.mistermorph` service。
 
 ### 6.2 环境变量
 
@@ -189,7 +189,7 @@ llm:
   api_key: "sk-..."
 ```
 
-Web UI 应标记它为 `file` source，并提供显式的“移入系统密钥管理器”操作。启动时不自动修改文件，也不自动删除明文。
+Web UI 应标记它为 `file` source。只有用户再次提交该字段时，后端才尝试把新值写入系统密钥管理器。启动时不自动修改文件，也不自动删除明文。
 
 新安装在系统密钥管理器可用时，不应生成新的明文 secret。
 
@@ -286,7 +286,7 @@ llm:
 
 对于最终选中的 secret 字段：
 
-1. `secret://os/...`：从系统密钥管理器读取；
+1. `${secret:...}`：从系统密钥管理器读取；
 2. `${ENV_VAR}`：从当前进程环境读取；
 3. `${aws-sm:...}`：从 AWS Secrets Manager 读取；
 4. 其他值：按旧版明文处理。
@@ -322,7 +322,7 @@ llm:
 ```go
 type OSStore interface {
     Get(ctx context.Context, id string) ([]byte, error)
-    Put(ctx context.Context, id string, value []byte) error
+    Put(ctx context.Context, id, configKey string, value []byte) error
     Delete(ctx context.Context, id string) error
 }
 ```
@@ -335,7 +335,7 @@ type OSStore interface {
 - 每个字段一组 `GetAPIKey`、`SetBotToken` 薄包装；
 - 让只读环境变量伪装成可写 `Store`。
 
-`Resolver` 继续负责 env 和 AWS Secrets Manager，并增加 `secret://os/...`。写操作只用于 OS store，不需要把所有 source 强行抽象成同一个可写接口。
+`Resolver` 继续负责 env 和 AWS Secrets Manager，并增加 `${secret:...}`。写操作只用于 OS store，不需要把所有 source 强行抽象成同一个可写接口。
 
 ## 10. 操作系统实现
 
@@ -364,7 +364,17 @@ type OSStore interface {
 - AWS Secrets Manager；
 - 明确接受风险后的 0600 配置文件。
 
-程序不得在这种情况下自行创建一个明文 fallback file。
+程序不会创建独立的明文 fallback file。Settings 保存遇到这种情况时，会记录 warning，并继续使用原有的 0600 `config.yaml` 保存路径。
+
+### 10.4 桌面应用身份
+
+桌面安装包统一注册 `com.mistermorph`：
+
+- macOS 使用相同的 `CFBundleIdentifier`，应用包继续携带 MisterMorph 图标；
+- Linux 的 desktop file id、`Icon` 和 GTK program name 使用相同值，deb 和 AppImage 都携带相同图标；
+- Windows manifest 使用相同的 assembly identity，exe 继续携带 MisterMorph 图标。
+
+Linux Secret Service 记录同时使用 `com.mistermorph` 作为 schema name。密码管理器是否显示应用图标取决于其自身是否支持按桌面应用身份关联；不支持关联时仍显示可读 label。
 
 ## 11. 读取、写入、更新和删除
 
@@ -383,11 +393,13 @@ type OSStore interface {
 
 1. 后端生成新的 opaque id；
 2. 把 secret 写入 OS store；
-3. 原子更新 `config.yaml`，把字段改成 `secret://os/<id>`；
+3. 原子更新 `config.yaml`，把字段改成 `${secret:<id>}`；
 4. 重新读取并验证配置；
 5. 生成新的 runtime snapshot。
 
 如果第 3 步失败，应删除第 2 步刚写入但尚未被引用的记录。
+
+如果生成 id 或第 2 步失败，应删除本次保存已经写入的其他新记录，保留请求中的明文值，记录 `os_secret_store_write_failed` warning，然后继续原有的配置保存流程。同一次 Settings 保存不会产生一部分 OS 引用、一部分明文的结果。
 
 ### 11.3 更新
 
@@ -468,9 +480,9 @@ secret 字段返回统一状态，不返回 raw secret：
 当 Console A 管理 Morph B：
 
 - secret 写入 B 所在机器、B 所在用户的系统密钥管理器；
-- B 的 `config.yaml` 保存 B 的 `secret://os/...` reference；
+- B 的 `config.yaml` 保存 B 的 `${secret:...}` reference；
 - A 不保存 B 的 secret 或 reference；
-- B 的系统 store 不可用时，A 展示 B 返回的具体错误；
+- B 的系统 store 不可用时，B 记录 warning，并把本次提交值保存到 B 的配置文件；
 - 不能退回写入 A 的 Keychain。
 
 ## 13. 错误和日志
@@ -503,7 +515,7 @@ secret 字段返回统一状态，不返回 raw secret：
 
 不要把 secret 缺失解析成空字符串后继续请求 Provider。这样会把本地配置错误伪装成上游 401。运行时应在启动、reload 或第一次使用该可选 profile 时给出明确错误。
 
-## 14. 迁移
+## 14. 旧配置
 
 ### 14.1 不自动迁移
 
@@ -514,22 +526,13 @@ secret 字段返回统一状态，不返回 raw secret：
 - `${aws-sm:...}` 保持原样；
 - OAuth token file 保持原样，直到对应认证流程接入 OS store。
 
-启动时不写配置、不删文件、不弹出系统授权窗口。
+启动时先探测系统密钥管理器是否可访问。失败只记录 `os_secret_store_unavailable` warning，不写配置、不删文件，也不阻止不依赖 OS 引用的运行时启动。
 
-### 14.2 显式迁移
+系统不提供单独的迁移动作。用户在 Settings 中重新提交某个 secret 后，该字段按正常保存规则写入系统密钥管理器；未提交的旧明文字段保持不变。
 
-Web UI 在检测到 `file` source 时显示迁移动作。迁移成功后：
+### 14.2 orphan 清理
 
-1. OS store 中存在新记录；
-2. 配置字段变成 `secret://os/...`；
-3. 新 snapshot 验证成功；
-4. 原明文从 YAML 中消失。
-
-CLI 若增加迁移命令，secret 应从交互式隐藏输入或 stdin 读取，不应接受 `--value <secret>`，避免进入 shell history 和进程参数。
-
-### 14.3 orphan 清理
-
-第一版不扫描系统 store，也不依赖枚举能力。每次配置更新都比较提交前后的 `secret://os/...` 引用集合，并删除不再被配置引用的旧记录。删除失败不会回滚已经验证并提交的配置；残留记录不会影响当前配置，可由用户在系统密钥管理器中删除。
+第一版不扫描系统 store，也不依赖枚举能力。每次配置更新都比较提交前后的 `${secret:...}` 引用集合，并删除不再被配置引用的旧记录。删除失败不会回滚已经验证并提交的配置；残留记录不会影响当前配置，可由用户在系统密钥管理器中删除。
 
 ## 15. 安全边界
 
@@ -556,11 +559,13 @@ CLI 若增加迁移命令，secret 应从交互式隐藏输入或 stdin 读取�
 
 ### Phase 1：引用和系统 store
 
-- [x] 为 `internal/secref` 增加 `secret://os/<id>` 解析测试。
+- [x] 为 `internal/secref` 增加 `${secret:<id>}` 解析测试。
 - [x] 增加 malformed ref、完整 scalar 限制和未知 source 测试。
 - [x] 定义最小 `OSStore` 接口。
 - [x] 接入 macOS Keychain、Windows Credential Manager 和 Linux Secret Service。
-- [x] 系统 store 不可用时返回稳定错误，不写 plaintext fallback。
+- [x] 使用 `com.mistermorph` application id、可读配置路径 label 和桌面应用图标关联。
+- [x] 系统 store 不可用时返回稳定错误；Settings 写入失败时记录 warning 并回退到原配置保存行为。
+- [x] runtime 启动时探测系统 store，可用性失败只记录 warning。
 - [x] 同一 snapshot 内只读取一次相同引用。
 
 ### Phase 2：配置快照
@@ -577,13 +582,13 @@ CLI 若增加迁移命令，secret 应从交互式隐藏输入或 stdin 读取�
 - [x] PUT 使用新 id 写入、原子更新配置、验证后删除旧 id。
 - [x] clear 在确认无引用后删除记录。
 - [x] local 和 remote endpoint 使用相同行为。
-- [x] 系统 store 不可用时返回明确错误。
+- [x] 系统 store 写入失败时清理本次新记录、记录 warning，并保存本次提交的明文值。
 
-### Phase 4：安装和迁移
+### Phase 4：安装和旧配置兼容
 
 - [x] 桌面 setup 默认选择 OS store。
 - [x] headless setup 保持 env 或 AWS Secrets Manager 配置路径。
-- [x] 为旧明文提供显式迁移入口。
+- [x] 旧明文保持可读；字段再次保存时使用正常的 OS store 写入路径。
 - [ ] OAuth token 按认证模块逐个迁移，不一次重写所有认证流程。
 - [x] 更新 `assets/config/config.example.yaml` 和用户文档。
 
@@ -601,7 +606,7 @@ CLI 若增加迁移命令，secret 应从交互式隐藏输入或 stdin 读取�
 - 新桌面安装可在 `config.yaml` 不含明文 secret 的情况下运行。
 - macOS、Windows 和 Linux 桌面使用各自的系统密钥管理器。
 - headless Linux 不依赖 Secret Service，能继续使用 env 或 AWS Secrets Manager。
-- `secret://os/...` 只在完整 scalar 中有效。
+- `${secret:...}` 只在完整 scalar 中有效。
 - `${ENV_VAR}` 和 `${aws-sm:...}` 的现有配置无需修改。
 - secret reference 解析失败时不会变成空 credential 请求，也不会静默写入明文。
 - 本地和远程 Console 只能读取 secret 状态，不能读取 secret value。

@@ -17,6 +17,7 @@ import (
 
 type installTestOSStore struct {
 	values map[string][]byte
+	labels map[string]string
 	putErr error
 }
 
@@ -24,7 +25,7 @@ func (s *installTestOSStore) Get(context.Context, string) ([]byte, error) {
 	return nil, secref.ErrOSSecretNotFound
 }
 
-func (s *installTestOSStore) Put(_ context.Context, id string, value []byte) error {
+func (s *installTestOSStore) Put(_ context.Context, id, configKey string, value []byte) error {
 	if s.putErr != nil {
 		return s.putErr
 	}
@@ -32,6 +33,10 @@ func (s *installTestOSStore) Put(_ context.Context, id string, value []byte) err
 		s.values = map[string][]byte{}
 	}
 	s.values[id] = append([]byte(nil), value...)
+	if s.labels == nil {
+		s.labels = map[string]string{}
+	}
+	s.labels[id] = configKey
 	return nil
 }
 
@@ -54,6 +59,9 @@ func TestProtectInstallSetupSecretsStoresAPIKey(t *testing.T) {
 	if got := string(store.values[ref.SecretID]); got != "install-secret" {
 		t.Fatalf("stored secret = %q, want install-secret", got)
 	}
+	if got := store.labels[ref.SecretID]; got != "llm.api_key" {
+		t.Fatalf("stored config key = %q, want llm.api_key", got)
+	}
 }
 
 func TestProtectInstallSetupSecretsStoresCloudflareToken(t *testing.T) {
@@ -66,6 +74,9 @@ func TestProtectInstallSetupSecretsStoresCloudflareToken(t *testing.T) {
 	ref, ok := secref.ParseSingleRef(setup.CloudflareAPIToken)
 	if !ok || string(store.values[ref.SecretID]) != "cloudflare-secret" {
 		t.Fatalf("cloudflare token was not stored through OS secret storage")
+	}
+	if got := store.labels[ref.SecretID]; got != "llm.cloudflare.api_token" {
+		t.Fatalf("stored config key = %q, want llm.cloudflare.api_token", got)
 	}
 }
 

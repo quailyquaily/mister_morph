@@ -7,6 +7,7 @@ CALLER_DIR="$(pwd)"
 PACKAGE_NAME="${PACKAGE_NAME:-mistermorph-desktop}"
 APP_BINARY_NAME="${APP_BINARY_NAME:-mistermorph-desktop}"
 DISPLAY_NAME="${DISPLAY_NAME:-MisterMorph}"
+APPLICATION_ID="${APPLICATION_ID:-com.mistermorph}"
 VERSION="${VERSION:-0.0.0}"
 ARCH="${ARCH:-amd64}"
 DESKTOP_BIN="${DESKTOP_BIN:-${ROOT_DIR}/dist/mistermorph-desktop}"
@@ -17,9 +18,8 @@ OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
 WORK_ROOT="${WORK_ROOT:-${OUT_DIR}/deb-work}"
 DEB_NAME="${DEB_NAME:-mistermorph-desktop-linux-${ARCH}.deb}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/mistermorph}"
-ICON_NAME="${ICON_NAME:-mistermorph-desktop}"
 ICON_THEME_SIZE="${ICON_THEME_SIZE:-512x512}"
-DESKTOP_FILE_NAME="${DESKTOP_FILE_NAME:-mistermorph-desktop.desktop}"
+DESKTOP_FILE_NAME="${DESKTOP_FILE_NAME:-${APPLICATION_ID}.desktop}"
 
 abspath() {
   local path="$1"
@@ -88,8 +88,8 @@ mkdir -p \
 
 install -m 0755 "${DESKTOP_BIN}" "${PACKAGE_ROOT}${INSTALL_DIR}/${APP_BINARY_NAME}"
 install -m 0755 "${BACKEND_BIN}" "${PACKAGE_ROOT}${INSTALL_DIR}/${BUNDLED_BACKEND_NAME}"
-install -m 0644 "${ICON_PNG}" "${PACKAGE_ROOT}/usr/share/icons/hicolor/${ICON_THEME_SIZE}/apps/${ICON_NAME}.png"
-install -m 0644 "${ICON_PNG}" "${PACKAGE_ROOT}/usr/share/pixmaps/${ICON_NAME}.png"
+install -m 0644 "${ICON_PNG}" "${PACKAGE_ROOT}/usr/share/icons/hicolor/${ICON_THEME_SIZE}/apps/${APPLICATION_ID}.png"
+install -m 0644 "${ICON_PNG}" "${PACKAGE_ROOT}/usr/share/pixmaps/${APPLICATION_ID}.png"
 install -m 0644 "${ROOT_DIR}/LICENSE" "${PACKAGE_ROOT}/usr/share/doc/${PACKAGE_NAME}/copyright"
 ln -s "${INSTALL_DIR}/${APP_BINARY_NAME}" "${PACKAGE_ROOT}/usr/bin/${APP_BINARY_NAME}"
 
@@ -99,10 +99,10 @@ Type=Application
 Name=${DISPLAY_NAME}
 Comment=MisterMorph Desktop
 Exec=${INSTALL_DIR}/${APP_BINARY_NAME}
-Icon=${ICON_NAME}
+Icon=${APPLICATION_ID}
 Categories=Development;Utility;
 Terminal=false
-StartupWMClass=MisterMorph
+StartupWMClass=${APPLICATION_ID}
 EOF
 
 cat > "${PACKAGE_ROOT}/DEBIAN/control" <<EOF

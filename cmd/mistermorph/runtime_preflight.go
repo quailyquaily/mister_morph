@@ -1,15 +1,27 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/cobra"
 )
 
 func runRootPreflight(cmd *cobra.Command, _ []string) error {
+	if shouldCheckOSSecretStore(cmd) {
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := secref.CheckOSStore(ctx, secref.NewOSStore()); err != nil {
+			slog.Warn("os_secret_store_unavailable", "error", err)
+		}
+	}
 	if err := loadRootConfig(cmd); err != nil {
 		if !isConsoleRepairCommand(cmd) {
 			return err
@@ -20,6 +32,18 @@ func runRootPreflight(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 	return runRuntimeFilePreflight(cmd.ErrOrStderr())
+}
+
+func shouldCheckOSSecretStore(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	switch cmd.CommandPath() {
+	case "mistermorph run", "mistermorph chat", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark", "mistermorph mixin", "mistermorph console serve":
+		return true
+	default:
+		return false
+	}
 }
 
 func isConsoleRepairCommand(cmd *cobra.Command) bool {

@@ -151,7 +151,7 @@ func buildDesktopAppOptions(host *DesktopHost, appBinding *App) application.Opti
 		Description: "MisterMorph Desktop",
 		Icon:        desktopAppIconPNG,
 		Linux: application.LinuxOptions{
-			ProgramName: "MisterMorph",
+			ProgramName: "com.mistermorph",
 		},
 		Assets: application.AssetOptions{
 			// Linux custom-scheme requests can lose JSON bodies; load the console over

@@ -9,12 +9,13 @@ import (
 )
 
 type fakeKeyringClient struct {
-	values       map[string]string
+	values       map[string]map[string]string
 	getErr       error
 	setErr       error
 	deleteErr    error
 	lastService  string
 	lastAccount  string
+	lastLabel    string
 	lastPassword string
 }
 
@@ -24,24 +25,28 @@ func (f *fakeKeyringClient) Get(service, account string) (string, error) {
 	if f.getErr != nil {
 		return "", f.getErr
 	}
-	value, ok := f.values[account]
+	value, ok := f.values[service][account]
 	if !ok {
 		return "", errKeyringNotFound
 	}
 	return value, nil
 }
 
-func (f *fakeKeyringClient) Set(service, account, password string) error {
+func (f *fakeKeyringClient) Set(service, account, label, password string) error {
 	f.lastService = service
 	f.lastAccount = account
+	f.lastLabel = label
 	f.lastPassword = password
 	if f.setErr != nil {
 		return f.setErr
 	}
 	if f.values == nil {
-		f.values = map[string]string{}
+		f.values = map[string]map[string]string{}
 	}
-	f.values[account] = password
+	if f.values[service] == nil {
+		f.values[service] = map[string]string{}
+	}
+	f.values[service][account] = password
 	return nil
 }
 
@@ -51,10 +56,10 @@ func (f *fakeKeyringClient) Delete(service, account string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
-	if _, ok := f.values[account]; !ok {
+	if _, ok := f.values[service][account]; !ok {
 		return errKeyringNotFound
 	}
-	delete(f.values, account)
+	delete(f.values[service], account)
 	return nil
 }
 
@@ -71,7 +76,11 @@ func TestNewOSSecretIDCreatesValidOpaqueIDs(t *testing.T) {
 		t.Fatalf("generated duplicate ids: %q", first)
 	}
 	for _, id := range []string{first, second} {
-		ref, ok := ParseSingleRef(OSSecretRef(id))
+		encoded := OSSecretRef(id)
+		if encoded != "${secret:"+id+"}" {
+			t.Fatalf("OSSecretRef(%q) = %q", id, encoded)
+		}
+		ref, ok := ParseSingleRef(encoded)
 		if !ok || ref.Kind != RefKindOS || ref.SecretID != id {
 			t.Fatalf("generated id %q does not produce a valid OS ref", id)
 		}
@@ -83,11 +92,11 @@ func TestKeyringOSStoreLifecycle(t *testing.T) {
 	store := newKeyringOSStore(client)
 	const id = "b_LsX7HLzAR3OShG7YjRcw"
 
-	if err := store.Put(context.Background(), id, []byte("secret-value")); err != nil {
+	if err := store.Put(context.Background(), id, "llm.profiles.reasoning.api_key", []byte("secret-value")); err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}
-	if client.lastService != osKeyringService || client.lastAccount != id || client.lastPassword != "secret-value" {
-		t.Fatalf("keyring Set args = %q/%q/%q", client.lastService, client.lastAccount, client.lastPassword)
+	if client.lastService != osKeyringService || client.lastAccount != id || client.lastLabel != "MisterMorph · llm.profiles.reasoning.api_key" || client.lastPassword != "secret-value" {
+		t.Fatalf("keyring Set args = %q/%q/%q/%q", client.lastService, client.lastAccount, client.lastLabel, client.lastPassword)
 	}
 	got, err := store.Get(context.Background(), id)
 	if err != nil {
@@ -106,7 +115,7 @@ func TestKeyringOSStoreLifecycle(t *testing.T) {
 
 func TestKeyringOSStoreRejectsInvalidID(t *testing.T) {
 	store := newKeyringOSStore(&fakeKeyringClient{})
-	if err := store.Put(context.Background(), "provider/openai", []byte("secret")); !errors.Is(err, ErrInvalidSecretRef) {
+	if err := store.Put(context.Background(), "provider/openai", "llm.api_key", []byte("secret")); !errors.Is(err, ErrInvalidSecretRef) {
 		t.Fatalf("Put() error = %v, want ErrInvalidSecretRef", err)
 	}
 }
@@ -128,6 +137,20 @@ func TestKeyringOSStoreHonorsCanceledContext(t *testing.T) {
 	store := newKeyringOSStore(&fakeKeyringClient{})
 	if _, err := store.Get(ctx, "b_LsX7HLzAR3OShG7YjRcw"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Get() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestCheckOSStoreAvailableWhenProbeIsMissing(t *testing.T) {
+	store := newKeyringOSStore(&fakeKeyringClient{})
+	if err := CheckOSStore(context.Background(), store); err != nil {
+		t.Fatalf("CheckOSStore() error = %v", err)
+	}
+}
+
+func TestCheckOSStoreUnavailable(t *testing.T) {
+	store := newKeyringOSStore(&fakeKeyringClient{getErr: errors.New("unavailable")})
+	if err := CheckOSStore(context.Background(), store); !errors.Is(err, ErrOSStoreUnavailable) {
+		t.Fatalf("CheckOSStore() error = %v, want ErrOSStoreUnavailable", err)
 	}
 }
 

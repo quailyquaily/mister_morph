@@ -126,18 +126,18 @@ func ResolveString(ctx context.Context, value string, source Source, opts Option
 
 func ParseSingleRef(value string) (Ref, bool) {
 	value = strings.TrimSpace(value)
-	if strings.HasPrefix(value, "secret://os/") {
-		id := strings.TrimPrefix(value, "secret://os/")
-		if !osSecretIDRe.MatchString(id) {
-			return Ref{}, false
-		}
-		return Ref{Kind: RefKindOS, SecretID: id}, true
-	}
 	groups := placeholderRe.FindStringSubmatch(value)
 	if len(groups) != 2 || groups[0] != value {
 		return Ref{}, false
 	}
 	body := strings.TrimSpace(groups[1])
+	if strings.HasPrefix(body, "secret:") {
+		id := strings.TrimSpace(strings.TrimPrefix(body, "secret:"))
+		if !osSecretIDRe.MatchString(id) {
+			return Ref{}, false
+		}
+		return Ref{Kind: RefKindOS, SecretID: id}, true
+	}
 	if envNameRe.MatchString(body) {
 		return Ref{Kind: RefKindEnv, EnvName: body}, true
 	}
@@ -157,11 +157,8 @@ func ParseSingleRef(value string) (Ref, bool) {
 }
 
 func (r *Resolver) ResolveString(ctx context.Context, value string, opts Options) (Result, error) {
-	if strings.Contains(value, "secret://") {
-		ref, ok := ParseSingleRef(value)
-		if !ok || ref.Kind != RefKindOS {
-			return Result{}, ErrInvalidSecretRef
-		}
+	ref, ok := ParseSingleRef(value)
+	if ok && ref.Kind == RefKindOS {
 		resolved, err := r.getOSSecretString(ctx, ref.SecretID)
 		if err != nil {
 			switch {
@@ -175,6 +172,14 @@ func (r *Resolver) ResolveString(ctx context.Context, value string, opts Options
 			return Result{}, ErrOSSecretResolveFailed
 		}
 		return Result{Value: resolved}, nil
+	}
+	if strings.Contains(value, "${secret:") {
+		return Result{}, ErrInvalidSecretRef
+	}
+	for _, groups := range placeholderRe.FindAllStringSubmatch(value, -1) {
+		if len(groups) == 2 && strings.HasPrefix(strings.TrimSpace(groups[1]), "secret:") {
+			return Result{}, ErrInvalidSecretRef
+		}
 	}
 	var result Result
 	result.Value = placeholderRe.ReplaceAllStringFunc(value, func(match string) string {

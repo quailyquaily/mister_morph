@@ -19,6 +19,7 @@ import (
 type fakeFileOwnerSecretBackend struct {
 	values  map[string]string
 	puts    []string
+	labels  map[string]string
 	deletes []string
 	putErr  error
 }
@@ -44,7 +45,7 @@ func (f *fakeFileOwnerSecretBackend) Get(ctx context.Context, id string) ([]byte
 	return []byte(value), err
 }
 
-func (f *fakeFileOwnerSecretBackend) Put(_ context.Context, id string, value []byte) error {
+func (f *fakeFileOwnerSecretBackend) Put(_ context.Context, id, configKey string, value []byte) error {
 	if f.putErr != nil {
 		return f.putErr
 	}
@@ -53,6 +54,10 @@ func (f *fakeFileOwnerSecretBackend) Put(_ context.Context, id string, value []b
 	}
 	f.values[id] = string(value)
 	f.puts = append(f.puts, id)
+	if f.labels == nil {
+		f.labels = map[string]string{}
+	}
+	f.labels[id] = configKey
 	return nil
 }
 
@@ -106,6 +111,9 @@ func TestFileOwnerRotatesOSManagedAPIKey(t *testing.T) {
 		t.Fatalf("secret store operations puts=%v deletes=%v", backend.puts, backend.deletes)
 	}
 	newID := backend.puts[0]
+	if backend.labels[newID] != "llm.api_key" {
+		t.Fatalf("stored config key = %q, want llm.api_key", backend.labels[newID])
+	}
 	if backend.values[newID] != replacement {
 		t.Fatalf("new keyring value = %q, want replacement", backend.values[newID])
 	}
@@ -216,75 +224,7 @@ func TestFileOwnerStoresNewAPIKeyInOSStore(t *testing.T) {
 	}
 }
 
-func TestFileOwnerMigratesPlaintextLLMSecretsToOSStore(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	config := "llm:\n  provider: openai\n  model: gpt-main\n  api_key: default-secret\n  profiles:\n    backup:\n      provider: openai\n      model: gpt-backup\n      api_key: profile-secret\n"
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	store := &fakeFileOwnerSecretBackend{values: map[string]string{}}
-	owner := NewFileOwner(FileOwnerOptions{
-		ConfigPath:   configPath,
-		Reader:       readFileOwnerTestConfigWithSource(t, configPath, store),
-		SecretSource: store,
-		OSStore:      store,
-	})
-
-	view, err := owner.Update(context.Background(), AgentSettingsUpdate{MigrateSecrets: true})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-	if strings.Contains(string(raw), "default-secret") || strings.Contains(string(raw), "profile-secret") {
-		t.Fatalf("config still contains plaintext secrets:\n%s", raw)
-	}
-	if len(store.values) != 2 {
-		t.Fatalf("stored secret count = %d, want 2", len(store.values))
-	}
-	gotValues := map[string]bool{}
-	for _, value := range store.values {
-		gotValues[value] = true
-	}
-	if !gotValues["default-secret"] || !gotValues["profile-secret"] {
-		t.Fatalf("stored values = %#v", gotValues)
-	}
-	if view.SecretFields.LLM["api_key"].Source != string(secref.RefKindOS) ||
-		view.SecretFields.LLMProfiles["backup"]["api_key"].Source != string(secref.RefKindOS) {
-		t.Fatalf("secret fields were not reported as OS-managed: %#v", view.SecretFields)
-	}
-}
-
-func TestFileOwnerSecretMigrationLeavesConfigUntouchedWhenStoreFails(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	config := "llm:\n  provider: openai\n  model: gpt-main\n  api_key: default-secret\n"
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	store := &fakeFileOwnerSecretBackend{values: map[string]string{}}
-	store.putErr = errors.New("write failed")
-	owner := NewFileOwner(FileOwnerOptions{
-		ConfigPath:   configPath,
-		Reader:       readFileOwnerTestConfigWithSource(t, configPath, store),
-		SecretSource: store,
-		OSStore:      store,
-	})
-
-	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{MigrateSecrets: true}); err == nil {
-		t.Fatal("Update() error = nil")
-	}
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-	if string(raw) != config {
-		t.Fatalf("config changed after failed migration:\n%s", raw)
-	}
-}
-
-func TestFileOwnerLeavesConfigUntouchedWhenOSStoreWriteFails(t *testing.T) {
+func TestFileOwnerFallsBackToPlaintextWhenOSStoreWriteFails(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	original := "llm:\n  provider: openai\n  model: gpt-test\n"
 	if err := os.WriteFile(configPath, []byte(original), 0o600); err != nil {
@@ -297,16 +237,19 @@ func TestFileOwnerLeavesConfigUntouchedWhenOSStoreWriteFails(t *testing.T) {
 		SecretSource: backend,
 		OSStore:      backend,
 	})
-	apiKey := "must-not-reach-file"
-	_, err := owner.Update(context.Background(), AgentSettingsUpdate{
+	apiKey := "plaintext-fallback"
+	view, err := owner.Update(context.Background(), AgentSettingsUpdate{
 		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{APIKey: &apiKey}},
 	})
-	if !errors.Is(err, secref.ErrOSStoreUnavailable) {
-		t.Fatalf("Update() error = %v, want ErrOSStoreUnavailable", err)
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
 	}
 	raw, _ := os.ReadFile(configPath)
-	if string(raw) != original || strings.Contains(string(raw), apiKey) {
-		t.Fatalf("failed store write changed config:\n%s", raw)
+	if !strings.Contains(string(raw), "api_key: "+apiKey) || strings.Contains(string(raw), "${secret:") {
+		t.Fatalf("failed store write did not fall back to plaintext:\n%s", raw)
+	}
+	if status := view.SecretFields.LLM["api_key"]; !status.Configured || status.Source != "file" {
+		t.Fatalf("api_key secret status = %#v, want plaintext file source", status)
 	}
 }
 
@@ -360,6 +303,9 @@ func TestFileOwnerPreservesAndRotatesOSManagedProfileSecret(t *testing.T) {
 		t.Fatalf("profile rotation operations puts=%v deletes=%v", backend.puts, backend.deletes)
 	}
 	newID := backend.puts[0]
+	if backend.labels[newID] != "llm.profiles.backup.api_key" {
+		t.Fatalf("stored config key = %q, want llm.profiles.backup.api_key", backend.labels[newID])
+	}
 	raw, _ = os.ReadFile(configPath)
 	if strings.Contains(string(raw), "new-profile-secret") || !strings.Contains(string(raw), secref.OSSecretRef(newID)) {
 		t.Fatalf("profile secret was not stored as OS ref:\n%s", raw)

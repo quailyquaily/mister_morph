@@ -18,3 +18,33 @@ func TestShouldRunRuntimeFilePreflightForMixin(t *testing.T) {
 		t.Fatalf("CommandPath() = %q", got)
 	}
 }
+
+func TestShouldCheckOSSecretStoreForRuntimeCommands(t *testing.T) {
+	for _, path := range []string{"run", "chat", "telegram", "console serve"} {
+		t.Run(path, func(t *testing.T) {
+			root := &cobra.Command{Use: "mistermorph"}
+			var command *cobra.Command
+			if path == "console serve" {
+				console := &cobra.Command{Use: "console"}
+				command = &cobra.Command{Use: "serve"}
+				console.AddCommand(command)
+				root.AddCommand(console)
+			} else {
+				command = &cobra.Command{Use: path}
+				root.AddCommand(command)
+			}
+			if !shouldCheckOSSecretStore(command) {
+				t.Fatalf("shouldCheckOSSecretStore(%q) = false", command.CommandPath())
+			}
+		})
+	}
+}
+
+func TestShouldNotCheckOSSecretStoreForNonRuntimeCommands(t *testing.T) {
+	root := &cobra.Command{Use: "mistermorph"}
+	command := &cobra.Command{Use: "version"}
+	root.AddCommand(command)
+	if shouldCheckOSSecretStore(command) {
+		t.Fatal("version command unexpectedly checks the OS secret store")
+	}
+}
