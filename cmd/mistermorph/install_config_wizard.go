@@ -33,8 +33,10 @@ func protectInstallSetupSecrets(ctx context.Context, setup *installConfigSetup, 
 		return nil
 	}
 	value := &setup.APIKey
+	configKey := "llm.api_key"
 	if normalizeInferenceProviderForSetup(setup.Provider) == setupProviderCloudflare {
 		value = &setup.CloudflareAPIToken
+		configKey = "llm.cloudflare.api_token"
 	}
 	secret := strings.TrimSpace(*value)
 	if secret == "" {
@@ -47,7 +49,7 @@ func protectInstallSetupSecrets(ctx context.Context, setup *installConfigSetup, 
 	if err != nil {
 		return fmt.Errorf("create system secret reference: %w", err)
 	}
-	if err := store.Put(ctx, id, []byte(secret)); err != nil {
+	if err := store.Put(ctx, id, configKey, []byte(secret)); err != nil {
 		return fmt.Errorf("store install credential: %w", secref.ErrOSStoreUnavailable)
 	}
 	*value = secref.OSSecretRef(id)

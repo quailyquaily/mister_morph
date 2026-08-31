@@ -163,7 +163,7 @@ func (f fakeSecretRefSource) GetOSSecretString(_ context.Context, id string) (st
 func TestReadExpandedConfigWithSource_OSSecretRef(t *testing.T) {
 	const id = "b_LsX7HLzAR3OShG7YjRcw"
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/"+id+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: ${secret:"+id+"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -184,9 +184,9 @@ func TestReadExpandedConfigWithSource_OSSecretRefInNonYAMLConfig(t *testing.T) {
 		ext     string
 		content string
 	}{
-		{name: "json", ext: "json", content: `{"llm":{"api_key":"secret://os/` + id + `"}}`},
-		{name: "toml", ext: "toml", content: "[llm]\napi_key = \"secret://os/" + id + "\"\n"},
-		{name: "ini", ext: "ini", content: "[llm]\napi_key = secret://os/" + id + "\n"},
+		{name: "json", ext: "json", content: `{"llm":{"api_key":"${secret:` + id + `}"}}`},
+		{name: "toml", ext: "toml", content: "[llm]\napi_key = \"${secret:" + id + "}\"\n"},
+		{name: "ini", ext: "ini", content: "[llm]\napi_key = ${secret:" + id + "}\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -210,7 +210,7 @@ func TestReadExpandedConfigWithSource_OSSecretRefInNonYAMLConfig(t *testing.T) {
 func TestReadExpandedConfigWithSource_ExplicitOverrideSkipsMissingOSSecret(t *testing.T) {
 	const id = "b_LsX7HLzAR3OShG7YjRcw"
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/"+id+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: ${secret:"+id+"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,7 +231,7 @@ func TestReadExpandedConfigWithSource_ExplicitOverrideSkipsMissingOSSecret(t *te
 func TestReadExpandedConfigWithSource_OSSecretFailureStopsLoad(t *testing.T) {
 	const id = "b_LsX7HLzAR3OShG7YjRcw"
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/"+id+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: ${secret:"+id+"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -248,7 +248,7 @@ func TestReadExpandedConfigWithSource_EnvironmentOverrideSkipsOSSecret(t *testin
 	const id = "b_LsX7HLzAR3OShG7YjRcw"
 	t.Setenv("MISTER_MORPH_LLM_API_KEY", "env-api-key")
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/"+id+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: ${secret:"+id+"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -267,7 +267,7 @@ func TestReadExpandedConfigWithSource_EnvironmentOverrideSkipsOSSecret(t *testin
 func TestReadExpandedConfigWithSource_EnvironmentOverrideSkipsInvalidSecretRef(t *testing.T) {
 	t.Setenv("MISTER_MORPH_LLM_API_KEY", "env-api-key")
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/invalid\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: ${secret:invalid}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

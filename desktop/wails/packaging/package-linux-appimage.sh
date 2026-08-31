@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 CALLER_DIR="$(pwd)"
 APP_BINARY_NAME="${APP_BINARY_NAME:-mistermorph-desktop}"
 DISPLAY_NAME="${DISPLAY_NAME:-MisterMorph}"
+APPLICATION_ID="${APPLICATION_ID:-com.mistermorph}"
 VERSION="${VERSION:-0.0.0}"
 ARCH="${ARCH:-amd64}"
 DESKTOP_BIN="${DESKTOP_BIN:-${ROOT_DIR}/dist/mistermorph-desktop}"
@@ -70,7 +71,7 @@ APPDIR="${BUILD_DIR}/${APP_BINARY_NAME}-${APPIMAGE_ARCH}.AppDir"
 LINUXDEPLOY="${TOOLS_DIR}/linuxdeploy-${APPIMAGE_ARCH}.AppImage"
 APPRUN="${APPDIR}/AppRun"
 GTK_PLUGIN="${TOOLS_DIR}/linuxdeploy-plugin-gtk.sh"
-DESKTOP_FILE="${WORK_ROOT}/${APP_BINARY_NAME}.desktop"
+DESKTOP_FILE="${WORK_ROOT}/${APPLICATION_ID}.desktop"
 OUTPUT_PATH="${OUT_DIR}/${APPIMAGE_NAME}"
 
 rm -rf "${WORK_ROOT}" "${OUTPUT_PATH}" "${TARBALL_PATH}"
@@ -80,7 +81,7 @@ cp "${DESKTOP_BIN}" "${APPDIR}/usr/bin/${APP_BINARY_NAME}"
 chmod +x "${APPDIR}/usr/bin/${APP_BINARY_NAME}"
 
 cp "${ICON_PNG}" "${APPDIR}/.DirIcon"
-ln -sf ".DirIcon" "${APPDIR}/${APP_BINARY_NAME}.png"
+ln -sf ".DirIcon" "${APPDIR}/${APPLICATION_ID}.png"
 
 cat > "${DESKTOP_FILE}" <<EOF
 [Desktop Entry]
@@ -88,10 +89,10 @@ Type=Application
 Name=${DISPLAY_NAME}
 Comment=MisterMorph Desktop
 Exec=${APP_BINARY_NAME}
-Icon=${APP_BINARY_NAME}
+Icon=${APPLICATION_ID}
 Categories=Development;Utility;
 Terminal=false
-StartupWMClass=MisterMorph
+StartupWMClass=${APPLICATION_ID}
 EOF
 cp "${DESKTOP_FILE}" "${APPDIR}/"
 

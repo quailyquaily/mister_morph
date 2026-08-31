@@ -53,7 +53,7 @@ func (f *fakeSource) GetOSSecretString(_ context.Context, id string) (string, er
 
 func TestParseSingleRefOS(t *testing.T) {
 	const id = "b_LsX7HLzAR3OShG7YjRcw"
-	ref, ok := ParseSingleRef("secret://os/" + id)
+	ref, ok := ParseSingleRef("${secret:" + id + "}")
 	if !ok {
 		t.Fatal("ParseSingleRef() did not recognize OS secret ref")
 	}
@@ -64,11 +64,12 @@ func TestParseSingleRefOS(t *testing.T) {
 
 func TestParseSingleRefRejectsInvalidOSRefs(t *testing.T) {
 	for _, value := range []string{
-		"secret://os/",
-		"secret://os/short",
-		"secret://os/contains/slash",
-		"prefix-secret://os/b_LsX7HLzAR3OShG7YjRcw",
-		"secret://unknown/b_LsX7HLzAR3OShG7YjRcw",
+		"${secret:}",
+		"${secret:short}",
+		"${secret:contains/slash}",
+		"${secret:b_LsX7HLzAR3OShG7YjRcw",
+		"prefix-${secret:b_LsX7HLzAR3OShG7YjRcw}",
+		"${secret:b_LsX7HLzAR3OShG7YjRcw}-suffix",
 	} {
 		t.Run(value, func(t *testing.T) {
 			if _, ok := ParseSingleRef(value); ok {
@@ -83,7 +84,7 @@ func TestResolveStringOSRef(t *testing.T) {
 	src := &fakeSource{os: map[string]string{id: "keyring-secret"}}
 	resolver := NewResolver(src)
 
-	got, err := resolver.ResolveString(context.Background(), "secret://os/"+id, Options{})
+	got, err := resolver.ResolveString(context.Background(), "${secret:"+id+"}", Options{})
 	if err != nil {
 		t.Fatalf("ResolveString() error = %v", err)
 	}
@@ -91,7 +92,7 @@ func TestResolveStringOSRef(t *testing.T) {
 		t.Fatalf("Value = %q, want keyring secret", got.Value)
 	}
 
-	again, err := resolver.ResolveString(context.Background(), "secret://os/"+id, Options{})
+	again, err := resolver.ResolveString(context.Background(), "${secret:"+id+"}", Options{})
 	if err != nil || again.Value != "keyring-secret" {
 		t.Fatalf("second ResolveString() = %+v, %v", again, err)
 	}
@@ -100,10 +101,11 @@ func TestResolveStringOSRef(t *testing.T) {
 	}
 }
 
-func TestResolveStringRejectsEmbeddedOrUnknownSecretURI(t *testing.T) {
+func TestResolveStringRejectsEmbeddedSecretRef(t *testing.T) {
 	for _, value := range []string{
-		"prefix-secret://os/b_LsX7HLzAR3OShG7YjRcw",
-		"secret://unknown/b_LsX7HLzAR3OShG7YjRcw",
+		"${secret:b_LsX7HLzAR3OShG7YjRcw",
+		"prefix-${secret:b_LsX7HLzAR3OShG7YjRcw}",
+		"${secret:b_LsX7HLzAR3OShG7YjRcw}-suffix",
 	} {
 		t.Run(value, func(t *testing.T) {
 			_, err := NewResolver(&fakeSource{}).ResolveString(context.Background(), value, Options{})
@@ -120,7 +122,7 @@ func TestResolveStringRejectsEmbeddedOrUnknownSecretURI(t *testing.T) {
 func TestResolveStringOSFailureDoesNotLeakReference(t *testing.T) {
 	const id = "b_LsX7HLzAR3OShG7YjRcw"
 	src := &fakeSource{errs: map[string]error{"os:" + id: errors.New("backend included sensitive details")}}
-	_, err := NewResolver(src).ResolveString(context.Background(), "secret://os/"+id, Options{})
+	_, err := NewResolver(src).ResolveString(context.Background(), "${secret:"+id+"}", Options{})
 	if !errors.Is(err, ErrOSSecretResolveFailed) {
 		t.Fatalf("ResolveString() error = %v, want ErrOSSecretResolveFailed", err)
 	}
@@ -132,7 +134,7 @@ func TestResolveStringOSFailureDoesNotLeakReference(t *testing.T) {
 func TestResolveStringPreservesOSStoreUnavailableClass(t *testing.T) {
 	const id = "b_LsX7HLzAR3OShG7YjRcw"
 	src := &fakeSource{errs: map[string]error{"os:" + id: ErrOSStoreUnavailable}}
-	_, err := NewResolver(src).ResolveString(context.Background(), "secret://os/"+id, Options{})
+	_, err := NewResolver(src).ResolveString(context.Background(), "${secret:"+id+"}", Options{})
 	if !errors.Is(err, ErrOSStoreUnavailable) {
 		t.Fatalf("ResolveString() error = %v, want ErrOSStoreUnavailable", err)
 	}

@@ -5,11 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-const osKeyringService = "io.quaily.mistermorph"
+const osKeyringService = "com.mistermorph"
 
 var (
 	ErrOSStoreUnavailable = errors.New("os secret store unavailable")
@@ -17,14 +18,14 @@ var (
 )
 
 type OSStore interface {
-	Get(context.Context, string) ([]byte, error)
-	Put(context.Context, string, []byte) error
-	Delete(context.Context, string) error
+	Get(ctx context.Context, id string) ([]byte, error)
+	Put(ctx context.Context, id, configKey string, value []byte) error
+	Delete(ctx context.Context, id string) error
 }
 
 type keyringClient interface {
 	Get(service, account string) (string, error)
-	Set(service, account, password string) error
+	Set(service, account, label, password string) error
 	Delete(service, account string) error
 }
 
@@ -42,6 +43,21 @@ func NewOSSecretID() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(random), nil
+}
+
+func CheckOSStore(ctx context.Context, store OSStore) error {
+	if store == nil {
+		return ErrOSStoreUnavailable
+	}
+	id, err := NewOSSecretID()
+	if err != nil {
+		return err
+	}
+	_, err = store.Get(ctx, id)
+	if errors.Is(err, ErrOSSecretNotFound) {
+		return nil
+	}
+	return err
 }
 
 func OSSecretIDsInYAML(node *yaml.Node) map[string]bool {
@@ -65,7 +81,7 @@ func OSSecretIDsInYAML(node *yaml.Node) map[string]bool {
 }
 
 func OSSecretRef(id string) string {
-	return "secret://os/" + id
+	return "${secret:" + id + "}"
 }
 
 func (s *keyringOSStore) Get(ctx context.Context, id string) ([]byte, error) {
@@ -88,14 +104,18 @@ func (s *keyringOSStore) Get(ctx context.Context, id string) ([]byte, error) {
 	return []byte(value), nil
 }
 
-func (s *keyringOSStore) Put(ctx context.Context, id string, value []byte) error {
+func (s *keyringOSStore) Put(ctx context.Context, id, configKey string, value []byte) error {
 	if err := validateOSSecretID(id); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.client.Set(osKeyringService, id, string(value)); err != nil {
+	label := "MisterMorph"
+	if configKey = strings.TrimSpace(configKey); configKey != "" {
+		label += " · " + configKey
+	}
+	if err := s.client.Set(osKeyringService, id, label, string(value)); err != nil {
 		return ErrOSStoreUnavailable
 	}
 	return ctx.Err()

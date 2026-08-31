@@ -96,6 +96,30 @@ func TestAutomaticReleaseExcludesUnsignedWindowsArtifacts(t *testing.T) {
 	}
 }
 
+func TestDesktopPackagesRegisterMisterMorphApplicationID(t *testing.T) {
+	for _, file := range [][]string{
+		{"desktop", "wails", "packaging", "package-darwin.sh"},
+		{"desktop", "wails", "packaging", "package-linux-appimage.sh"},
+		{"desktop", "wails", "packaging", "package-linux-deb.sh"},
+		{"desktop", "wails", "packaging", "windows", "wails.exe.manifest"},
+	} {
+		content := readRepoFile(t, file...)
+		if !strings.Contains(content, "com.mistermorph") {
+			t.Errorf("%s does not register com.mistermorph", filepath.Join(file...))
+		}
+	}
+
+	for _, file := range [][]string{
+		{"desktop", "wails", "packaging", "package-linux-appimage.sh"},
+		{"desktop", "wails", "packaging", "package-linux-deb.sh"},
+	} {
+		content := readRepoFile(t, file...)
+		if !strings.Contains(content, "APPLICATION_ID") || !strings.Contains(content, "Icon=${APPLICATION_ID}") {
+			t.Errorf("%s does not associate the application ID with its icon", filepath.Join(file...))
+		}
+	}
+}
+
 func assertOrdered(t *testing.T, text string, tokens ...string) {
 	t.Helper()
 	previous := -1

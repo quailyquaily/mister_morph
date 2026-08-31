@@ -406,16 +406,6 @@ function skillLoadEntryMatches(skill, entry) {
   return trimText(skill?.id).toLowerCase() === key || trimText(skill?.name).toLowerCase() === key;
 }
 
-function secretFieldsHaveSource(value, source) {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  if (value.configured === true && value.source === source) {
-    return true;
-  }
-  return Object.values(value).some((entry) => secretFieldsHaveSource(entry, source));
-}
-
 function serializeLLMProfile(profile) {
   return {
     name: trimText(profile?.name),
@@ -1359,10 +1349,6 @@ const SettingsView = {
         consoleMixinDirty.value ||
         consoleGuardDirty.value
     );
-    const agentHasFileSecrets = computed(() =>
-      secretFieldsHaveSource({ llm: llmSecretFields.value, profiles: state.llm.profiles.map(llmProfileSecretFields) }, "file")
-    );
-    const consoleHasFileSecrets = computed(() => secretFieldsHaveSource(consoleSecretFields.value, "file"));
     const consoleSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleManagedDirty.value
     );
@@ -3351,32 +3337,6 @@ const SettingsView = {
       }
     }
 
-    async function migrateAgentSecrets() {
-      if (!agentHasFileSecrets.value || agentLoading.value || agentSaving.value || agentSettingsReadOnly.value) {
-        return;
-      }
-      agentSaving.value = true;
-      agentSavingTarget.value = "migrate-secrets";
-      const targetEndpointRef = settingsEndpointRef.value;
-      try {
-        const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
-          method: "PUT",
-          body: { migrate_secrets: true },
-        });
-        if (targetEndpointRef !== settingsEndpointRef.value) {
-          return;
-        }
-        applyPayload(payload);
-        await loadEndpoints();
-        toast.success(t("settings_secret_migrate_success"));
-      } catch (e) {
-        toast.error(agentSettingsErrorMessage(e, targetEndpointRef, "msg_save_failed"));
-      } finally {
-        agentSaving.value = false;
-        agentSavingTarget.value = "";
-      }
-    }
-
     async function saveConsoleSettings(target = "all") {
       const normalizedTarget = ["all", "runtimes", "telegram", "slack", "line", "lark", "mixin", "guard"].includes(String(target))
         ? String(target)
@@ -3424,36 +3384,6 @@ const SettingsView = {
           typeof payload.config_path === "string" ? payload.config_path : consoleConfigPath.value;
         applyConsolePayload(payload);
         toast.success(t("msg_save_success"));
-      } catch (e) {
-        if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
-          toast.error(e.message || t("msg_save_failed"));
-        }
-      } finally {
-        if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
-          consoleSaving.value = false;
-          consoleSavingTarget.value = "";
-        }
-      }
-    }
-
-    async function migrateConsoleSecrets() {
-      if (!consoleHasFileSecrets.value || consoleLoading.value || consoleSaving.value) {
-        return;
-      }
-      consoleSaving.value = true;
-      consoleSavingTarget.value = "migrate-secrets";
-      const requestSeq = ++consoleSettingsRequestSeq;
-      const targetEndpointRef = settingsEndpointRef.value;
-      try {
-        const payload = await endpointApiFetch(targetEndpointRef, "/settings/console", {
-          method: "PUT",
-          body: { migrate_secrets: true },
-        });
-        if (!isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
-          return;
-        }
-        applyConsolePayload(payload);
-        toast.success(t("settings_secret_migrate_success"));
       } catch (e) {
         if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
           toast.error(e.message || t("msg_save_failed"));
@@ -4079,8 +4009,6 @@ const SettingsView = {
       mobileBarTitle,
       pageClass,
       llmSaveDisabled,
-      agentHasFileSecrets,
-      consoleHasFileSecrets,
       skillsSaveDisabled,
       toolsSaveDisabled,
       consoleSaveDisabled,
@@ -4159,9 +4087,7 @@ const SettingsView = {
       openProAuthDialog,
       logout,
       saveAgentSettings,
-      migrateAgentSecrets,
       saveConsoleSettings,
-      migrateConsoleSecrets,
       savePersona,
       savePersonaAvatar,
       deletePersonaAvatar,
@@ -4278,15 +4204,6 @@ const SettingsView = {
                     <p class="settings-panel-meta">{{ selectedSection.meta }}</p>
                   </div>
                   <div class="settings-profile-actions settings-default-llm-actions">
-                    <QButton
-                      v-if="agentHasFileSecrets"
-                      class="outlined"
-                      :loading="agentSaving && agentSavingTarget === 'migrate-secrets'"
-                      :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
-                      @click="migrateAgentSecrets"
-                    >
-                      {{ t("settings_secret_migrate_action") }}
-                    </QButton>
                     <QButton
                       class="primary settings-profile-save"
                       :loading="agentSaving && agentSavingTarget === 'llm'"
@@ -4557,15 +4474,6 @@ const SettingsView = {
                     <p class="settings-panel-meta">{{ t("settings_console_telegram_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
-                    <QButton
-                      v-if="consoleHasFileSecrets"
-                      class="outlined"
-                      :loading="consoleSaving && consoleSavingTarget === 'migrate-secrets'"
-                      :disabled="consoleLoading || consoleSaving"
-                      @click="migrateConsoleSecrets"
-                    >
-                      {{ t("settings_secret_migrate_action") }}
-                    </QButton>
                     <QButton
                       class="primary"
                       :loading="consoleSaving && consoleSavingTarget === 'telegram'"

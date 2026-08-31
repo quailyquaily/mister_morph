@@ -109,7 +109,7 @@ func TestRootPreflightAppliesCLISecretBeforeResolvingConfigSecret(t *testing.T) 
 	resetRootConfigForTest(t)
 	workspaceDir := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	config := "workspace_dir: " + workspaceDir + "\nllm:\n  provider: openai\n  model: gpt-test\n  api_key: secret://os/b_LsX7HLzAR3OShG7YjRcw\n"
+	config := "workspace_dir: " + workspaceDir + "\nllm:\n  provider: openai\n  model: gpt-test\n  api_key: ${secret:b_LsX7HLzAR3OShG7YjRcw}\n"
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}

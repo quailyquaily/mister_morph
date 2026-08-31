@@ -18,8 +18,8 @@ func (systemKeyringClient) Get(service, account string) (string, error) {
 	return value, err
 }
 
-func (systemKeyringClient) Set(service, account, password string) error {
-	return keyring.Set(service, account, password)
+func (systemKeyringClient) Set(service, account, label, password string) error {
+	return setSystemKeyringSecret(service, account, label, password)
 }
 
 func (systemKeyringClient) Delete(service, account string) error {

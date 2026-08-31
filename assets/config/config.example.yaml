@@ -5,7 +5,8 @@
 #
 # YAML scalar values support ${ENV_VAR} syntax for environment variable expansion.
 # Secret scalar values can also use AWS Secrets Manager refs: ${aws-sm:<secret-id>} or ${aws-sm:<secret-id>#<field>}.
-# Secrets saved by interactive setup or the Console use system-keyring refs: secret://os/<opaque-id>.
+# Secrets saved by interactive setup or the Console normally use system-keyring refs: ${secret:<opaque-id>}.
+# If a Settings save cannot write the system keyring, Morph warns and keeps that submitted value in this 0600 file.
 # Do not copy those refs between machines; each machine has its own system keyring.
 # Mapping keys and comments are not expanded.
 # Example: api_key: "${OPENAI_API_KEY}"
@@ -37,7 +38,7 @@ llm:
   endpoint: "https://api.openai.com"
   # Provider API key. For openai_codex, this is used only when endpoint is
   # also non-empty; otherwise authentication uses Codex OAuth.
-  # Use ${ENV_VAR}, ${aws-sm:<secret-id>}, or a Console-managed secret://os/<opaque-id> reference.
+  # Use ${ENV_VAR}, ${aws-sm:<secret-id>}, or a Console-managed ${secret:<opaque-id>} reference.
   api_key: "${OPENAI_API_KEY}" # or set via MISTER_MORPH_LLM_API_KEY
   # Optional custom HTTP headers for LLM requests.
   # headers:
