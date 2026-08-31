@@ -13,6 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -50,7 +51,7 @@ func ApplyRuntimeConfig(d CommonDependencies, toolsConfig toolsutil.RuntimeTools
 	d.RuntimeToolsConfig = toolsConfig
 	d.RuntimePaths = runtimepaths.FromReader(reader)
 	d.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
-	settingsOwner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{Reader: reader})
+	settingsOwner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{Reader: reader, OSStore: secref.NewOSStore()})
 	d.AgentSettingsOwner = settingsOwner
 	d.RuntimeConfigSource = settingsOwner
 	d.AgentSettingsReader = settingsOwner.CurrentReader()

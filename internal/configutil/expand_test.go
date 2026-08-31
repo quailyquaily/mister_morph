@@ -2,6 +2,7 @@ package configutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,14 +12,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
-
-func readExpandedConfigWithSource(v *viper.Viper, path string, source secref.Source, warn func(string, ...any)) error {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return readExpandedConfigRaw(v, path, raw, source, warn)
-}
 
 func TestReadExpandedConfig(t *testing.T) {
 	t.Setenv("TEST_SECRET", "hunter2")
@@ -136,6 +129,7 @@ key: "${UNSET_VAR_XYZ_NEVER_SET}"
 
 type fakeSecretRefSource struct {
 	secrets map[string]string
+	os      map[string]string
 	errs    map[string]error
 	calls   map[string]int
 }
@@ -158,6 +152,137 @@ func (f fakeSecretRefSource) GetAWSSecretString(_ context.Context, secretID stri
 	return value, nil
 }
 
+func (f fakeSecretRefSource) GetOSSecretString(_ context.Context, id string) (string, error) {
+	value, ok := f.os[id]
+	if !ok {
+		return "", secref.ErrOSSecretNotFound
+	}
+	return value, nil
+}
+
+func TestReadExpandedConfigWithSource_OSSecretRef(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/"+id+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	v := viper.New()
+	src := fakeSecretRefSource{os: map[string]string{id: "keyring-api-key"}}
+	if err := ReadExpandedConfigWithSource(v, path, src, nil); err != nil {
+		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
+	}
+	if got := v.GetString("llm.api_key"); got != "keyring-api-key" {
+		t.Fatalf("llm.api_key = %q, want keyring-api-key", got)
+	}
+}
+
+func TestReadExpandedConfigWithSource_OSSecretRefInNonYAMLConfig(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	tests := []struct {
+		name    string
+		ext     string
+		content string
+	}{
+		{name: "json", ext: "json", content: `{"llm":{"api_key":"secret://os/` + id + `"}}`},
+		{name: "toml", ext: "toml", content: "[llm]\napi_key = \"secret://os/" + id + "\"\n"},
+		{name: "ini", ext: "ini", content: "[llm]\napi_key = secret://os/" + id + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config."+tt.ext)
+			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			v := viper.New()
+			src := fakeSecretRefSource{os: map[string]string{id: "keyring-api-key"}}
+			if err := ReadExpandedConfigWithSource(v, path, src, nil); err != nil {
+				t.Fatalf("readExpandedConfigWithSource() error = %v", err)
+			}
+			if got := v.GetString("llm.api_key"); got != "keyring-api-key" {
+				t.Fatalf("llm.api_key = %q, want keyring-api-key", got)
+			}
+		})
+	}
+}
+
+func TestReadExpandedConfigWithSource_ExplicitOverrideSkipsMissingOSSecret(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/"+id+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	v := viper.New()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = readExpandedConfigRaw(v, path, raw, fakeSecretRefSource{}, map[string]string{"llm.api_key": "cli-api-key"}, nil)
+	if err != nil {
+		t.Fatalf("readExpandedConfigRaw() error = %v", err)
+	}
+	if got := v.GetString("llm.api_key"); got != "cli-api-key" {
+		t.Fatalf("llm.api_key = %q, want explicit override", got)
+	}
+}
+
+func TestReadExpandedConfigWithSource_OSSecretFailureStopsLoad(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/"+id+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ReadExpandedConfigWithSource(viper.New(), path, fakeSecretRefSource{}, nil)
+	if !errors.Is(err, secref.ErrOSSecretNotFound) {
+		t.Fatalf("readExpandedConfigWithSource() error = %v, want ErrOSSecretNotFound", err)
+	}
+	if strings.Contains(fmt.Sprint(err), id) {
+		t.Fatalf("config load error leaked OS secret id: %v", err)
+	}
+}
+
+func TestReadExpandedConfigWithSource_EnvironmentOverrideSkipsOSSecret(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "env-api-key")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/"+id+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	v := viper.New()
+	v.SetEnvPrefix("MISTER_MORPH")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	if err := ReadExpandedConfigWithSource(v, path, fakeSecretRefSource{}, nil); err != nil {
+		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
+	}
+	if got := v.GetString("llm.api_key"); got != "env-api-key" {
+		t.Fatalf("llm.api_key = %q, want environment override", got)
+	}
+}
+
+func TestReadExpandedConfigWithSource_EnvironmentOverrideSkipsInvalidSecretRef(t *testing.T) {
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "env-api-key")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("llm:\n  api_key: secret://os/invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	v := viper.New()
+	v.SetEnvPrefix("MISTER_MORPH")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	if err := ReadExpandedConfigWithSource(v, path, fakeSecretRefSource{}, nil); err != nil {
+		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
+	}
+	if got := v.GetString("llm.api_key"); got != "env-api-key" {
+		t.Fatalf("llm.api_key = %q, want environment override", got)
+	}
+}
+
 func TestReadExpandedConfigWithSource_AWSSecretRef(t *testing.T) {
 	yaml := `
 llm:
@@ -177,7 +302,7 @@ auth_profiles:
 		"mistermorph/jsonbill":       `{"api_key":"jsonbill-from-aws"}`,
 	}}
 	v := viper.New()
-	if err := readExpandedConfigWithSource(v, path, src, nil); err != nil {
+	if err := ReadExpandedConfigWithSource(v, path, src, nil); err != nil {
 		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
 	}
 	if got := v.GetString("llm.api_key"); got != "sk-from-aws" {
@@ -206,7 +331,7 @@ llm:
 		"mistermorph/missing": fmt.Errorf("failed with sk-should-not-leak"),
 	}}
 	v := viper.New()
-	if err := readExpandedConfigWithSource(v, path, src, warnf); err != nil {
+	if err := ReadExpandedConfigWithSource(v, path, src, warnf); err != nil {
 		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
 	}
 	if got := v.GetString("llm.api_key"); got != "" {
@@ -242,7 +367,7 @@ llm:
 	src := fakeSecretRefSource{calls: calls}
 
 	v := viper.New()
-	if err := readExpandedConfigWithSource(v, path, src, warnf); err != nil {
+	if err := ReadExpandedConfigWithSource(v, path, src, warnf); err != nil {
 		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
 	}
 	if got := v.GetString("llm.model"); got != "gpt-test" {
@@ -411,7 +536,7 @@ llm:
 	}}
 
 	v := viper.New()
-	if err := readExpandedConfigWithSource(v, path, src, nil); err != nil {
+	if err := ReadExpandedConfigWithSource(v, path, src, nil); err != nil {
 		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
 	}
 	if got := v.GetString("llm.api_key"); got != want {

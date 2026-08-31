@@ -257,6 +257,7 @@ const SetupView = {
     const loadedPayload = ref(buildDefaultPayload());
     const loadedConfigSource = ref("defaults");
     const llmEnvManaged = ref({});
+    const llmSecretFields = ref({});
     const loadedIdentityRaw = ref("");
     const loadedSoulRaw = ref("");
     const personaAvatarURL = ref("");
@@ -762,9 +763,12 @@ const SetupView = {
       const envManagedPayload = data?.env_managed && typeof data.env_managed === "object" ? data.env_managed : {};
       const llmEnvManagedPayload =
         envManagedPayload?.llm && typeof envManagedPayload.llm === "object" ? envManagedPayload.llm : {};
+      const secretFieldsPayload = data?.secret_fields && typeof data.secret_fields === "object" ? data.secret_fields : {};
       loadedPayload.value = normalized;
       loadedConfigSource.value = String(data?.config_source || "defaults").trim() || "defaults";
       llmEnvManaged.value = llmEnvManagedPayload;
+      llmSecretFields.value =
+        secretFieldsPayload?.llm && typeof secretFieldsPayload.llm === "object" ? secretFieldsPayload.llm : {};
       if (loadedConfigSource.value !== "config") {
         llmForm.provider = SETUP_PROVIDER_OPENAI_COMPATIBLE;
         llmForm.endpoint = "";
@@ -811,7 +815,22 @@ const SetupView = {
     }
 
     function hasLLMFieldValue(field) {
-      return hasManagedLLMFieldValue(llmForm, llmEnvManaged.value, field);
+      return hasManagedLLMFieldValue(llmForm, llmEnvManaged.value, field) || llmSecretFields.value?.[field]?.configured === true;
+    }
+
+    function includeLLMSecret(field) {
+      const value = String(llmForm[field] || "").trim();
+      return value !== "" || llmSecretFields.value?.[field]?.configured !== true ? value : undefined;
+    }
+
+    function llmSecretPlaceholder(field, fallbackKey) {
+      return llmSecretFields.value?.[field]?.configured === true
+        ? t("settings_secret_configured_placeholder")
+        : t(fallbackKey);
+    }
+
+    function llmSecretEditable(field) {
+      return llmSecretFields.value?.[field]?.editable !== false;
     }
 
     function llmFieldManagedDisplayValue(field) {
@@ -1159,10 +1178,10 @@ const SetupView = {
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         if (!isLLMFieldEnvManaged("bedrock_aws_key")) {
-          payload.bedrock_aws_key = String(llmForm.bedrock_aws_key || "").trim();
+          payload.bedrock_aws_key = includeLLMSecret("bedrock_aws_key");
         }
         if (!isLLMFieldEnvManaged("bedrock_aws_secret")) {
-          payload.bedrock_aws_secret = String(llmForm.bedrock_aws_secret || "").trim();
+          payload.bedrock_aws_secret = includeLLMSecret("bedrock_aws_secret");
         }
         if (!isLLMFieldEnvManaged("bedrock_region")) {
           payload.bedrock_region = String(llmForm.bedrock_region || "").trim();
@@ -1172,14 +1191,14 @@ const SetupView = {
         }
       } else if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         if (!isLLMFieldEnvManaged("cloudflare_api_token")) {
-          payload.cloudflare_api_token = useCloudflareCredentials ? String(llmForm.cloudflare_api_token || "").trim() : "";
+          payload.cloudflare_api_token = useCloudflareCredentials ? includeLLMSecret("cloudflare_api_token") : "";
         }
         if (!isLLMFieldEnvManaged("cloudflare_account_id")) {
           payload.cloudflare_account_id = String(llmForm.cloudflare_account_id || "").trim();
         }
       } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
         if (!isLLMFieldEnvManaged("api_key")) {
-          payload.api_key = String(llmForm.api_key || "").trim();
+          payload.api_key = includeLLMSecret("api_key");
         }
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -1213,7 +1232,7 @@ const SetupView = {
           payload.bedrock_model_arn = "";
         }
       } else if (!isLLMFieldEnvManaged("api_key")) {
-        payload.api_key = String(llmForm.api_key || "").trim();
+        payload.api_key = includeLLMSecret("api_key");
       }
       return payload;
     }
@@ -1748,6 +1767,8 @@ const SetupView = {
       providerManagedField,
       providerChoice,
       llmEnvManaged,
+      llmSecretPlaceholder,
+      llmSecretEditable,
       showCloudflareAccountField,
       showCodexOAuthFields,
       showXAIOAuthFields,
@@ -2019,8 +2040,8 @@ const SetupView = {
               v-else
               v-model="llmForm.bedrock_aws_key"
               inputType="password"
-              :placeholder="t('settings_agent_bedrock_aws_key_placeholder')"
-              :disabled="loading || saving"
+              :placeholder="llmSecretPlaceholder('bedrock_aws_key', 'settings_agent_bedrock_aws_key_placeholder')"
+              :disabled="loading || saving || !llmSecretEditable('bedrock_aws_key')"
             />
           </label>
 
@@ -2034,8 +2055,8 @@ const SetupView = {
               v-else
               v-model="llmForm.bedrock_aws_secret"
               inputType="password"
-              :placeholder="t('settings_agent_bedrock_aws_secret_placeholder')"
-              :disabled="loading || saving"
+              :placeholder="llmSecretPlaceholder('bedrock_aws_secret', 'settings_agent_bedrock_aws_secret_placeholder')"
+              :disabled="loading || saving || !llmSecretEditable('bedrock_aws_secret')"
             />
           </label>
 
@@ -2077,15 +2098,15 @@ const SetupView = {
               v-else-if="showCloudflareAccountField"
               v-model="llmForm.cloudflare_api_token"
               inputType="password"
-              :placeholder="t(credentialPlaceholderKey)"
-              :disabled="loading || saving"
+              :placeholder="llmSecretPlaceholder('cloudflare_api_token', credentialPlaceholderKey)"
+              :disabled="loading || saving || !llmSecretEditable('cloudflare_api_token')"
             />
             <QInput
               v-else
               v-model="llmForm.api_key"
               inputType="password"
-              :placeholder="t(credentialPlaceholderKey)"
-              :disabled="loading || saving"
+              :placeholder="llmSecretPlaceholder('api_key', credentialPlaceholderKey)"
+              :disabled="loading || saving || !llmSecretEditable('api_key')"
             />
             <p v-if="credentialHelp" class="setup-field-hint">
               <button v-if="credentialHelp.url" type="button" class="setup-field-link" @click="openExternal(credentialHelp.url)">

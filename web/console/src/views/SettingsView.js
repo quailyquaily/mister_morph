@@ -218,6 +218,8 @@ function buildLLMProfileState(data = {}) {
   const profile = {
     _key: nextLLMProfileKey(),
     _envManaged: {},
+    _secretFields: {},
+    _secretDirty: new Set(),
     _savedName: "",
     _savedSnapshot: "",
     name: "",
@@ -402,6 +404,16 @@ function skillLoadEntryMatches(skill, entry) {
     return false;
   }
   return trimText(skill?.id).toLowerCase() === key || trimText(skill?.name).toLowerCase() === key;
+}
+
+function secretFieldsHaveSource(value, source) {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  if (value.configured === true && value.source === source) {
+    return true;
+  }
+  return Object.values(value).some((entry) => secretFieldsHaveSource(entry, source));
 }
 
 function serializeLLMProfile(profile) {
@@ -614,6 +626,8 @@ const SettingsView = {
     const toolsDirty = ref(false);
     const agentSettingsLoaded = ref(false);
     const llmEnvManaged = ref({});
+    const llmSecretFields = ref({});
+    const llmSecretDirty = new Set();
     const consoleLoading = ref(false);
     const consoleSaving = ref(false);
     const consoleSavingTarget = ref("");
@@ -634,6 +648,8 @@ const SettingsView = {
     const consoleGuardDirty = ref(false);
     const consoleSettingsLoaded = ref(false);
     const consoleEnvManaged = ref({});
+    const consoleSecretFields = ref({});
+    const consoleSecretDirty = new Set();
     const personaLoading = ref(false);
     const personaSaving = ref(false);
     const personaSavingTarget = ref("");
@@ -794,7 +810,7 @@ const SettingsView = {
     }
 
     function updateLLMDirty() {
-      llmDirty.value = buildLLMSnapshot(state) !== loadedLLMSnapshot.value;
+      llmDirty.value = llmSecretDirty.size > 0 || buildLLMSnapshot(state) !== loadedLLMSnapshot.value;
     }
 
     function updateLoadedFallbackProfile(originalName, nextName) {
@@ -865,19 +881,29 @@ const SettingsView = {
     }
 
     function updateConsoleTelegramDirty() {
-      consoleTelegramDirty.value = buildConsoleTelegramSnapshot(state) !== loadedConsoleTelegramSnapshot.value;
+      consoleTelegramDirty.value =
+        consoleSecretDirty.has("telegram.bot_token") ||
+        buildConsoleTelegramSnapshot(state) !== loadedConsoleTelegramSnapshot.value;
     }
 
     function updateConsoleSlackDirty() {
-      consoleSlackDirty.value = buildConsoleSlackSnapshot(state) !== loadedConsoleSlackSnapshot.value;
+      consoleSlackDirty.value =
+        consoleSecretDirty.has("slack.bot_token") ||
+        consoleSecretDirty.has("slack.app_token") ||
+        buildConsoleSlackSnapshot(state) !== loadedConsoleSlackSnapshot.value;
     }
 
     function updateConsoleLineDirty() {
-      consoleLineDirty.value = buildConsoleLineSnapshot(state) !== loadedConsoleLineSnapshot.value;
+      consoleLineDirty.value =
+        consoleSecretDirty.has("line.channel_access_token") ||
+        consoleSecretDirty.has("line.channel_secret") ||
+        buildConsoleLineSnapshot(state) !== loadedConsoleLineSnapshot.value;
     }
 
     function updateConsoleLarkDirty() {
-      consoleLarkDirty.value = buildConsoleLarkSnapshot(state) !== loadedConsoleLarkSnapshot.value;
+      consoleLarkDirty.value =
+        consoleSecretDirty.has("lark.app_secret") ||
+        buildConsoleLarkSnapshot(state) !== loadedConsoleLarkSnapshot.value;
     }
 
     function updateConsoleMixinDirty() {
@@ -1070,13 +1096,13 @@ const SettingsView = {
     const defaultCodexUsesAPIKey = computed(() =>
       setupOpenAICodexUsesAPIKey(
         llmFieldValue(state.llm, llmEnvManaged.value, "endpoint"),
-        hasLLMFieldValue(state.llm, llmEnvManaged.value, "api_key"),
+        hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, "api_key"),
       )
     );
     const defaultCodexAuthDisabled = computed(
       () =>
         trimText(llmFieldValue(state.llm, llmEnvManaged.value, "endpoint")) !== "" &&
-        hasLLMFieldValue(state.llm, llmEnvManaged.value, "api_key"),
+        hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, "api_key"),
     );
     const defaultIsXAIProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const defaultIsProProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
@@ -1167,7 +1193,10 @@ const SettingsView = {
       return "";
     }
     function profileDirty(profile) {
-      return JSON.stringify(serializeLLMProfile(profile)) !== String(profile?._savedSnapshot || "");
+      return (
+        profile?._secretDirty?.size > 0 ||
+        JSON.stringify(serializeLLMProfile(profile)) !== String(profile?._savedSnapshot || "")
+      );
     }
     function profileIsInUse(profile) {
       const currentProfile = trimText(state.llm.current_profile);
@@ -1232,15 +1261,15 @@ const SettingsView = {
         (selectedEndpointIsConsole.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
         (selectedEndpointIsConsole.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
-          !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
+          !hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
-          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_key")) ||
+          !hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, "bedrock_aws_key")) ||
         (defaultShowBedrockFields.value &&
-          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_secret")) ||
+          !hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, "bedrock_aws_secret")) ||
         (defaultShowBedrockFields.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_region")) ||
         (defaultShowCloudflareAccountField.value &&
-          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_api_token")) ||
+          !hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, "cloudflare_api_token")) ||
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
@@ -1258,15 +1287,15 @@ const SettingsView = {
         (selectedEndpointIsConsole.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
         (selectedEndpointIsConsole.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
-          !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
+          !hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
-          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_key")) ||
+          !hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, "bedrock_aws_key")) ||
         (defaultShowBedrockFields.value &&
-          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_secret")) ||
+          !hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, "bedrock_aws_secret")) ||
         (defaultShowBedrockFields.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_region")) ||
         (defaultShowCloudflareAccountField.value &&
-          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_api_token")) ||
+          !hasLLMFieldOrSecretValue(state.llm, llmEnvManaged.value, llmSecretFields.value, "cloudflare_api_token")) ||
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
@@ -1330,6 +1359,10 @@ const SettingsView = {
         consoleMixinDirty.value ||
         consoleGuardDirty.value
     );
+    const agentHasFileSecrets = computed(() =>
+      secretFieldsHaveSource({ llm: llmSecretFields.value, profiles: state.llm.profiles.map(llmProfileSecretFields) }, "file")
+    );
+    const consoleHasFileSecrets = computed(() => secretFieldsHaveSource(consoleSecretFields.value, "file"));
     const consoleSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleManagedDirty.value
     );
@@ -1454,6 +1487,8 @@ const SettingsView = {
       state.tools.bash = true;
       state.tools.powershell = false;
       llmEnvManaged.value = {};
+      llmSecretFields.value = {};
+      llmSecretDirty.clear();
       agentSettingsReadOnly.value = false;
       agentSettingsReadOnlyReason.value = "";
       llmConfigPath.value = "";
@@ -1495,6 +1530,13 @@ const SettingsView = {
         envManagedPayload?.llm_profiles && typeof envManagedPayload.llm_profiles === "object"
           ? envManagedPayload.llm_profiles
           : {};
+      const secretFieldsPayload = data?.secret_fields && typeof data.secret_fields === "object" ? data.secret_fields : {};
+      const llmSecretFieldsPayload =
+        secretFieldsPayload?.llm && typeof secretFieldsPayload.llm === "object" ? secretFieldsPayload.llm : {};
+      const llmProfileSecretFieldsPayload =
+        secretFieldsPayload?.llm_profiles && typeof secretFieldsPayload.llm_profiles === "object"
+          ? secretFieldsPayload.llm_profiles
+          : {};
       const skills = data?.skills && typeof data.skills === "object" ? data.skills : {};
       const tools = data?.tools && typeof data.tools === "object" ? data.tools : {};
       const profiles = Array.isArray(llm.profiles) ? llm.profiles : [];
@@ -1523,6 +1565,11 @@ const SettingsView = {
             llmProfileEnvManagedPayload?.[trimText(profile?.name)] &&
             typeof llmProfileEnvManagedPayload[trimText(profile?.name)] === "object"
               ? llmProfileEnvManagedPayload[trimText(profile?.name)]
+              : {},
+          _secretFields:
+            llmProfileSecretFieldsPayload?.[trimText(profile?.name)] &&
+            typeof llmProfileSecretFieldsPayload[trimText(profile?.name)] === "object"
+              ? llmProfileSecretFieldsPayload[trimText(profile?.name)]
               : {},
           inference_provider: normalizeSetupProviderChoice(profile?.inference_provider || profile?.provider, { allowEmpty: true }),
           provider: typeof profile?.provider === "string" ? profile.provider : "",
@@ -1557,6 +1604,8 @@ const SettingsView = {
       state.tools.bash = toolEnabledValue(tools.bash);
       state.tools.powershell = toolEnabledValue(tools.powershell);
       llmEnvManaged.value = llmEnvManagedPayload;
+      llmSecretFields.value = llmSecretFieldsPayload;
+      llmSecretDirty.clear();
 
       agentValidationVisible.value = false;
       agentSettingsLoaded.value = true;
@@ -1576,6 +1625,22 @@ const SettingsView = {
       return profile?._envManaged && typeof profile._envManaged === "object" ? profile._envManaged : {};
     }
 
+    function llmProfileSecretFields(profile) {
+      return profile?._secretFields && typeof profile._secretFields === "object" ? profile._secretFields : {};
+    }
+
+    function secretConfigured(fields, field) {
+      return fields?.[field]?.configured === true;
+    }
+
+    function hasLLMFieldOrSecretValue(config, envManaged, secretFields, field) {
+      return hasLLMFieldValue(config, envManaged, field) || secretConfigured(secretFields, field);
+    }
+
+    function includeSecretValue(value, fields, dirty, field) {
+      return dirty.has(field) || !secretConfigured(fields, field) ? trimText(value) : undefined;
+    }
+
     function updateDefaultLLMField({ field, value }) {
       if (agentSettingsReadOnly.value) {
         return;
@@ -1589,6 +1654,9 @@ const SettingsView = {
         return;
       }
       state.llm[key] = nextValue;
+      if (Object.prototype.hasOwnProperty.call(llmSecretFields.value, key)) {
+        llmSecretDirty.add(key);
+      }
       updateLLMDirty();
     }
 
@@ -1606,6 +1674,9 @@ const SettingsView = {
         return;
       }
       profile[key] = nextValue;
+      if (Object.prototype.hasOwnProperty.call(llmProfileSecretFields(profile), key)) {
+        profile._secretDirty.add(key);
+      }
     }
 
     function addLLMProfile() {
@@ -1764,8 +1835,13 @@ const SettingsView = {
           llmFieldEnvRawValue(envManaged, "tools_emulation_mode") || trimText(profile.tools_emulation_mode),
       };
       if (provider === SETUP_PROVIDER_CLOUDFLARE) {
-        payload.cloudflare_api_token =
-          llmFieldEnvRawValue(envManaged, "cloudflare_api_token") || trimText(profile.cloudflare_api_token);
+        const rawToken = llmFieldEnvRawValue(envManaged, "cloudflare_api_token");
+        payload.cloudflare_api_token = rawToken || includeSecretValue(
+          profile.cloudflare_api_token,
+          llmProfileSecretFields(profile),
+          profile._secretDirty,
+          "cloudflare_api_token",
+        );
         payload.cloudflare_account_id =
           llmFieldEnvRawValue(envManaged, "cloudflare_account_id") || trimText(profile.cloudflare_account_id);
         payload.api_key = "";
@@ -1774,10 +1850,20 @@ const SettingsView = {
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
       } else if (provider === SETUP_PROVIDER_BEDROCK) {
-        payload.bedrock_aws_key =
-          llmFieldEnvRawValue(envManaged, "bedrock_aws_key") || trimText(profile.bedrock_aws_key);
-        payload.bedrock_aws_secret =
-          llmFieldEnvRawValue(envManaged, "bedrock_aws_secret") || trimText(profile.bedrock_aws_secret);
+        const rawAWSKey = llmFieldEnvRawValue(envManaged, "bedrock_aws_key");
+        const rawAWSSecret = llmFieldEnvRawValue(envManaged, "bedrock_aws_secret");
+        payload.bedrock_aws_key = rawAWSKey || includeSecretValue(
+          profile.bedrock_aws_key,
+          llmProfileSecretFields(profile),
+          profile._secretDirty,
+          "bedrock_aws_key",
+        );
+        payload.bedrock_aws_secret = rawAWSSecret || includeSecretValue(
+          profile.bedrock_aws_secret,
+          llmProfileSecretFields(profile),
+          profile._secretDirty,
+          "bedrock_aws_secret",
+        );
         payload.bedrock_region =
           llmFieldEnvRawValue(envManaged, "bedrock_region") || trimText(profile.bedrock_region);
         payload.bedrock_model_arn =
@@ -1786,7 +1872,13 @@ const SettingsView = {
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
       } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
-        payload.api_key = llmFieldEnvRawValue(envManaged, "api_key") || trimText(profile.api_key);
+        const rawAPIKey = llmFieldEnvRawValue(envManaged, "api_key");
+        payload.api_key = rawAPIKey || includeSecretValue(
+          profile.api_key,
+          llmProfileSecretFields(profile),
+          profile._secretDirty,
+          "api_key",
+        );
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
         payload.bedrock_aws_key = "";
@@ -1805,7 +1897,13 @@ const SettingsView = {
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
       } else {
-        payload.api_key = llmFieldEnvRawValue(envManaged, "api_key") || trimText(profile.api_key);
+        const rawAPIKey = llmFieldEnvRawValue(envManaged, "api_key");
+        payload.api_key = rawAPIKey || includeSecretValue(
+          profile.api_key,
+          llmProfileSecretFields(profile),
+          profile._secretDirty,
+          "api_key",
+        );
         payload.bedrock_aws_key = "";
         payload.bedrock_aws_secret = "";
         payload.bedrock_region = "";
@@ -2253,6 +2351,8 @@ const SettingsView = {
       const guardRedaction = guard?.redaction && typeof guard.redaction === "object" ? guard.redaction : {};
       const guardApprovals = guard?.approvals && typeof guard.approvals === "object" ? guard.approvals : {};
       consoleEnvManaged.value = data?.env_managed && typeof data.env_managed === "object" ? data.env_managed : {};
+      consoleSecretFields.value = data?.secret_fields && typeof data.secret_fields === "object" ? data.secret_fields : {};
+      consoleSecretDirty.clear();
       for (const item of MANAGED_RUNTIME_ITEMS) {
         state.managedRuntimes[item.id] = values.includes(item.id);
       }
@@ -2304,6 +2404,8 @@ const SettingsView = {
       Object.assign(state.mixin, buildEmptyMixinConsoleState());
       Object.assign(state.guard, buildEmptyGuardConsoleState());
       consoleEnvManaged.value = {};
+      consoleSecretFields.value = {};
+      consoleSecretDirty.clear();
       consoleConfigPath.value = "";
       clearLoadedConsoleSnapshots();
     }
@@ -2626,10 +2728,20 @@ const SettingsView = {
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_aws_key")) {
-          payload.bedrock_aws_key = trimText(state.llm.bedrock_aws_key);
+          payload.bedrock_aws_key = includeSecretValue(
+            state.llm.bedrock_aws_key,
+            llmSecretFields.value,
+            llmSecretDirty,
+            "bedrock_aws_key",
+          );
         }
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_aws_secret")) {
-          payload.bedrock_aws_secret = trimText(state.llm.bedrock_aws_secret);
+          payload.bedrock_aws_secret = includeSecretValue(
+            state.llm.bedrock_aws_secret,
+            llmSecretFields.value,
+            llmSecretDirty,
+            "bedrock_aws_secret",
+          );
         }
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_region")) {
           payload.bedrock_region = trimText(state.llm.bedrock_region);
@@ -2639,14 +2751,19 @@ const SettingsView = {
         }
       } else if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_api_token")) {
-          payload.cloudflare_api_token = trimText(state.llm.cloudflare_api_token);
+          payload.cloudflare_api_token = includeSecretValue(
+            state.llm.cloudflare_api_token,
+            llmSecretFields.value,
+            llmSecretDirty,
+            "cloudflare_api_token",
+          );
         }
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
           payload.cloudflare_account_id = trimText(state.llm.cloudflare_account_id);
         }
       } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
-          payload.api_key = trimText(state.llm.api_key);
+          payload.api_key = includeSecretValue(state.llm.api_key, llmSecretFields.value, llmSecretDirty, "api_key");
         }
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -2666,7 +2783,7 @@ const SettingsView = {
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
-        payload.api_key = trimText(state.llm.api_key);
+        payload.api_key = includeSecretValue(state.llm.api_key, llmSecretFields.value, llmSecretDirty, "api_key");
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "reasoning_effort")) {
         payload.reasoning_effort = trimText(state.llm.reasoning_effort);
@@ -2700,7 +2817,7 @@ const SettingsView = {
       const envManaged = llmProfileEnvManaged(profile);
       return (
         trimText(llmFieldValue(profile, envManaged, "endpoint")) !== "" &&
-        hasLLMFieldValue(profile, envManaged, "api_key")
+        hasLLMFieldOrSecretValue(profile, envManaged, llmProfileSecretFields(profile), "api_key")
       );
     }
 
@@ -2710,7 +2827,7 @@ const SettingsView = {
         profileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX &&
         setupOpenAICodexUsesAPIKey(
           llmFieldValue(profile, envManaged, "endpoint"),
-          hasLLMFieldValue(profile, envManaged, "api_key"),
+          hasLLMFieldOrSecretValue(profile, envManaged, llmProfileSecretFields(profile), "api_key"),
         )
       );
     }
@@ -2747,7 +2864,7 @@ const SettingsView = {
       if (!setupProviderRequiresAPIKey(provider)) {
         return true;
       }
-      return hasLLMFieldValue(profile, envManaged, "api_key");
+      return hasLLMFieldOrSecretValue(profile, envManaged, llmProfileSecretFields(profile), "api_key");
     }
 
     function testConnectionDisabledForProfile(profile) {
@@ -2773,18 +2890,19 @@ const SettingsView = {
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         return (
-          !hasLLMFieldValue(profile, envManaged, "bedrock_aws_key") ||
-          !hasLLMFieldValue(profile, envManaged, "bedrock_aws_secret") ||
+          !hasLLMFieldOrSecretValue(profile, envManaged, llmProfileSecretFields(profile), "bedrock_aws_key") ||
+          !hasLLMFieldOrSecretValue(profile, envManaged, llmProfileSecretFields(profile), "bedrock_aws_secret") ||
           !hasLLMFieldValue(profile, envManaged, "bedrock_region")
         );
       }
       if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         return (
-          !hasLLMFieldValue(profile, envManaged, "cloudflare_api_token") ||
+          !hasLLMFieldOrSecretValue(profile, envManaged, llmProfileSecretFields(profile), "cloudflare_api_token") ||
           !hasLLMFieldValue(profile, envManaged, "cloudflare_account_id")
         );
       }
-      return setupProviderRequiresAPIKey(provider) && !hasLLMFieldValue(profile, envManaged, "api_key");
+      return setupProviderRequiresAPIKey(provider) &&
+        !hasLLMFieldOrSecretValue(profile, envManaged, llmProfileSecretFields(profile), "api_key");
     }
 
     function llmActionMenuItems(profile = null) {
@@ -2859,30 +2977,53 @@ const SettingsView = {
           : {};
       const managed_runtimes = MANAGED_RUNTIME_ITEMS.filter((item) => state.managedRuntimes[item.id]).map((item) => item.id);
       const telegram = {
-        bot_token: consoleFieldRawValue(telegramEnv, "bot_token") || trimText(state.telegram.bot_token),
         allowed_chat_ids: parseConfigListText(state.telegram.allowed_chat_ids_text),
         group_trigger_mode: normalizeConsoleGroupTriggerMode(state.telegram.group_trigger_mode),
       };
+      telegram.bot_token = consoleFieldRawValue(telegramEnv, "bot_token") || includeConsoleSecretValue(
+        "telegram",
+        "bot_token",
+        state.telegram.bot_token,
+      );
       const slack = {
-        bot_token: consoleFieldRawValue(slackEnv, "bot_token") || trimText(state.slack.bot_token),
-        app_token: consoleFieldRawValue(slackEnv, "app_token") || trimText(state.slack.app_token),
         allowed_team_ids: parseConfigListText(state.slack.allowed_team_ids_text),
         allowed_channel_ids: parseConfigListText(state.slack.allowed_channel_ids_text),
         group_trigger_mode: normalizeConsoleGroupTriggerMode(state.slack.group_trigger_mode),
       };
+      slack.bot_token = consoleFieldRawValue(slackEnv, "bot_token") || includeConsoleSecretValue(
+        "slack",
+        "bot_token",
+        state.slack.bot_token,
+      );
+      slack.app_token = consoleFieldRawValue(slackEnv, "app_token") || includeConsoleSecretValue(
+        "slack",
+        "app_token",
+        state.slack.app_token,
+      );
       const line = {
-        channel_access_token:
-          consoleFieldRawValue(lineEnv, "channel_access_token") || trimText(state.line.channel_access_token),
-        channel_secret: consoleFieldRawValue(lineEnv, "channel_secret") || trimText(state.line.channel_secret),
         allowed_group_ids: parseConfigListText(state.line.allowed_group_ids_text),
         group_trigger_mode: normalizeConsoleGroupTriggerMode(state.line.group_trigger_mode),
       };
+      line.channel_access_token = consoleFieldRawValue(lineEnv, "channel_access_token") || includeConsoleSecretValue(
+        "line",
+        "channel_access_token",
+        state.line.channel_access_token,
+      );
+      line.channel_secret = consoleFieldRawValue(lineEnv, "channel_secret") || includeConsoleSecretValue(
+        "line",
+        "channel_secret",
+        state.line.channel_secret,
+      );
       const lark = {
         app_id: consoleFieldRawValue(larkEnv, "app_id") || trimText(state.lark.app_id),
-        app_secret: consoleFieldRawValue(larkEnv, "app_secret") || trimText(state.lark.app_secret),
         allowed_chat_ids: parseConfigListText(state.lark.allowed_chat_ids_text),
         group_trigger_mode: normalizeConsoleGroupTriggerMode(state.lark.group_trigger_mode),
       };
+      lark.app_secret = consoleFieldRawValue(larkEnv, "app_secret") || includeConsoleSecretValue(
+        "lark",
+        "app_secret",
+        state.lark.app_secret,
+      );
       const mixin = {
         keystore_file: consoleFieldRawValue(mixinEnv, "keystore_file") || trimText(state.mixin.keystore_file),
         allowed_conversation_ids: parseConfigListText(state.mixin.allowed_conversation_ids_text),
@@ -2953,6 +3094,35 @@ const SettingsView = {
       return typeof envName === "string" && envName.trim() !== "";
     }
 
+    function consoleSecretField(kind, field) {
+      const group = consoleSecretFields.value?.[kind];
+      const entry = group && typeof group === "object" ? group[field] : null;
+      return entry && typeof entry === "object" ? entry : null;
+    }
+
+    function includeConsoleSecretValue(kind, field, value) {
+      const key = `${kind}.${field}`;
+      return consoleSecretDirty.has(key) || !secretConfigured(consoleSecretFields.value?.[kind] || {}, field)
+        ? trimText(value)
+        : undefined;
+    }
+
+    function markConsoleSecretDirty(kind, field) {
+      if (consoleSecretField(kind, field)) {
+        consoleSecretDirty.add(`${kind}.${field}`);
+      }
+    }
+
+    function consoleSecretPlaceholder(kind, field, fallbackKey) {
+      return consoleSecretField(kind, field)?.configured === true
+        ? t("settings_secret_configured_placeholder")
+        : t(fallbackKey);
+    }
+
+    function consoleSecretEditable(kind, field) {
+      return consoleSecretField(kind, field)?.editable !== false;
+    }
+
     function consoleFieldManagedHeadline(kind, field) {
       const entry = consoleFieldEntry(kind, field);
       const envName = typeof entry?.env_name === "string" ? entry.env_name.trim() : "";
@@ -2969,6 +3139,7 @@ const SettingsView = {
         return;
       }
       state.telegram[key] = String(value || "");
+      markConsoleSecretDirty("telegram", key);
       updateConsoleTelegramDirty();
     }
 
@@ -2978,6 +3149,7 @@ const SettingsView = {
         return;
       }
       state.slack[key] = String(value || "");
+      markConsoleSecretDirty("slack", key);
       updateConsoleSlackDirty();
     }
 
@@ -2995,6 +3167,7 @@ const SettingsView = {
         return;
       }
       state.line[key] = String(value || "");
+      markConsoleSecretDirty("line", key);
       updateConsoleLineDirty();
     }
 
@@ -3004,6 +3177,7 @@ const SettingsView = {
         return;
       }
       state.lark[key] = String(value || "");
+      markConsoleSecretDirty("lark", key);
       updateConsoleLarkDirty();
     }
 
@@ -3071,6 +3245,10 @@ const SettingsView = {
         const profileEnvManaged = payload?.env_managed?.llm_profiles?.[nextName];
         profile._envManaged =
           profileEnvManaged && typeof profileEnvManaged === "object" ? profileEnvManaged : {};
+        const profileSecretFields = payload?.secret_fields?.llm_profiles?.[nextName];
+        profile._secretFields =
+          profileSecretFields && typeof profileSecretFields === "object" ? profileSecretFields : {};
+        profile._secretDirty.clear();
         profile._savedName = nextName;
         profile._savedSnapshot = JSON.stringify(serializeLLMProfile(profile));
         if (originalName && originalName !== nextName) {
@@ -3173,6 +3351,32 @@ const SettingsView = {
       }
     }
 
+    async function migrateAgentSecrets() {
+      if (!agentHasFileSecrets.value || agentLoading.value || agentSaving.value || agentSettingsReadOnly.value) {
+        return;
+      }
+      agentSaving.value = true;
+      agentSavingTarget.value = "migrate-secrets";
+      const targetEndpointRef = settingsEndpointRef.value;
+      try {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
+          method: "PUT",
+          body: { migrate_secrets: true },
+        });
+        if (targetEndpointRef !== settingsEndpointRef.value) {
+          return;
+        }
+        applyPayload(payload);
+        await loadEndpoints();
+        toast.success(t("settings_secret_migrate_success"));
+      } catch (e) {
+        toast.error(agentSettingsErrorMessage(e, targetEndpointRef, "msg_save_failed"));
+      } finally {
+        agentSaving.value = false;
+        agentSavingTarget.value = "";
+      }
+    }
+
     async function saveConsoleSettings(target = "all") {
       const normalizedTarget = ["all", "runtimes", "telegram", "slack", "line", "lark", "mixin", "guard"].includes(String(target))
         ? String(target)
@@ -3220,6 +3424,36 @@ const SettingsView = {
           typeof payload.config_path === "string" ? payload.config_path : consoleConfigPath.value;
         applyConsolePayload(payload);
         toast.success(t("msg_save_success"));
+      } catch (e) {
+        if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          toast.error(e.message || t("msg_save_failed"));
+        }
+      } finally {
+        if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          consoleSaving.value = false;
+          consoleSavingTarget.value = "";
+        }
+      }
+    }
+
+    async function migrateConsoleSecrets() {
+      if (!consoleHasFileSecrets.value || consoleLoading.value || consoleSaving.value) {
+        return;
+      }
+      consoleSaving.value = true;
+      consoleSavingTarget.value = "migrate-secrets";
+      const requestSeq = ++consoleSettingsRequestSeq;
+      const targetEndpointRef = settingsEndpointRef.value;
+      try {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/console", {
+          method: "PUT",
+          body: { migrate_secrets: true },
+        });
+        if (!isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
+        applyConsolePayload(payload);
+        toast.success(t("settings_secret_migrate_success"));
       } catch (e) {
         if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
           toast.error(e.message || t("msg_save_failed"));
@@ -3819,12 +4053,14 @@ const SettingsView = {
       desktopUpdateResult,
       state,
       llmEnvManaged,
+      llmSecretFields,
       providerItems,
       reasoningEffortItems,
       toolsEmulationItems,
       profileOptions,
       agentValidationError,
       profileSaveDisabled,
+      llmProfileSecretFields,
       skillsValidationError,
       deleteProfileDialogText,
       deleteProfileDialogActions,
@@ -3843,6 +4079,8 @@ const SettingsView = {
       mobileBarTitle,
       pageClass,
       llmSaveDisabled,
+      agentHasFileSecrets,
+      consoleHasFileSecrets,
       skillsSaveDisabled,
       toolsSaveDisabled,
       consoleSaveDisabled,
@@ -3921,7 +4159,9 @@ const SettingsView = {
       openProAuthDialog,
       logout,
       saveAgentSettings,
+      migrateAgentSecrets,
       saveConsoleSettings,
+      migrateConsoleSecrets,
       savePersona,
       savePersonaAvatar,
       deletePersonaAvatar,
@@ -3961,6 +4201,8 @@ const SettingsView = {
       setManagedRuntimeEnabled,
       consoleFieldEnvManaged,
       consoleFieldManagedHeadline,
+      consoleSecretPlaceholder,
+      consoleSecretEditable,
       updateTelegramField,
       updateSlackField,
       updateLineField,
@@ -4037,6 +4279,15 @@ const SettingsView = {
                   </div>
                   <div class="settings-profile-actions settings-default-llm-actions">
                     <QButton
+                      v-if="agentHasFileSecrets"
+                      class="outlined"
+                      :loading="agentSaving && agentSavingTarget === 'migrate-secrets'"
+                      :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
+                      @click="migrateAgentSecrets"
+                    >
+                      {{ t("settings_secret_migrate_action") }}
+                    </QButton>
+                    <QButton
                       class="primary settings-profile-save"
                       :loading="agentSaving && agentSavingTarget === 'llm'"
                       :disabled="llmSaveDisabled"
@@ -4088,6 +4339,7 @@ const SettingsView = {
                         :disabledReason="agentFormDisabledReason"
                         :readOnly="agentSettingsReadOnly"
                         :envManaged="llmEnvManaged"
+                        :secretFields="llmSecretFields"
                         :providerItems="providerItems"
                         :reasoningEffortItems="reasoningEffortItems"
                         :toolsEmulationItems="toolsEmulationItems"
@@ -4186,6 +4438,7 @@ const SettingsView = {
                             :disabledReason="agentFormDisabledReason"
                             :readOnly="agentSettingsReadOnly"
                             :envManaged="llmProfileEnvManaged(profile)"
+                            :secretFields="llmProfileSecretFields(profile)"
                             :providerItems="providerItems"
                             :reasoningEffortItems="reasoningEffortItems"
                             :toolsEmulationItems="toolsEmulationItems"
@@ -4305,6 +4558,15 @@ const SettingsView = {
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
+                      v-if="consoleHasFileSecrets"
+                      class="outlined"
+                      :loading="consoleSaving && consoleSavingTarget === 'migrate-secrets'"
+                      :disabled="consoleLoading || consoleSaving"
+                      @click="migrateConsoleSecrets"
+                    >
+                      {{ t("settings_secret_migrate_action") }}
+                    </QButton>
+                    <QButton
                       class="primary"
                       :loading="consoleSaving && consoleSavingTarget === 'telegram'"
                       :disabled="telegramSaveDisabled"
@@ -4327,8 +4589,8 @@ const SettingsView = {
                         v-else
                         :modelValue="state.telegram.bot_token"
                         inputType="password"
-                        :placeholder="t('settings_console_telegram_bot_token_placeholder')"
-                        :disabled="consoleLoading || consoleSaving"
+                        :placeholder="consoleSecretPlaceholder('telegram', 'bot_token', 'settings_console_telegram_bot_token_placeholder')"
+                        :disabled="consoleLoading || consoleSaving || !consoleSecretEditable('telegram', 'bot_token')"
                         @update:modelValue="updateTelegramField('bot_token', $event)"
                       />
                     </div>
@@ -4391,8 +4653,8 @@ const SettingsView = {
                         v-else
                         :modelValue="state.slack.bot_token"
                         inputType="password"
-                        :placeholder="t('settings_console_slack_bot_token_placeholder')"
-                        :disabled="consoleLoading || consoleSaving"
+                        :placeholder="consoleSecretPlaceholder('slack', 'bot_token', 'settings_console_slack_bot_token_placeholder')"
+                        :disabled="consoleLoading || consoleSaving || !consoleSecretEditable('slack', 'bot_token')"
                         @update:modelValue="updateSlackField('bot_token', $event)"
                       />
                     </div>
@@ -4407,8 +4669,8 @@ const SettingsView = {
                         v-else
                         :modelValue="state.slack.app_token"
                         inputType="password"
-                        :placeholder="t('settings_console_slack_app_token_placeholder')"
-                        :disabled="consoleLoading || consoleSaving"
+                        :placeholder="consoleSecretPlaceholder('slack', 'app_token', 'settings_console_slack_app_token_placeholder')"
+                        :disabled="consoleLoading || consoleSaving || !consoleSecretEditable('slack', 'app_token')"
                         @update:modelValue="updateSlackField('app_token', $event)"
                       />
                     </div>
@@ -4483,8 +4745,8 @@ const SettingsView = {
                         v-else
                         :modelValue="state.line.channel_access_token"
                         inputType="password"
-                        :placeholder="t('settings_console_line_channel_access_token_placeholder')"
-                        :disabled="consoleLoading || consoleSaving"
+                        :placeholder="consoleSecretPlaceholder('line', 'channel_access_token', 'settings_console_line_channel_access_token_placeholder')"
+                        :disabled="consoleLoading || consoleSaving || !consoleSecretEditable('line', 'channel_access_token')"
                         @update:modelValue="updateLineField('channel_access_token', $event)"
                       />
                     </div>
@@ -4499,8 +4761,8 @@ const SettingsView = {
                         v-else
                         :modelValue="state.line.channel_secret"
                         inputType="password"
-                        :placeholder="t('settings_console_line_channel_secret_placeholder')"
-                        :disabled="consoleLoading || consoleSaving"
+                        :placeholder="consoleSecretPlaceholder('line', 'channel_secret', 'settings_console_line_channel_secret_placeholder')"
+                        :disabled="consoleLoading || consoleSaving || !consoleSecretEditable('line', 'channel_secret')"
                         @update:modelValue="updateLineField('channel_secret', $event)"
                       />
                     </div>
@@ -4578,8 +4840,8 @@ const SettingsView = {
                         v-else
                         :modelValue="state.lark.app_secret"
                         inputType="password"
-                        :placeholder="t('settings_console_lark_app_secret_placeholder')"
-                        :disabled="consoleLoading || consoleSaving"
+                        :placeholder="consoleSecretPlaceholder('lark', 'app_secret', 'settings_console_lark_app_secret_placeholder')"
+                        :disabled="consoleLoading || consoleSaving || !consoleSecretEditable('lark', 'app_secret')"
                         @update:modelValue="updateLarkField('app_secret', $event)"
                       />
                     </div>

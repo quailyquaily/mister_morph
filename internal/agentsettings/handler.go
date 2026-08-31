@@ -9,6 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 )
 
@@ -32,6 +33,29 @@ type LLMConfigFieldsUpdate struct {
 type LLMProfileUpdate struct {
 	OriginalName string `json:"original_name,omitempty"`
 	LLMProfileSettingsPayload
+	providedSecretFields map[string]bool
+}
+
+func (u *LLMProfileUpdate) UnmarshalJSON(data []byte) error {
+	type profileUpdateAlias LLMProfileUpdate
+	var decoded profileUpdateAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*u = LLMProfileUpdate(decoded)
+	u.providedSecretFields = map[string]bool{}
+	for _, name := range llmSecretFieldNames {
+		_, u.providedSecretFields[name] = fields[name]
+	}
+	return nil
+}
+
+func (u *LLMProfileUpdate) secretFieldProvided(name, value string) bool {
+	return u != nil && (u.providedSecretFields[name] || strings.TrimSpace(value) != "")
 }
 
 type LLMSettingsUpdate struct {
@@ -89,15 +113,17 @@ type SkillsSettingsUpdate struct {
 }
 
 type AgentSettingsUpdate struct {
-	LLM    LLMSettingsUpdate     `json:"llm"`
-	Skills *SkillsSettingsUpdate `json:"skills,omitempty"`
-	Tools  *ToolsSettingsUpdate  `json:"tools,omitempty"`
+	LLM            LLMSettingsUpdate     `json:"llm"`
+	Skills         *SkillsSettingsUpdate `json:"skills,omitempty"`
+	Tools          *ToolsSettingsUpdate  `json:"tools,omitempty"`
+	MigrateSecrets bool                  `json:"migrate_secrets,omitempty"`
 }
 
 type AgentSettingsView struct {
 	OK             bool                  `json:"ok,omitempty"`
 	LLM            LLMSettingsPayload    `json:"llm"`
 	EnvManaged     EnvManagedPayload     `json:"env_managed,omitempty"`
+	SecretFields   SecretFieldsPayload   `json:"secret_fields,omitempty"`
 	Skills         SkillsSettingsPayload `json:"skills"`
 	Tools          ToolsSettingsPayload  `json:"tools"`
 	ConfigPath     string                `json:"config_path"`
@@ -161,14 +187,14 @@ func (h *Handler) Settings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		view, err := h.owner.View(r.Context())
 		if err != nil {
-			writeSettingsError(w, http.StatusInternalServerError, err.Error())
+			writeSettingsError(w, settingsErrorStatus(err), err.Error())
 			return
 		}
 		writeSettingsJSON(w, http.StatusOK, view)
 	case http.MethodPut:
 		current, err := h.owner.View(r.Context())
 		if err != nil {
-			writeSettingsError(w, http.StatusInternalServerError, err.Error())
+			writeSettingsError(w, settingsErrorStatus(err), err.Error())
 			return
 		}
 		if current.ReadOnly {
@@ -191,12 +217,7 @@ func (h *Handler) Settings(w http.ResponseWriter, r *http.Request) {
 		}
 		view, err := h.owner.Update(r.Context(), update)
 		if err != nil {
-			status := http.StatusInternalServerError
-			var statusErr interface{ HTTPStatus() int }
-			if errors.As(err, &statusErr) {
-				status = statusErr.HTTPStatus()
-			}
-			writeSettingsError(w, status, err.Error())
+			writeSettingsError(w, settingsErrorStatus(err), err.Error())
 			return
 		}
 		view.OK = true
@@ -205,6 +226,17 @@ func (h *Handler) Settings(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, PUT")
 		writeSettingsError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func settingsErrorStatus(err error) int {
+	if errors.Is(err, secref.ErrOSStoreUnavailable) || errors.Is(err, secref.ErrOSSecretNotFound) {
+		return http.StatusServiceUnavailable
+	}
+	var statusErr interface{ HTTPStatus() int }
+	if errors.As(err, &statusErr) {
+		return statusErr.HTTPStatus()
+	}
+	return http.StatusInternalServerError
 }
 
 type ModelsRequest struct {

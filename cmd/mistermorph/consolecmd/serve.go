@@ -31,6 +31,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	serverpolicy "github.com/quailyquaily/mistermorph/internal/httpserver"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/xaiauth"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -129,6 +130,7 @@ type server struct {
 	reloadRuntimeConfigFunc     func() error
 	runtimeConfigPollerWG       sync.WaitGroup
 	webSockets                  consoleWebSocketHandlers
+	secretStore                 secref.OSStore
 }
 
 const endpointHealthTimeout = 2 * time.Second
@@ -398,6 +400,7 @@ func newServer(cfg serveConfig) (*server, error) {
 		endpointByRef:    endpointByRef,
 		localRuntime:     localRuntime,
 		managed:          managed,
+		secretStore:      secref.NewOSStore(),
 	}
 	srv.ensureEndpointStates()
 	return srv, nil

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
@@ -23,6 +25,44 @@ type installConfigSetup struct {
 	APIKey             string
 	CloudflareAccount  string
 	CloudflareAPIToken string
+	secretIDs          []string
+}
+
+func protectInstallSetupSecrets(ctx context.Context, setup *installConfigSetup, store secref.OSStore) error {
+	if setup == nil || store == nil {
+		return nil
+	}
+	value := &setup.APIKey
+	if normalizeInferenceProviderForSetup(setup.Provider) == setupProviderCloudflare {
+		value = &setup.CloudflareAPIToken
+	}
+	secret := strings.TrimSpace(*value)
+	if secret == "" {
+		return nil
+	}
+	if _, ok := secref.ParseSingleRef(secret); ok {
+		return nil
+	}
+	id, err := secref.NewOSSecretID()
+	if err != nil {
+		return fmt.Errorf("create system secret reference: %w", err)
+	}
+	if err := store.Put(ctx, id, []byte(secret)); err != nil {
+		return fmt.Errorf("store install credential: %w", secref.ErrOSStoreUnavailable)
+	}
+	*value = secref.OSSecretRef(id)
+	setup.secretIDs = append(setup.secretIDs, id)
+	return nil
+}
+
+func discardInstallSetupSecrets(ctx context.Context, setup *installConfigSetup, store secref.OSStore) {
+	if setup == nil || store == nil {
+		return
+	}
+	for _, id := range setup.secretIDs {
+		_ = store.Delete(ctx, id)
+	}
+	setup.secretIDs = nil
 }
 
 func findReadableInstallConfig(cmd *cobra.Command, installDir string) (string, bool) {

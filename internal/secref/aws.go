@@ -19,7 +19,8 @@ type AWSSecretsManagerConfig struct {
 type DefaultSource struct {
 	EnvSource
 
-	cfg AWSSecretsManagerConfig
+	cfg     AWSSecretsManagerConfig
+	osStore OSStore
 
 	once      sync.Once
 	client    secretsManagerClient
@@ -31,7 +32,22 @@ type secretsManagerClient interface {
 }
 
 func NewDefaultSource(cfg AWSSecretsManagerConfig) *DefaultSource {
-	return &DefaultSource{cfg: cfg}
+	return &DefaultSource{cfg: cfg, osStore: NewOSStore()}
+}
+
+func NewDefaultSourceWithOSStore(cfg AWSSecretsManagerConfig, store OSStore) *DefaultSource {
+	return &DefaultSource{cfg: cfg, osStore: store}
+}
+
+func (s *DefaultSource) GetOSSecretString(ctx context.Context, id string) (string, error) {
+	if s == nil || s.osStore == nil {
+		return "", ErrOSStoreUnavailable
+	}
+	value, err := s.osStore.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return string(value), nil
 }
 
 func (s *DefaultSource) GetAWSSecretString(ctx context.Context, secretID string) (string, error) {

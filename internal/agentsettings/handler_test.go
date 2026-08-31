@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
 
@@ -15,10 +16,14 @@ type handlerTestOwner struct {
 	view       AgentSettingsView
 	lastUpdate AgentSettingsUpdate
 	reader     Reader
+	viewErr    error
 	updateErr  error
 }
 
 func (o *handlerTestOwner) View(context.Context) (AgentSettingsView, error) {
+	if o.viewErr != nil {
+		return AgentSettingsView{}, o.viewErr
+	}
 	return o.view, nil
 }
 
@@ -43,6 +48,29 @@ func TestHandlerSettingsUsesOwnerHTTPStatus(t *testing.T) {
 	handler.Settings(recorder, httptest.NewRequest(http.MethodPut, "/settings/agent", strings.NewReader(`{"llm":{"api_key":"replacement"}}`)))
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("PUT status = %d, want %d (%s)", recorder.Code, http.StatusConflict, recorder.Body.String())
+	}
+}
+
+func TestHandlerSettingsReportsUnavailableSecretStore(t *testing.T) {
+	owner := &handlerTestOwner{
+		view:      AgentSettingsView{ReadOnly: false},
+		updateErr: secref.ErrOSStoreUnavailable,
+	}
+	handler := NewHandler(HandlerOptions{Owner: owner})
+	recorder := httptest.NewRecorder()
+	handler.Settings(recorder, httptest.NewRequest(http.MethodPut, "/settings/agent", strings.NewReader(`{"llm":{"api_key":"replacement"}}`)))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("PUT status = %d, want %d (%s)", recorder.Code, http.StatusServiceUnavailable, recorder.Body.String())
+	}
+}
+
+func TestHandlerSettingsGetReportsUnavailableSecretStore(t *testing.T) {
+	owner := &handlerTestOwner{viewErr: secref.ErrOSStoreUnavailable}
+	handler := NewHandler(HandlerOptions{Owner: owner})
+	recorder := httptest.NewRecorder()
+	handler.Settings(recorder, httptest.NewRequest(http.MethodGet, "/settings/agent", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("GET status = %d, want %d (%s)", recorder.Code, http.StatusServiceUnavailable, recorder.Body.String())
 	}
 }
 

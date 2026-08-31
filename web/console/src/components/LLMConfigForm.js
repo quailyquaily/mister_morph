@@ -43,6 +43,10 @@ const LLMConfigForm = {
       type: Object,
       default: () => ({}),
     },
+    secretFields: {
+      type: Object,
+      default: () => ({}),
+    },
     providerItems: {
       type: Array,
       default: () => [],
@@ -121,6 +125,18 @@ const LLMConfigForm = {
 
     function fieldManagedHeadline(field) {
       return llmFieldManagedHeadline(props.config, props.envManaged, field);
+    }
+
+    function isSecretConfigured(field) {
+      return props.secretFields?.[field]?.configured === true;
+    }
+
+    function isSecretEditable(field) {
+      return props.secretFields?.[field]?.editable !== false;
+    }
+
+    function secretPlaceholder(field, fallbackKey) {
+      return isSecretConfigured(field) ? t("settings_secret_configured_placeholder") : t(fallbackKey);
     }
 
     const providerItem = computed(() => {
@@ -236,7 +252,7 @@ const LLMConfigForm = {
       if (showProOAuthFields.value) {
         return !proAuthNeedsLogin.value;
       }
-      return hasLLMFieldValue(props.config, props.envManaged, "api_key");
+      return hasLLMFieldValue(props.config, props.envManaged, "api_key") || isSecretConfigured("api_key");
     });
     const modelLookupDisabled = computed(
       () =>
@@ -365,6 +381,9 @@ const LLMConfigForm = {
       fieldEnvName,
       isFieldEnvManaged,
       fieldManagedHeadline,
+      isSecretConfigured,
+      isSecretEditable,
+      secretPlaceholder,
       fieldValue,
       updateField,
       onProviderChange,
@@ -511,8 +530,8 @@ const LLMConfigForm = {
           v-else
           :modelValue="config.bedrock_aws_key"
           inputType="password"
-          :placeholder="t('settings_agent_bedrock_aws_key_placeholder')"
-          :disabled="busy || readOnly"
+          :placeholder="secretPlaceholder('bedrock_aws_key', 'settings_agent_bedrock_aws_key_placeholder')"
+          :disabled="busy || readOnly || !isSecretEditable('bedrock_aws_key')"
           @update:modelValue="updateField('bedrock_aws_key', $event)"
         />
       </div>
@@ -527,8 +546,8 @@ const LLMConfigForm = {
           v-else
           :modelValue="config.bedrock_aws_secret"
           inputType="password"
-          :placeholder="t('settings_agent_bedrock_aws_secret_placeholder')"
-          :disabled="busy || readOnly"
+          :placeholder="secretPlaceholder('bedrock_aws_secret', 'settings_agent_bedrock_aws_secret_placeholder')"
+          :disabled="busy || readOnly || !isSecretEditable('bedrock_aws_secret')"
           @update:modelValue="updateField('bedrock_aws_secret', $event)"
         />
       </div>
@@ -578,16 +597,16 @@ const LLMConfigForm = {
           v-else-if="showCloudflareAccountField"
           :modelValue="config.cloudflare_api_token"
           inputType="password"
-          :placeholder="t(credentialPlaceholderKey)"
-          :disabled="busy || readOnly"
+          :placeholder="secretPlaceholder('cloudflare_api_token', credentialPlaceholderKey)"
+          :disabled="busy || readOnly || !isSecretEditable('cloudflare_api_token')"
           @update:modelValue="updateField('cloudflare_api_token', $event)"
         />
         <QInput
           v-else
           :modelValue="config.api_key"
           inputType="password"
-          :placeholder="t(credentialPlaceholderKey)"
-          :disabled="busy || readOnly"
+          :placeholder="secretPlaceholder('api_key', credentialPlaceholderKey)"
+          :disabled="busy || readOnly || !isSecretEditable('api_key')"
           @update:modelValue="updateField('api_key', $event)"
         />
         <p v-if="credentialHelp" class="settings-field-hint">

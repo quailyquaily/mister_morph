@@ -105,6 +105,32 @@ func TestRootCommandRejectsMalformedConfigForRun(t *testing.T) {
 	}
 }
 
+func TestRootPreflightAppliesCLISecretBeforeResolvingConfigSecret(t *testing.T) {
+	resetRootConfigForTest(t)
+	workspaceDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "workspace_dir: " + workspaceDir + "\nllm:\n  provider: openai\n  model: gpt-test\n  api_key: secret://os/b_LsX7HLzAR3OShG7YjRcw\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	viper.Set("config", configPath)
+	cmd := rootCommandForTest(t)
+	run, _, err := cmd.Find([]string{"run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := run.Flags().Set("api-key", "cli-api-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runRootPreflight(run, nil); err != nil {
+		t.Fatalf("runRootPreflight() error = %v", err)
+	}
+	if got := viper.GetString("llm.api_key"); got != "cli-api-key" {
+		t.Fatalf("llm.api_key = %q, want CLI override", got)
+	}
+}
+
 func TestRootCommandAllowsMalformedConfigOnlyForConsoleRepair(t *testing.T) {
 	resetRootConfigForTest(t)
 
@@ -138,7 +164,7 @@ func TestLoadRootConfigValidatesWorkspaceDir(t *testing.T) {
 	}
 	viper.Set("config", configPath)
 
-	if err := loadRootConfig(); err != nil {
+	if err := loadRootConfig(nil); err != nil {
 		t.Fatalf("loadRootConfig() error = %v", err)
 	}
 	if got := viper.GetString("workspace_dir"); got != workspaceDir {
@@ -155,7 +181,7 @@ func TestLoadRootConfigRejectsInvalidWorkspaceDir(t *testing.T) {
 	}
 	viper.Set("config", configPath)
 
-	err := loadRootConfig()
+	err := loadRootConfig(nil)
 	if err == nil || !strings.Contains(err.Error(), "workspace dir does not exist") {
 		t.Fatalf("loadRootConfig() error = %v, want missing workspace error", err)
 	}

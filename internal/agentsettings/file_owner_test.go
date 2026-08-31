@@ -2,6 +2,7 @@ package agentsettings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -11,8 +12,455 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
+
+type fakeFileOwnerSecretBackend struct {
+	values  map[string]string
+	puts    []string
+	deletes []string
+	putErr  error
+}
+
+func (f *fakeFileOwnerSecretBackend) LookupEnv(string) (string, bool) {
+	return "", false
+}
+
+func (f *fakeFileOwnerSecretBackend) GetAWSSecretString(context.Context, string) (string, error) {
+	return "", secref.ErrAWSSecretNotFound
+}
+
+func (f *fakeFileOwnerSecretBackend) GetOSSecretString(_ context.Context, id string) (string, error) {
+	value, ok := f.values[id]
+	if !ok {
+		return "", secref.ErrOSSecretNotFound
+	}
+	return value, nil
+}
+
+func (f *fakeFileOwnerSecretBackend) Get(ctx context.Context, id string) ([]byte, error) {
+	value, err := f.GetOSSecretString(ctx, id)
+	return []byte(value), err
+}
+
+func (f *fakeFileOwnerSecretBackend) Put(_ context.Context, id string, value []byte) error {
+	if f.putErr != nil {
+		return f.putErr
+	}
+	if f.values == nil {
+		f.values = map[string]string{}
+	}
+	f.values[id] = string(value)
+	f.puts = append(f.puts, id)
+	return nil
+}
+
+func (f *fakeFileOwnerSecretBackend) Delete(_ context.Context, id string) error {
+	if _, ok := f.values[id]; !ok {
+		return secref.ErrOSSecretNotFound
+	}
+	delete(f.values, id)
+	f.deletes = append(f.deletes, id)
+	return nil
+}
+
+func TestFileOwnerRotatesOSManagedAPIKey(t *testing.T) {
+	const oldID = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: gpt-test\n  api_key: "+secref.OSSecretRef(oldID)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{oldID: "old-secret"}}
+	reader := readFileOwnerTestConfigWithSource(t, configPath, backend)
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       reader,
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+
+	before, err := owner.View(context.Background())
+	if err != nil {
+		t.Fatalf("View() error = %v", err)
+	}
+	if before.LLM.APIKey != "" {
+		t.Fatalf("View() exposed API key %q", before.LLM.APIKey)
+	}
+	status := before.SecretFields.LLM["api_key"]
+	if !status.Configured || status.Source != "os" || !status.Editable {
+		t.Fatalf("api_key secret status = %#v", status)
+	}
+
+	replacement := "new-secret"
+	after, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{APIKey: &replacement}},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if after.LLM.APIKey != "" || !after.SecretFields.LLM["api_key"].Configured {
+		t.Fatalf("updated view exposed or lost API key status: %#v", after)
+	}
+	if len(backend.puts) != 1 || len(backend.deletes) != 1 || backend.deletes[0] != oldID {
+		t.Fatalf("secret store operations puts=%v deletes=%v", backend.puts, backend.deletes)
+	}
+	newID := backend.puts[0]
+	if backend.values[newID] != replacement {
+		t.Fatalf("new keyring value = %q, want replacement", backend.values[newID])
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), replacement) || !strings.Contains(string(raw), secref.OSSecretRef(newID)) {
+		t.Fatalf("config did not contain only the new OS ref:\n%s", raw)
+	}
+}
+
+func TestFileOwnerReportsEnvironmentManagedSecretStatus(t *testing.T) {
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "environment-secret")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: gpt-test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath: configPath,
+		Reader:     readFileOwnerTestConfig(t, configPath),
+	})
+
+	view, err := owner.View(context.Background())
+	if err != nil {
+		t.Fatalf("View() error = %v", err)
+	}
+	status := view.SecretFields.LLM["api_key"]
+	if !status.Configured || status.Source != string(secref.RefKindEnv) || status.Editable {
+		t.Fatalf("api_key secret status = %#v, want configured non-editable environment secret", status)
+	}
+}
+
+func TestFileOwnerKeepsOSSecretStillReferencedByProfile(t *testing.T) {
+	const sharedID = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "llm:\n  provider: openai\n  model: gpt-main\n  api_key: " + secref.OSSecretRef(sharedID) + "\n  profiles:\n    backup:\n      provider: openai\n      model: gpt-backup\n      api_key: " + secref.OSSecretRef(sharedID) + "\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{sharedID: "shared-secret"}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+	empty := ""
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{APIKey: &empty}},
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if backend.values[sharedID] != "shared-secret" {
+		t.Fatal("shared OS secret was deleted while the profile still referenced it")
+	}
+}
+
+func TestFileOwnerPreservesOSManagedSecretOnUnrelatedUpdate(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: before\n  api_key: "+secref.OSSecretRef(id)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{id: "stored-secret"}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+	model := "after"
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{Model: &model}},
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(backend.puts) != 0 || len(backend.deletes) != 0 {
+		t.Fatalf("unrelated update changed secret store: puts=%v deletes=%v", backend.puts, backend.deletes)
+	}
+	raw, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(raw), secref.OSSecretRef(id)) {
+		t.Fatalf("unrelated update lost OS ref:\n%s", raw)
+	}
+}
+
+func TestFileOwnerStoresNewAPIKeyInOSStore(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: gpt-test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+	apiKey := "new-secret"
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{APIKey: &apiKey}},
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	raw, _ := os.ReadFile(configPath)
+	if strings.Contains(string(raw), apiKey) || len(backend.puts) != 1 || !strings.Contains(string(raw), secref.OSSecretRef(backend.puts[0])) {
+		t.Fatalf("new API key was not stored as OS ref: puts=%v\n%s", backend.puts, raw)
+	}
+}
+
+func TestFileOwnerMigratesPlaintextLLMSecretsToOSStore(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "llm:\n  provider: openai\n  model: gpt-main\n  api_key: default-secret\n  profiles:\n    backup:\n      provider: openai\n      model: gpt-backup\n      api_key: profile-secret\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	store := &fakeFileOwnerSecretBackend{values: map[string]string{}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, store),
+		SecretSource: store,
+		OSStore:      store,
+	})
+
+	view, err := owner.Update(context.Background(), AgentSettingsUpdate{MigrateSecrets: true})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(raw), "default-secret") || strings.Contains(string(raw), "profile-secret") {
+		t.Fatalf("config still contains plaintext secrets:\n%s", raw)
+	}
+	if len(store.values) != 2 {
+		t.Fatalf("stored secret count = %d, want 2", len(store.values))
+	}
+	gotValues := map[string]bool{}
+	for _, value := range store.values {
+		gotValues[value] = true
+	}
+	if !gotValues["default-secret"] || !gotValues["profile-secret"] {
+		t.Fatalf("stored values = %#v", gotValues)
+	}
+	if view.SecretFields.LLM["api_key"].Source != string(secref.RefKindOS) ||
+		view.SecretFields.LLMProfiles["backup"]["api_key"].Source != string(secref.RefKindOS) {
+		t.Fatalf("secret fields were not reported as OS-managed: %#v", view.SecretFields)
+	}
+}
+
+func TestFileOwnerSecretMigrationLeavesConfigUntouchedWhenStoreFails(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "llm:\n  provider: openai\n  model: gpt-main\n  api_key: default-secret\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	store := &fakeFileOwnerSecretBackend{values: map[string]string{}}
+	store.putErr = errors.New("write failed")
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, store),
+		SecretSource: store,
+		OSStore:      store,
+	})
+
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{MigrateSecrets: true}); err == nil {
+		t.Fatal("Update() error = nil")
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if string(raw) != config {
+		t.Fatalf("config changed after failed migration:\n%s", raw)
+	}
+}
+
+func TestFileOwnerLeavesConfigUntouchedWhenOSStoreWriteFails(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	original := "llm:\n  provider: openai\n  model: gpt-test\n"
+	if err := os.WriteFile(configPath, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{putErr: secref.ErrOSStoreUnavailable}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+	apiKey := "must-not-reach-file"
+	_, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{APIKey: &apiKey}},
+	})
+	if !errors.Is(err, secref.ErrOSStoreUnavailable) {
+		t.Fatalf("Update() error = %v, want ErrOSStoreUnavailable", err)
+	}
+	raw, _ := os.ReadFile(configPath)
+	if string(raw) != original || strings.Contains(string(raw), apiKey) {
+		t.Fatalf("failed store write changed config:\n%s", raw)
+	}
+}
+
+func TestFileOwnerPreservesAndRotatesOSManagedProfileSecret(t *testing.T) {
+	const oldID = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "llm:\n  provider: openai\n  model: gpt-main\n  profiles:\n    backup:\n      provider: openai\n      model: gpt-old\n      api_key: " + secref.OSSecretRef(oldID) + "\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{oldID: "old-profile-secret"}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+
+	modelOnly := LLMProfileUpdate{
+		OriginalName: "backup",
+		LLMProfileSettingsPayload: LLMProfileSettingsPayload{
+			Name: "backup",
+			LLMConfigFieldsPayload: LLMConfigFieldsPayload{
+				Provider: "openai",
+				Model:    "gpt-new",
+			},
+		},
+	}
+	view, err := owner.Update(context.Background(), AgentSettingsUpdate{LLM: LLMSettingsUpdate{Profile: &modelOnly}})
+	if err != nil {
+		t.Fatalf("model-only profile Update() error = %v", err)
+	}
+	if len(backend.puts) != 0 || len(backend.deletes) != 0 {
+		t.Fatalf("model-only update changed profile secret: puts=%v deletes=%v", backend.puts, backend.deletes)
+	}
+	status := view.SecretFields.LLMProfiles["backup"]["api_key"]
+	if !status.Configured || status.Source != "os" || !status.Editable {
+		t.Fatalf("profile api_key status = %#v", status)
+	}
+	raw, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(raw), secref.OSSecretRef(oldID)) {
+		t.Fatalf("model-only update lost profile OS ref:\n%s", raw)
+	}
+
+	replacement := modelOnly
+	replacement.APIKey = "new-profile-secret"
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{LLM: LLMSettingsUpdate{Profile: &replacement}}); err != nil {
+		t.Fatalf("secret profile Update() error = %v", err)
+	}
+	if len(backend.puts) != 1 || len(backend.deletes) != 1 || backend.deletes[0] != oldID {
+		t.Fatalf("profile rotation operations puts=%v deletes=%v", backend.puts, backend.deletes)
+	}
+	newID := backend.puts[0]
+	raw, _ = os.ReadFile(configPath)
+	if strings.Contains(string(raw), "new-profile-secret") || !strings.Contains(string(raw), secref.OSSecretRef(newID)) {
+		t.Fatalf("profile secret was not stored as OS ref:\n%s", raw)
+	}
+}
+
+func TestFileOwnerClearsOSManagedProfileSecret(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "llm:\n  provider: openai\n  model: gpt-main\n  profiles:\n    backup:\n      provider: openai\n      model: gpt-backup\n      api_key: " + secref.OSSecretRef(id) + "\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{id: "profile-secret"}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+	var update AgentSettingsUpdate
+	if err := json.Unmarshal([]byte(`{"llm":{"profile":{"original_name":"backup","name":"backup","provider":"openai","model":"gpt-backup","api_key":""}}}`), &update); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := owner.Update(context.Background(), update)
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if view.SecretFields.LLMProfiles["backup"]["api_key"].Configured {
+		t.Fatalf("cleared profile secret is still configured: %#v", view.SecretFields.LLMProfiles["backup"])
+	}
+	if _, ok := backend.values[id]; ok || len(backend.deletes) != 1 || backend.deletes[0] != id {
+		t.Fatalf("cleared profile secret was not deleted: values=%v deletes=%v", backend.values, backend.deletes)
+	}
+	raw, _ := os.ReadFile(configPath)
+	if strings.Contains(string(raw), secref.OSSecretRef(id)) {
+		t.Fatalf("cleared profile ref remains in config:\n%s", raw)
+	}
+}
+
+func TestFileOwnerStoresBulkProfileSecretsInOSStore(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: gpt-main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+	profiles := []LLMProfileSettingsPayload{{
+		Name: "backup",
+		LLMConfigFieldsPayload: LLMConfigFieldsPayload{
+			Provider: "openai",
+			Model:    "gpt-backup",
+			APIKey:   "bulk-profile-secret",
+		},
+	}}
+
+	view, err := owner.Update(context.Background(), AgentSettingsUpdate{LLM: LLMSettingsUpdate{Profiles: &profiles}})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(backend.puts) != 1 || backend.values[backend.puts[0]] != "bulk-profile-secret" {
+		t.Fatalf("bulk profile secret store writes = %v values=%v", backend.puts, backend.values)
+	}
+	if !view.SecretFields.LLMProfiles["backup"]["api_key"].Configured {
+		t.Fatalf("bulk profile secret status = %#v", view.SecretFields.LLMProfiles["backup"])
+	}
+	raw, _ := os.ReadFile(configPath)
+	if strings.Contains(string(raw), "bulk-profile-secret") || !strings.Contains(string(raw), secref.OSSecretRef(backend.puts[0])) {
+		t.Fatalf("bulk profile secret was not replaced with an OS ref:\n%s", raw)
+	}
+}
+
+func TestFileOwnerDeletesUnreferencedOSSecretWithProfile(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "llm:\n  provider: openai\n  model: gpt-main\n  profiles:\n    backup:\n      provider: openai\n      model: gpt-backup\n      api_key: " + secref.OSSecretRef(id) + "\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{id: "profile-secret"}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+	name := "backup"
+
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{LLM: LLMSettingsUpdate{DeleteProfile: &name}}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if _, ok := backend.values[id]; ok || len(backend.deletes) != 1 || backend.deletes[0] != id {
+		t.Fatalf("deleted profile left an OS secret: values=%v deletes=%v", backend.values, backend.deletes)
+	}
+}
 
 func TestFileOwnerUpdatesItsConfigAndPreservesUnrelatedKeys(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -402,6 +850,17 @@ func readFileOwnerTestConfig(t *testing.T, configPath string) *viper.Viper {
 	configdefaults.Apply(reader)
 	if err := configutil.ReadExpandedConfig(reader, configPath, nil); err != nil {
 		t.Fatalf("read expanded config: %v", err)
+	}
+	reader.Set("config", configPath)
+	return reader
+}
+
+func readFileOwnerTestConfigWithSource(t *testing.T, configPath string, source secref.Source) *viper.Viper {
+	t.Helper()
+	reader := viper.New()
+	configdefaults.Apply(reader)
+	if err := configutil.ReadExpandedConfigWithSource(reader, configPath, source, nil); err != nil {
+		t.Fatalf("read expanded config with source: %v", err)
 	}
 	reader.Set("config", configPath)
 	return reader
