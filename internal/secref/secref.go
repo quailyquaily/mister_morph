@@ -14,8 +14,12 @@ import (
 var (
 	envNameRe     = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 	placeholderRe = regexp.MustCompile(`\$\{([^}]*)\}`)
+	osSecretIDRe  = regexp.MustCompile(`^[A-Za-z0-9_-]{22,128}$`)
 
-	ErrAWSSecretNotFound = errors.New("aws secret not found")
+	ErrAWSSecretNotFound     = errors.New("aws secret not found")
+	ErrOSSecretNotFound      = errors.New("os secret not found")
+	ErrOSSecretResolveFailed = errors.New("os secret resolve failed")
+	ErrInvalidSecretRef      = errors.New("invalid secret reference")
 )
 
 type EnvMissingPolicy int
@@ -39,6 +43,7 @@ type RefKind string
 const (
 	RefKindEnv               RefKind = "env"
 	RefKindAWSSecretsManager RefKind = "aws_secrets_manager"
+	RefKindOS                RefKind = "os"
 )
 
 type Ref struct {
@@ -91,9 +96,15 @@ func (e MissingEnvError) Error() string {
 type Resolver struct {
 	source   Source
 	awsCache map[string]awsCacheEntry
+	osCache  map[string]osCacheEntry
 }
 
 type awsCacheEntry struct {
+	value string
+	err   error
+}
+
+type osCacheEntry struct {
 	value string
 	err   error
 }
@@ -105,6 +116,7 @@ func NewResolver(source Source) *Resolver {
 	return &Resolver{
 		source:   source,
 		awsCache: map[string]awsCacheEntry{},
+		osCache:  map[string]osCacheEntry{},
 	}
 }
 
@@ -114,6 +126,13 @@ func ResolveString(ctx context.Context, value string, source Source, opts Option
 
 func ParseSingleRef(value string) (Ref, bool) {
 	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "secret://os/") {
+		id := strings.TrimPrefix(value, "secret://os/")
+		if !osSecretIDRe.MatchString(id) {
+			return Ref{}, false
+		}
+		return Ref{Kind: RefKindOS, SecretID: id}, true
+	}
 	groups := placeholderRe.FindStringSubmatch(value)
 	if len(groups) != 2 || groups[0] != value {
 		return Ref{}, false
@@ -138,6 +157,25 @@ func ParseSingleRef(value string) (Ref, bool) {
 }
 
 func (r *Resolver) ResolveString(ctx context.Context, value string, opts Options) (Result, error) {
+	if strings.Contains(value, "secret://") {
+		ref, ok := ParseSingleRef(value)
+		if !ok || ref.Kind != RefKindOS {
+			return Result{}, ErrInvalidSecretRef
+		}
+		resolved, err := r.getOSSecretString(ctx, ref.SecretID)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrOSSecretNotFound):
+				return Result{}, ErrOSSecretNotFound
+			case errors.Is(err, ErrOSStoreUnavailable):
+				return Result{}, ErrOSStoreUnavailable
+			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+				return Result{}, err
+			}
+			return Result{}, ErrOSSecretResolveFailed
+		}
+		return Result{Value: resolved}, nil
+	}
 	var result Result
 	result.Value = placeholderRe.ReplaceAllStringFunc(value, func(match string) string {
 		groups := placeholderRe.FindStringSubmatch(match)
@@ -162,6 +200,23 @@ func (r *Resolver) ResolveString(ctx context.Context, value string, opts Options
 		return result, MissingEnvError{Names: result.MissingEnv}
 	}
 	return result, nil
+}
+
+type osSecretSource interface {
+	GetOSSecretString(context.Context, string) (string, error)
+}
+
+func (r *Resolver) getOSSecretString(ctx context.Context, id string) (string, error) {
+	if entry, ok := r.osCache[id]; ok {
+		return entry.value, entry.err
+	}
+	source, ok := r.source.(osSecretSource)
+	if !ok {
+		return "", ErrOSSecretResolveFailed
+	}
+	value, err := source.GetOSSecretString(ctx, id)
+	r.osCache[id] = osCacheEntry{value: value, err: err}
+	return value, err
 }
 
 func (r *Resolver) resolveAWSRef(ctx context.Context, body string, result *Result) string {

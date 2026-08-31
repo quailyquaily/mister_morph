@@ -2,15 +2,103 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/platformutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+type installTestOSStore struct {
+	values map[string][]byte
+	putErr error
+}
+
+func (s *installTestOSStore) Get(context.Context, string) ([]byte, error) {
+	return nil, secref.ErrOSSecretNotFound
+}
+
+func (s *installTestOSStore) Put(_ context.Context, id string, value []byte) error {
+	if s.putErr != nil {
+		return s.putErr
+	}
+	if s.values == nil {
+		s.values = map[string][]byte{}
+	}
+	s.values[id] = append([]byte(nil), value...)
+	return nil
+}
+
+func (s *installTestOSStore) Delete(_ context.Context, id string) error {
+	delete(s.values, id)
+	return nil
+}
+
+func TestProtectInstallSetupSecretsStoresAPIKey(t *testing.T) {
+	store := &installTestOSStore{}
+	setup := &installConfigSetup{Provider: setupProviderOpenAICompatible, APIKey: "install-secret"}
+
+	if err := protectInstallSetupSecrets(context.Background(), setup, store); err != nil {
+		t.Fatalf("protectInstallSetupSecrets() error = %v", err)
+	}
+	ref, ok := secref.ParseSingleRef(setup.APIKey)
+	if !ok || ref.Kind != secref.RefKindOS {
+		t.Fatalf("api key = %q, want OS secret reference", setup.APIKey)
+	}
+	if got := string(store.values[ref.SecretID]); got != "install-secret" {
+		t.Fatalf("stored secret = %q, want install-secret", got)
+	}
+}
+
+func TestProtectInstallSetupSecretsStoresCloudflareToken(t *testing.T) {
+	store := &installTestOSStore{}
+	setup := &installConfigSetup{Provider: setupProviderCloudflare, CloudflareAPIToken: "cloudflare-secret"}
+
+	if err := protectInstallSetupSecrets(context.Background(), setup, store); err != nil {
+		t.Fatalf("protectInstallSetupSecrets() error = %v", err)
+	}
+	ref, ok := secref.ParseSingleRef(setup.CloudflareAPIToken)
+	if !ok || string(store.values[ref.SecretID]) != "cloudflare-secret" {
+		t.Fatalf("cloudflare token was not stored through OS secret storage")
+	}
+}
+
+func TestProtectInstallSetupSecretsPreservesExternalReferences(t *testing.T) {
+	for _, value := range []string{"${OPENAI_API_KEY}", "${aws-sm:mistermorph/openai}"} {
+		t.Run(value, func(t *testing.T) {
+			store := &installTestOSStore{}
+			setup := &installConfigSetup{Provider: setupProviderOpenAICompatible, APIKey: value}
+			if err := protectInstallSetupSecrets(context.Background(), setup, store); err != nil {
+				t.Fatalf("protectInstallSetupSecrets() error = %v", err)
+			}
+			if setup.APIKey != value || len(store.values) != 0 {
+				t.Fatalf("external reference changed: setup=%q stored=%d", setup.APIKey, len(store.values))
+			}
+		})
+	}
+}
+
+func TestProtectInstallSetupSecretsDoesNotReplaceValueWhenStoreFails(t *testing.T) {
+	store := &installTestOSStore{putErr: errors.New("backend detail")}
+	setup := &installConfigSetup{Provider: setupProviderOpenAICompatible, APIKey: "install-secret"}
+
+	err := protectInstallSetupSecrets(context.Background(), setup, store)
+	if err == nil {
+		t.Fatal("protectInstallSetupSecrets() error = nil")
+	}
+	if strings.Contains(err.Error(), "backend detail") {
+		t.Fatalf("error exposed backend detail: %v", err)
+	}
+	if setup.APIKey != "install-secret" {
+		t.Fatalf("api key changed after failed write: %q", setup.APIKey)
+	}
+}
 
 func loadPatchedConfig(t *testing.T, body string) *viper.Viper {
 	t.Helper()

@@ -2,6 +2,7 @@ package consolecmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,156 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
+
+type consoleSettingsTestOSStore struct {
+	values  map[string]string
+	puts    []string
+	deletes []string
+}
+
+func (s *consoleSettingsTestOSStore) Get(_ context.Context, id string) ([]byte, error) {
+	value, ok := s.values[id]
+	if !ok {
+		return nil, secref.ErrOSSecretNotFound
+	}
+	return []byte(value), nil
+}
+
+func (s *consoleSettingsTestOSStore) Put(_ context.Context, id string, value []byte) error {
+	if s.values == nil {
+		s.values = map[string]string{}
+	}
+	s.values[id] = string(value)
+	s.puts = append(s.puts, id)
+	return nil
+}
+
+func (s *consoleSettingsTestOSStore) Delete(_ context.Context, id string) error {
+	if _, ok := s.values[id]; !ok {
+		return secref.ErrOSSecretNotFound
+	}
+	delete(s.values, id)
+	s.deletes = append(s.deletes, id)
+	return nil
+}
+
+func TestHandleConsoleSettingsRotatesChannelSecretsIntoOSStore(t *testing.T) {
+	const oldID = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("telegram:\n  bot_token: "+secref.OSSecretRef(oldID)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	store := &consoleSettingsTestOSStore{values: map[string]string{oldID: "old-token"}}
+	srv := &server{secretStore: store}
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(`{"telegram":{"bot_token":"new-token"}}`))
+	rec := httptest.NewRecorder()
+
+	srv.handleConsoleSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.puts) != 1 || len(store.deletes) != 1 || store.deletes[0] != oldID {
+		t.Fatalf("store operations puts=%v deletes=%v", store.puts, store.deletes)
+	}
+	newID := store.puts[0]
+	raw, _ := os.ReadFile(configPath)
+	if strings.Contains(string(raw), "new-token") || !strings.Contains(string(raw), secref.OSSecretRef(newID)) {
+		t.Fatalf("channel token was not stored as OS ref:\n%s", raw)
+	}
+	var payload struct {
+		Telegram     consoleTelegramSettingsPayload     `json:"telegram"`
+		SecretFields consoleSettingsSecretFieldsPayload `json:"secret_fields"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Telegram.BotToken != "" {
+		t.Fatalf("response exposed bot token %q", payload.Telegram.BotToken)
+	}
+	status := payload.SecretFields.Telegram["bot_token"]
+	if !status.Configured || status.Source != "os" || !status.Editable {
+		t.Fatalf("bot token status = %#v", status)
+	}
+}
+
+func TestHandleConsoleSettingsKeepsSharedOSSecret(t *testing.T) {
+	const sharedID = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "telegram:\n  bot_token: " + secref.OSSecretRef(sharedID) + "\nslack:\n  bot_token: " + secref.OSSecretRef(sharedID) + "\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	store := &consoleSettingsTestOSStore{values: map[string]string{sharedID: "shared-secret"}}
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(`{"telegram":{"bot_token":""}}`))
+	rec := httptest.NewRecorder()
+
+	(&server{secretStore: store}).handleConsoleSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.values[sharedID] != "shared-secret" {
+		t.Fatal("shared OS secret was deleted while Slack still referenced it")
+	}
+}
+
+func TestHandleConsoleSettingsMigratesPlaintextChannelSecrets(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := "telegram:\n  bot_token: telegram-secret\nslack:\n  bot_token: slack-secret\n  app_token: ${SLACK_APP_TOKEN}\n"
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	store := &consoleSettingsTestOSStore{values: map[string]string{}}
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(`{"migrate_secrets":true}`))
+	rec := httptest.NewRecorder()
+
+	(&server{secretStore: store}).handleConsoleSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "telegram-secret") || strings.Contains(string(raw), "slack-secret") {
+		t.Fatalf("config still contains plaintext tokens:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "${SLACK_APP_TOKEN}") {
+		t.Fatalf("environment reference was changed:\n%s", raw)
+	}
+	if len(store.values) != 2 {
+		t.Fatalf("stored secret count = %d, want 2", len(store.values))
+	}
+}
 
 func TestReadConsoleSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -318,11 +467,11 @@ func TestHandleConsoleSettingsPut(t *testing.T) {
 	if len(payload.ManagedRuntimes) != 2 || payload.ManagedRuntimes[0] != "slack" || payload.ManagedRuntimes[1] != "telegram" {
 		t.Fatalf("payload.ManagedRuntimes = %#v, want [slack telegram]", payload.ManagedRuntimes)
 	}
-	if payload.Telegram.BotToken != "tg-token" || payload.Slack.AppToken != "xapp-app" {
-		t.Fatalf("payload tokens not returned: telegram=%#v slack=%#v", payload.Telegram, payload.Slack)
+	if payload.Telegram.BotToken != "" || payload.Slack.BotToken != "" || payload.Slack.AppToken != "" {
+		t.Fatalf("payload exposed channel tokens: telegram=%#v slack=%#v", payload.Telegram, payload.Slack)
 	}
-	if payload.Line.ChannelAccessToken != "line-token" || payload.Lark.AppID != "cli_a123" {
-		t.Fatalf("payload line/lark not returned: line=%#v lark=%#v", payload.Line, payload.Lark)
+	if payload.Line.ChannelAccessToken != "" || payload.Line.ChannelSecret != "" || payload.Lark.AppSecret != "" || payload.Lark.AppID != "cli_a123" {
+		t.Fatalf("payload line/lark secret redaction mismatch: line=%#v lark=%#v", payload.Line, payload.Lark)
 	}
 	if !payload.Guard.Enabled || !payload.Guard.Redaction.Enabled || !payload.Guard.Approvals.Enabled {
 		t.Fatalf("payload guard not returned: %#v", payload.Guard)

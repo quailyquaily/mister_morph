@@ -193,7 +193,7 @@ func (e *rootConfigError) Unwrap() error {
 	return e.Err
 }
 
-func loadRootConfig() error {
+func loadRootConfig(cmd *cobra.Command) error {
 	initViperDefaults()
 
 	viper.SetEnvPrefix(envPrefix)
@@ -206,7 +206,12 @@ func loadRootConfig() error {
 
 	cfgFile, explicit := resolveConfigFile()
 	if cfgFile != "" {
-		if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile, warnf); err != nil {
+		if err := configutil.ReadExpandedConfigWithOverrides(
+			viper.GetViper(),
+			cfgFile,
+			rootConfigSecretOverrides(cmd),
+			warnf,
+		); err != nil {
 			if !explicit && os.IsNotExist(err) {
 				return nil
 			}
@@ -222,6 +227,30 @@ func loadRootConfig() error {
 	}
 	viper.Set("workspace_dir", workspaceDir)
 	return nil
+}
+
+func rootConfigSecretOverrides(cmd *cobra.Command) map[string]string {
+	if cmd == nil {
+		return nil
+	}
+	paths := map[string]string{
+		"api-key":                   "llm.api_key",
+		"telegram-bot-token":        "telegram.bot_token",
+		"slack-bot-token":           "slack.bot_token",
+		"slack-app-token":           "slack.app_token",
+		"line-channel-access-token": "line.channel_access_token",
+		"line-channel-secret":       "line.channel_secret",
+		"lark-app-secret":           "lark.app_secret",
+	}
+	overrides := map[string]string{}
+	for flagName, configPath := range paths {
+		flag := cmd.Flags().Lookup(flagName)
+		if flag == nil || !flag.Changed {
+			continue
+		}
+		overrides[configPath] = flag.Value.String()
+	}
+	return overrides
 }
 
 func resolveConfigFile() (string, bool) {

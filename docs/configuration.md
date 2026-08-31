@@ -30,7 +30,9 @@ Env var rules:
 - nested keys: replace `.` and `-` with `_`
 - example: `tools.bash.enabled` -> `MISTER_MORPH_TOOLS_BASH_ENABLED=true`
 
-YAML scalar values in config support `${ENV_VAR}` expansion. Secret values can also use `${aws-sm:<secret-id>}` or `${aws-sm:<secret-id>#<field>}`. Comments and mapping keys are not expanded.
+YAML scalar values in config support `${ENV_VAR}` expansion. Secret values can also use `${aws-sm:<secret-id>}`, `${aws-sm:<secret-id>#<field>}`, or a system-keyring reference such as `secret://os/<opaque-id>`. An OS reference must occupy the entire scalar. Comments and mapping keys are not expanded.
+
+Interactive setup and Console settings save new local credentials in macOS Keychain, Windows Credential Manager, or Linux Secret Service. The YAML file receives only the opaque OS reference. Headless services without an unlocked Secret Service session should use environment variables or AWS Secrets Manager. Missing or unavailable OS secrets stop config loading; MisterMorph does not fall back to plaintext.
 
 YAML expansion is done on parsed config values before they are passed to Viper. This may normalize the in-memory YAML formatting, but it does not write back to the config file.
 
@@ -374,7 +376,7 @@ Auth profiles and secrets:
 - `secrets.aws_secrets_manager.region` sets the AWS Secrets Manager region for `${aws-sm:...}` refs; empty uses the AWS SDK default region lookup.
 - `secrets.aws_secrets_manager.profile` sets the AWS shared config profile for `${aws-sm:...}` refs; empty uses the AWS SDK default profile lookup.
 - `auth_profiles.<id>.credential.secret` holds the secret value.
-- Use `${ENV_VAR}` or `${aws-sm:<secret-id>}` in YAML scalar values for secret references.
+- Use `${ENV_VAR}`, `${aws-sm:<secret-id>}`, or `secret://os/<opaque-id>` in secret scalar values.
 
 If you configure at least one allowlisted auth profile, `bash` still works but `curl` is denied by default. Use `url_fetch` for authenticated HTTP.
 

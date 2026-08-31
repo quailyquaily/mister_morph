@@ -10,7 +10,7 @@ import (
 )
 
 func runRootPreflight(cmd *cobra.Command, _ []string) error {
-	if err := loadRootConfig(); err != nil {
+	if err := loadRootConfig(cmd); err != nil {
 		if !isConsoleRepairCommand(cmd) {
 			return err
 		}
@@ -39,13 +39,6 @@ func shouldRunRuntimeFilePreflight(cmd *cobra.Command) bool {
 }
 
 func runRuntimeFilePreflight(stderr io.Writer) error {
-	cfgFile, _ := resolveConfigFile()
-	if cfgFile != "" {
-		item := onboardingcheck.InspectConfigPath(cfgFile)
-		if item.IsBroken() {
-			return fmt.Errorf("%s is malformed: %s", item.Name, item.Error)
-		}
-	}
 	for _, item := range []onboardingcheck.Item{
 		onboardingcheck.InspectIdentityYAMLPath(statepaths.PersonaIdentityPath()),
 		onboardingcheck.InspectSoulPath(statepaths.PersonaSoulPath()),

@@ -3,6 +3,7 @@ package secref
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -10,6 +11,7 @@ import (
 type fakeSource struct {
 	env     map[string]string
 	secrets map[string]string
+	os      map[string]string
 	errs    map[string]error
 	calls   map[string]int
 }
@@ -32,6 +34,108 @@ func (f *fakeSource) GetAWSSecretString(_ context.Context, secretID string) (str
 		return "", ErrAWSSecretNotFound
 	}
 	return value, nil
+}
+
+func (f *fakeSource) GetOSSecretString(_ context.Context, id string) (string, error) {
+	if f.calls == nil {
+		f.calls = map[string]int{}
+	}
+	f.calls["os:"+id]++
+	if err := f.errs["os:"+id]; err != nil {
+		return "", err
+	}
+	value, ok := f.os[id]
+	if !ok {
+		return "", ErrOSSecretNotFound
+	}
+	return value, nil
+}
+
+func TestParseSingleRefOS(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	ref, ok := ParseSingleRef("secret://os/" + id)
+	if !ok {
+		t.Fatal("ParseSingleRef() did not recognize OS secret ref")
+	}
+	if ref.Kind != RefKindOS || ref.SecretID != id {
+		t.Fatalf("ref = %#v, want OS ref with id %q", ref, id)
+	}
+}
+
+func TestParseSingleRefRejectsInvalidOSRefs(t *testing.T) {
+	for _, value := range []string{
+		"secret://os/",
+		"secret://os/short",
+		"secret://os/contains/slash",
+		"prefix-secret://os/b_LsX7HLzAR3OShG7YjRcw",
+		"secret://unknown/b_LsX7HLzAR3OShG7YjRcw",
+	} {
+		t.Run(value, func(t *testing.T) {
+			if _, ok := ParseSingleRef(value); ok {
+				t.Fatalf("ParseSingleRef(%q) unexpectedly succeeded", value)
+			}
+		})
+	}
+}
+
+func TestResolveStringOSRef(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	src := &fakeSource{os: map[string]string{id: "keyring-secret"}}
+	resolver := NewResolver(src)
+
+	got, err := resolver.ResolveString(context.Background(), "secret://os/"+id, Options{})
+	if err != nil {
+		t.Fatalf("ResolveString() error = %v", err)
+	}
+	if got.Value != "keyring-secret" {
+		t.Fatalf("Value = %q, want keyring secret", got.Value)
+	}
+
+	again, err := resolver.ResolveString(context.Background(), "secret://os/"+id, Options{})
+	if err != nil || again.Value != "keyring-secret" {
+		t.Fatalf("second ResolveString() = %+v, %v", again, err)
+	}
+	if calls := src.calls["os:"+id]; calls != 1 {
+		t.Fatalf("GetOSSecretString calls = %d, want 1", calls)
+	}
+}
+
+func TestResolveStringRejectsEmbeddedOrUnknownSecretURI(t *testing.T) {
+	for _, value := range []string{
+		"prefix-secret://os/b_LsX7HLzAR3OShG7YjRcw",
+		"secret://unknown/b_LsX7HLzAR3OShG7YjRcw",
+	} {
+		t.Run(value, func(t *testing.T) {
+			_, err := NewResolver(&fakeSource{}).ResolveString(context.Background(), value, Options{})
+			if !errors.Is(err, ErrInvalidSecretRef) {
+				t.Fatalf("ResolveString() error = %v, want ErrInvalidSecretRef", err)
+			}
+			if strings.Contains(fmt.Sprint(err), value) {
+				t.Fatalf("error leaked complete secret reference: %v", err)
+			}
+		})
+	}
+}
+
+func TestResolveStringOSFailureDoesNotLeakReference(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	src := &fakeSource{errs: map[string]error{"os:" + id: errors.New("backend included sensitive details")}}
+	_, err := NewResolver(src).ResolveString(context.Background(), "secret://os/"+id, Options{})
+	if !errors.Is(err, ErrOSSecretResolveFailed) {
+		t.Fatalf("ResolveString() error = %v, want ErrOSSecretResolveFailed", err)
+	}
+	if strings.Contains(fmt.Sprint(err), id) || strings.Contains(fmt.Sprint(err), "sensitive details") {
+		t.Fatalf("error leaked secret locator or backend details: %v", err)
+	}
+}
+
+func TestResolveStringPreservesOSStoreUnavailableClass(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	src := &fakeSource{errs: map[string]error{"os:" + id: ErrOSStoreUnavailable}}
+	_, err := NewResolver(src).ResolveString(context.Background(), "secret://os/"+id, Options{})
+	if !errors.Is(err, ErrOSStoreUnavailable) {
+		t.Fatalf("ResolveString() error = %v, want ErrOSStoreUnavailable", err)
+	}
 }
 
 func TestResolveStringEnvAndAWSRefs(t *testing.T) {

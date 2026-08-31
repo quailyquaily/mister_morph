@@ -31,6 +31,8 @@ const (
 	toolsSettingsKey  = "tools"
 )
 
+var llmSecretFieldNames = []string{"api_key", "bedrock_aws_key", "bedrock_aws_secret", "cloudflare_api_token"}
+
 type FileSettings struct {
 	LLM   LLMSettingsPayload
 	Tools ToolsSettingsPayload
@@ -42,15 +44,19 @@ type agentSettingsTestRequest struct {
 }
 
 type FileOwnerOptions struct {
-	ConfigPath string
-	Reader     Reader
+	ConfigPath   string
+	Reader       Reader
+	SecretSource secref.Source
+	OSStore      secref.OSStore
 }
 
 type FileOwner struct {
-	mu         sync.RWMutex
-	configPath string
-	base       *ReaderSnapshot
-	reader     *ReaderSnapshot
+	mu           sync.RWMutex
+	configPath   string
+	base         *ReaderSnapshot
+	reader       *ReaderSnapshot
+	secretSource secref.Source
+	osStore      secref.OSStore
 }
 
 type StatusError struct {
@@ -74,10 +80,21 @@ func (e *StatusError) HTTPStatus() int {
 
 func NewFileOwner(opts FileOwnerOptions) *FileOwner {
 	reader := NewReaderSnapshot(opts.Reader)
+	osStore := opts.OSStore
+	secretSource := opts.SecretSource
+	if secretSource == nil {
+		if osStore != nil {
+			secretSource = secref.NewDefaultSourceWithOSStore(configutil.AWSSecretsManagerConfigFromReader(reader), osStore)
+		} else {
+			secretSource = configutil.SecretRefSourceFromReader(reader)
+		}
+	}
 	return &FileOwner{
-		configPath: resolveFileOwnerConfigPath(opts.ConfigPath, opts.Reader),
-		base:       reader,
-		reader:     reader,
+		configPath:   resolveFileOwnerConfigPath(opts.ConfigPath, opts.Reader),
+		base:         reader,
+		reader:       reader,
+		secretSource: secretSource,
+		osStore:      osStore,
 	}
 }
 
@@ -123,7 +140,7 @@ func (o *FileOwner) LoadCandidate() (Reader, error) {
 	configPath := strings.TrimSpace(o.configPath)
 	if configPath != "" {
 		fileReader.SetConfigFile(configPath)
-		if err := configutil.ReadExpandedConfig(fileReader, configPath, nil); err != nil && !os.IsNotExist(err) {
+		if err := configutil.ReadExpandedConfigWithSource(fileReader, configPath, o.secretSource, nil); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
 		fileReader.Set("config", configPath)
@@ -166,7 +183,7 @@ func (o *FileOwner) View(_ context.Context) (AgentSettingsView, error) {
 		return AgentSettingsView{}, err
 	}
 	configValid := true
-	settings, err := ReadFileSettings(o.configPath)
+	settings, err := readFileSettingsWithSource(o.configPath, o.secretSource)
 	if err != nil {
 		if !isInvalidConfigYAMLError(err) {
 			return AgentSettingsView{}, err
@@ -189,14 +206,15 @@ func (o *FileOwner) View(_ context.Context) (AgentSettingsView, error) {
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
-	settings, envManaged := buildAgentSettingsResponseView(settings, doc, runtimeLLM)
-	skills, err := buildAgentSkillsSettingsResponse(o.configPath, configValid)
+	settings, envManaged, secretFields := buildAgentSettingsResponseView(settings, doc, runtimeLLM)
+	skills, err := buildAgentSkillsSettingsResponse(o.configPath, configValid, o.secretSource)
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
 	return AgentSettingsView{
 		LLM:          settings.LLM,
 		EnvManaged:   envManaged,
+		SecretFields: secretFields,
 		Skills:       skills,
 		Tools:        settings.Tools,
 		ConfigPath:   o.configPath,
@@ -207,14 +225,32 @@ func (o *FileOwner) View(_ context.Context) (AgentSettingsView, error) {
 	}, nil
 }
 
-func (o *FileOwner) Update(_ context.Context, update AgentSettingsUpdate) (AgentSettingsView, error) {
+func (o *FileOwner) Update(ctx context.Context, update AgentSettingsUpdate) (AgentSettingsView, error) {
 	if o == nil {
 		return AgentSettingsView{}, fmt.Errorf("agent settings owner is nil")
 	}
-	if err := protectManagedFields(o.configPath, o.CurrentReader(), &update); err != nil {
+	if update.MigrateSecrets {
+		return o.migratePlaintextSecrets(ctx)
+	}
+	previousDoc, err := loadYAMLDocument(o.configPath)
+	if err != nil && !os.IsNotExist(err) {
 		return AgentSettingsView{}, err
 	}
-	serialized, err := MarshalFileSettingsUpdate(o.configPath, update)
+	previousSecretIDs := secref.OSSecretIDsInYAML(previousDoc)
+	if err := protectManagedFields(o.configPath, o.CurrentReader(), o.secretSource, &update); err != nil {
+		return AgentSettingsView{}, err
+	}
+	newSecretIDs, err := o.prepareLLMSecretUpdates(ctx, &update)
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
+		}
+	}()
+	serialized, err := marshalFileSettingsUpdateWithSource(o.configPath, update, o.secretSource)
 	if err != nil {
 		return AgentSettingsView{}, &StatusError{Status: http.StatusBadRequest, Message: err.Error()}
 	}
@@ -231,11 +267,268 @@ func (o *FileOwner) Update(_ context.Context, update AgentSettingsUpdate) (Agent
 	if err := fsstore.WriteTextAtomic(o.configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600}); err != nil {
 		return AgentSettingsView{}, err
 	}
+	committed = true
+	view, err := o.persistedView(serialized)
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
+	doc, err := configbootstrap.LoadDocumentBytes(serialized)
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
+	currentSecretIDs := secref.OSSecretIDsInYAML(doc)
+	if o.osStore != nil {
+		for id := range previousSecretIDs {
+			if !currentSecretIDs[id] {
+				_ = o.osStore.Delete(ctx, id)
+			}
+		}
+	}
+	return view, nil
+}
+
+func (o *FileOwner) migratePlaintextSecrets(ctx context.Context) (AgentSettingsView, error) {
+	if o.osStore == nil {
+		return AgentSettingsView{}, &StatusError{
+			Status:  http.StatusServiceUnavailable,
+			Message: "system secret store is unavailable",
+		}
+	}
+	doc, err := loadYAMLDocument(o.configPath)
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
+	settings, err := readFileSettingsWithSource(o.configPath, o.secretSource)
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
+	llmNode := agentSettingsYAMLLLMNode(doc)
+	nodes := llmPlaintextSecretNodes(llmNode, settings.LLM.Provider)
+	profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
+	for _, profile := range settings.LLM.Profiles {
+		profileNode := configbootstrap.FindMappingValue(profilesNode, strings.TrimSpace(profile.Name))
+		nodes = append(nodes, llmPlaintextSecretNodes(profileNode, profile.Provider)...)
+	}
+	var newSecretIDs []string
+	committed := false
+	defer func() {
+		if !committed {
+			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
+		}
+	}()
+	for _, node := range nodes {
+		value := strings.TrimSpace(node.Value)
+		id, err := secref.NewOSSecretID()
+		if err != nil {
+			return AgentSettingsView{}, err
+		}
+		if err := o.osStore.Put(ctx, id, []byte(value)); err != nil {
+			return AgentSettingsView{}, err
+		}
+		newSecretIDs = append(newSecretIDs, id)
+		node.Value = secref.OSSecretRef(id)
+		node.Tag = "!!str"
+	}
+	if len(newSecretIDs) == 0 {
+		return o.View(ctx)
+	}
+	serialized, err := configbootstrap.MarshalDocument(doc)
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
+	effectiveLLM, err := settingsFromRuntimeReader(o.CurrentReader())
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
+	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
+		return AgentSettingsView{}, &StatusError{Status: http.StatusBadRequest, Message: err.Error()}
+	}
+	if err := fsstore.WriteTextAtomic(o.configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600}); err != nil {
+		return AgentSettingsView{}, err
+	}
+	committed = true
 	return o.persistedView(serialized)
 }
 
+func llmPlaintextSecretNodes(node *yaml.Node, provider string) []*yaml.Node {
+	seen := map[*yaml.Node]bool{}
+	nodes := []*yaml.Node{}
+	for _, field := range llmSecretFieldNames {
+		for _, current := range agentSettingsYAMLFieldNodes(node, provider, field) {
+			value := strings.TrimSpace(current.Value)
+			if value == "" || seen[current] || strings.Contains(value, "${") {
+				continue
+			}
+			if _, ok := secref.ParseSingleRef(value); ok {
+				continue
+			}
+			seen[current] = true
+			nodes = append(nodes, current)
+		}
+	}
+	return nodes
+}
+
+func deleteOSSecretIDs(ctx context.Context, store secref.OSStore, ids []string) {
+	if store == nil {
+		return
+	}
+	for _, id := range ids {
+		_ = store.Delete(ctx, id)
+	}
+}
+
+func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSettingsUpdate) ([]string, error) {
+	var newSecretIDs []string
+	if o == nil || update == nil || o.osStore == nil {
+		return nil, nil
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
+		}
+	}()
+	doc, err := loadYAMLDocument(o.configPath)
+	if err != nil {
+		return nil, err
+	}
+	current, err := readFileSettingsWithSource(o.configPath, o.secretSource)
+	if err != nil {
+		return nil, err
+	}
+	llmNode := agentSettingsYAMLLLMNode(doc)
+	fields := []struct {
+		name  string
+		value **string
+	}{
+		{name: "api_key", value: &update.LLM.APIKey},
+		{name: "bedrock_aws_key", value: &update.LLM.BedrockAWSKey},
+		{name: "bedrock_aws_secret", value: &update.LLM.BedrockAWSSecret},
+		{name: "cloudflare_api_token", value: &update.LLM.CloudflareAPIToken},
+	}
+	defaultUpdates := make([]llmSecretUpdate, 0, len(fields))
+	for _, field := range fields {
+		if field.value == nil || *field.value == nil {
+			continue
+		}
+		value := **field.value
+		defaultUpdates = append(defaultUpdates, llmSecretUpdate{name: field.name, value: &value, target: field.value})
+	}
+	if err := o.storeLLMSecretUpdates(ctx, nil, "", defaultUpdates, &newSecretIDs); err != nil {
+		return nil, err
+	}
+	if update.LLM.Profile != nil {
+		profile := update.LLM.Profile
+		currentName := firstNonEmpty(profile.OriginalName, profile.Name)
+		profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
+		profileNode := configbootstrap.FindMappingValue(profilesNode, currentName)
+		provider := profile.Provider
+		for _, currentProfile := range current.LLM.Profiles {
+			if strings.EqualFold(strings.TrimSpace(currentProfile.Name), strings.TrimSpace(currentName)) {
+				provider = currentProfile.Provider
+				break
+			}
+		}
+		profileUpdates := []llmSecretUpdate{
+			{name: "api_key", value: &profile.APIKey, preserveExisting: !profile.secretFieldProvided("api_key", profile.APIKey)},
+			{name: "bedrock_aws_key", value: &profile.BedrockAWSKey, preserveExisting: !profile.secretFieldProvided("bedrock_aws_key", profile.BedrockAWSKey)},
+			{name: "bedrock_aws_secret", value: &profile.BedrockAWSSecret, preserveExisting: !profile.secretFieldProvided("bedrock_aws_secret", profile.BedrockAWSSecret)},
+			{name: "cloudflare_api_token", value: &profile.CloudflareAPIToken, preserveExisting: !profile.secretFieldProvided("cloudflare_api_token", profile.CloudflareAPIToken)},
+		}
+		if err := o.storeLLMSecretUpdates(ctx, profileNode, provider, profileUpdates, &newSecretIDs); err != nil {
+			return nil, err
+		}
+	}
+	if update.LLM.Profiles != nil {
+		profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
+		for i := range *update.LLM.Profiles {
+			profile := &(*update.LLM.Profiles)[i]
+			profileNode := configbootstrap.FindMappingValue(profilesNode, strings.TrimSpace(profile.Name))
+			provider := profile.Provider
+			for _, currentProfile := range current.LLM.Profiles {
+				if strings.EqualFold(strings.TrimSpace(currentProfile.Name), strings.TrimSpace(profile.Name)) {
+					provider = currentProfile.Provider
+					break
+				}
+			}
+			profileUpdates := []llmSecretUpdate{
+				{name: "api_key", value: &profile.APIKey, preserveExisting: true},
+				{name: "bedrock_aws_key", value: &profile.BedrockAWSKey, preserveExisting: true},
+				{name: "bedrock_aws_secret", value: &profile.BedrockAWSSecret, preserveExisting: true},
+				{name: "cloudflare_api_token", value: &profile.CloudflareAPIToken, preserveExisting: true},
+			}
+			if err := o.storeLLMSecretUpdates(ctx, profileNode, provider, profileUpdates, &newSecretIDs); err != nil {
+				return nil, err
+			}
+		}
+	}
+	complete = true
+	return newSecretIDs, nil
+}
+
+type llmSecretUpdate struct {
+	name             string
+	value            *string
+	target           **string
+	preserveExisting bool
+}
+
+func (o *FileOwner) storeLLMSecretUpdates(
+	ctx context.Context,
+	node *yaml.Node,
+	provider string,
+	updates []llmSecretUpdate,
+	newSecretIDs *[]string,
+) error {
+	for _, update := range updates {
+		value := strings.TrimSpace(*update.value)
+		if value == "" {
+			if update.preserveExisting {
+				if id := osSecretIDFromYAML(node, provider, update.name); id != "" {
+					*update.value = secref.OSSecretRef(id)
+				}
+			}
+			continue
+		}
+		if isSecretReference(value) {
+			continue
+		}
+		id, err := secref.NewOSSecretID()
+		if err != nil {
+			return err
+		}
+		if err := o.osStore.Put(ctx, id, []byte(value)); err != nil {
+			return err
+		}
+		*newSecretIDs = append(*newSecretIDs, id)
+		ref := secref.OSSecretRef(id)
+		if update.target != nil {
+			*update.target = &ref
+		} else {
+			*update.value = ref
+		}
+	}
+	return nil
+}
+
+func isSecretReference(value string) bool {
+	_, ok := secref.ParseSingleRef(value)
+	return ok
+}
+
+func osSecretIDFromYAML(node *yaml.Node, provider, field string) string {
+	for _, current := range agentSettingsYAMLFieldNodes(node, provider, field) {
+		ref, ok := secref.ParseSingleRef(strings.TrimSpace(current.Value))
+		if ok && ref.Kind == secref.RefKindOS {
+			return ref.SecretID
+		}
+	}
+	return ""
+}
+
 func (o *FileOwner) persistedView(serialized []byte) (AgentSettingsView, error) {
-	expanded, err := readExpandedAgentSettingsConfig(o.configPath)
+	expanded, err := readExpandedAgentSettingsConfigWithSource(o.configPath, o.secretSource)
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
@@ -251,7 +544,7 @@ func (o *FileOwner) persistedView(serialized []byte) (AgentSettingsView, error) 
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
-	next, envManaged := buildAgentSettingsResponseView(next, doc, current)
+	next, envManaged, secretFields := buildAgentSettingsResponseView(next, doc, current)
 	skills, err := buildAgentSkillsSettingsPayloadFromReader(expanded)
 	if err != nil {
 		return AgentSettingsView{}, err
@@ -259,6 +552,7 @@ func (o *FileOwner) persistedView(serialized []byte) (AgentSettingsView, error) 
 	return AgentSettingsView{
 		LLM:          next.LLM,
 		EnvManaged:   envManaged,
+		SecretFields: secretFields,
 		Skills:       skills,
 		Tools:        next.Tools,
 		ConfigPath:   o.configPath,
@@ -269,7 +563,7 @@ func (o *FileOwner) persistedView(serialized []byte) (AgentSettingsView, error) 
 	}, nil
 }
 
-func protectManagedFields(configPath string, reader Reader, update *AgentSettingsUpdate) error {
+func protectManagedFields(configPath string, reader Reader, source secref.Source, update *AgentSettingsUpdate) error {
 	if update == nil {
 		return nil
 	}
@@ -280,7 +574,7 @@ func protectManagedFields(configPath string, reader Reader, update *AgentSetting
 		}
 		return err
 	}
-	current, err := ReadFileSettings(configPath)
+	current, err := readFileSettingsWithSource(configPath, source)
 	if err != nil {
 		if !isInvalidConfigYAMLError(err) {
 			return err
@@ -422,6 +716,10 @@ func managedFieldConflictError(prefix, name string, field EnvManagedField) error
 }
 
 func ReadFileSettings(configPath string) (FileSettings, error) {
+	return readFileSettingsWithSource(configPath, nil)
+}
+
+func readFileSettingsWithSource(configPath string, source secref.Source) (FileSettings, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -432,7 +730,7 @@ func ReadFileSettings(configPath string) (FileSettings, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return defaultAgentSettingsPayload()
 	}
-	tmp, err := readExpandedAgentSettingsConfig(configPath)
+	tmp, err := readExpandedAgentSettingsConfigWithSource(configPath, source)
 	if err != nil {
 		return FileSettings{}, fmt.Errorf("invalid config yaml: %w", err)
 	}
@@ -447,10 +745,10 @@ func ReadFileSettings(configPath string) (FileSettings, error) {
 	return normalizeAgentSettingsConfigView(settings, doc), nil
 }
 
-func readExpandedAgentSettingsConfig(configPath string) (*viper.Viper, error) {
+func readExpandedAgentSettingsConfigWithSource(configPath string, source secref.Source) (*viper.Viper, error) {
 	tmp := viper.New()
 	configdefaults.Apply(tmp)
-	if err := readExpandedConfig(tmp, configPath); err != nil {
+	if err := configutil.ReadExpandedConfigWithSource(tmp, configPath, source, nil); err != nil {
 		return nil, err
 	}
 	return tmp, nil
@@ -468,7 +766,7 @@ func defaultAgentSettingsPayload() (FileSettings, error) {
 	return settings, nil
 }
 
-func buildAgentSkillsSettingsResponse(configPath string, configValid bool) (SkillsSettingsPayload, error) {
+func buildAgentSkillsSettingsResponse(configPath string, configValid bool, source secref.Source) (SkillsSettingsPayload, error) {
 	reader := viper.New()
 	configdefaults.Apply(reader)
 	if configValid {
@@ -478,7 +776,7 @@ func buildAgentSkillsSettingsResponse(configPath string, configValid bool) (Skil
 			}
 			return SkillsSettingsPayload{}, err
 		}
-		expanded, err := readExpandedAgentSettingsConfig(configPath)
+		expanded, err := readExpandedAgentSettingsConfigWithSource(configPath, source)
 		if err != nil {
 			return SkillsSettingsPayload{}, err
 		}
@@ -516,6 +814,10 @@ func inspectAgentSettingsConfigSource(configPath string) (bool, string, error) {
 }
 
 func MarshalFileSettingsUpdate(configPath string, values AgentSettingsUpdate) ([]byte, error) {
+	return marshalFileSettingsUpdateWithSource(configPath, values, nil)
+}
+
+func marshalFileSettingsUpdateWithSource(configPath string, values AgentSettingsUpdate, source secref.Source) ([]byte, error) {
 	doc, err := loadYAMLDocument(configPath)
 	if err != nil {
 		if !isInvalidConfigYAMLError(err) {
@@ -527,7 +829,7 @@ func MarshalFileSettingsUpdate(configPath string, values AgentSettingsUpdate) ([
 	if err != nil {
 		return nil, err
 	}
-	if existing, readErr := ReadFileSettings(configPath); readErr == nil {
+	if existing, readErr := readFileSettingsWithSource(configPath, source); readErr == nil {
 		current = existing
 	} else if !isInvalidConfigYAMLError(readErr) && !os.IsNotExist(readErr) {
 		return nil, readErr
@@ -1303,13 +1605,6 @@ func loadYAMLDocument(configPath string) (*yaml.Node, error) {
 	return configbootstrap.LoadDocumentBytes(data)
 }
 
-func readExpandedConfig(v *viper.Viper, configPath string) error {
-	if v == nil {
-		return fmt.Errorf("config reader is nil")
-	}
-	return configutil.ReadExpandedConfig(v, configPath, nil)
-}
-
 func isInvalidConfigYAMLError(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "invalid config yaml")
 }
@@ -1402,7 +1697,7 @@ func buildAgentSettingsResponseView(
 	settings FileSettings,
 	doc *yaml.Node,
 	runtimeLLM LLMSettingsPayload,
-) (FileSettings, EnvManagedPayload) {
+) (FileSettings, EnvManagedPayload, SecretFieldsPayload) {
 	settings = normalizeAgentSettingsConfigView(settings, doc)
 	if runtimeLLM.CurrentProfile != "" {
 		settings.LLM.CurrentProfile = runtimeLLM.CurrentProfile
@@ -1429,7 +1724,9 @@ func buildAgentSettingsResponseView(
 	if len(envManaged.LLMProfiles) == 0 {
 		envManaged.LLMProfiles = nil
 	}
-	return settings, envManaged
+	secretFields := buildAgentSecretFields(settings.LLM, doc, envManaged)
+	redactAgentSettingsSecrets(&settings.LLM)
+	return settings, envManaged, secretFields
 }
 
 func buildAgentSettingsProfileResponseView(
@@ -1533,6 +1830,16 @@ func YAMLManagedField(
 	provider string,
 	field string,
 ) (EnvManagedField, bool) {
+	for _, current := range agentSettingsYAMLFieldNodes(node, provider, field) {
+		entry, ok := YAMLPlaceholderField(current, field)
+		if ok {
+			return entry, true
+		}
+	}
+	return EnvManagedField{}, false
+}
+
+func agentSettingsYAMLFieldNodes(node *yaml.Node, provider, field string) []*yaml.Node {
 	fieldPathSets := [][]string{}
 	switch strings.TrimSpace(field) {
 	case "inference_provider":
@@ -1583,6 +1890,7 @@ func YAMLManagedField(
 	case "tools_emulation_mode":
 		fieldPathSets = [][]string{{"tools_emulation_mode"}}
 	}
+	nodes := make([]*yaml.Node, 0, len(fieldPathSets))
 	for _, path := range fieldPathSets {
 		current := node
 		for _, key := range path {
@@ -1591,12 +1899,11 @@ func YAMLManagedField(
 				break
 			}
 		}
-		entry, ok := YAMLPlaceholderField(current, field)
-		if ok {
-			return entry, true
+		if current != nil {
+			nodes = append(nodes, current)
 		}
 	}
-	return EnvManagedField{}, false
+	return nodes
 }
 
 func YAMLPlaceholderField(
@@ -1628,6 +1935,98 @@ func YAMLPlaceholderField(
 		}
 	}
 	return out, true
+}
+
+func buildAgentSecretFields(settings LLMSettingsPayload, doc *yaml.Node, managed EnvManagedPayload) SecretFieldsPayload {
+	out := SecretFieldsPayload{}
+	llmNode := agentSettingsYAMLLLMNode(doc)
+	out.LLM = mergeManagedSecretStatuses(llmSecretFieldStatuses(llmNode, settings.Provider), managed.LLM)
+	profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
+	for _, profile := range settings.Profiles {
+		name := strings.TrimSpace(profile.Name)
+		if name == "" {
+			continue
+		}
+		profileNode := configbootstrap.FindMappingValue(profilesNode, name)
+		statuses := mergeManagedSecretStatuses(llmSecretFieldStatuses(profileNode, profile.Provider), managed.LLMProfiles[name])
+		if len(statuses) == 0 {
+			continue
+		}
+		if out.LLMProfiles == nil {
+			out.LLMProfiles = map[string]map[string]SecretFieldStatus{}
+		}
+		out.LLMProfiles[name] = statuses
+	}
+	return out
+}
+
+func mergeManagedSecretStatuses(statuses map[string]SecretFieldStatus, managed map[string]EnvManagedField) map[string]SecretFieldStatus {
+	for _, field := range llmSecretFieldNames {
+		entry, ok := managed[field]
+		if !ok {
+			continue
+		}
+		if statuses == nil {
+			statuses = map[string]SecretFieldStatus{}
+		}
+		source := strings.TrimSpace(entry.Source)
+		if source == "" {
+			source = string(secref.RefKindEnv)
+		}
+		statuses[field] = SecretFieldStatus{Configured: true, Source: source, Editable: false}
+	}
+	return statuses
+}
+
+func llmSecretFieldStatuses(node *yaml.Node, provider string) map[string]SecretFieldStatus {
+	statuses := map[string]SecretFieldStatus{}
+	for _, field := range llmSecretFieldNames {
+		for _, current := range agentSettingsYAMLFieldNodes(node, provider, field) {
+			value := strings.TrimSpace(current.Value)
+			if value == "" {
+				continue
+			}
+			status := SecretFieldStatus{Configured: true, Source: "file", Editable: true}
+			if ref, ok := secref.ParseSingleRef(value); ok {
+				switch ref.Kind {
+				case secref.RefKindEnv:
+					status.Source = string(secref.RefKindEnv)
+					status.Editable = false
+				case secref.RefKindAWSSecretsManager:
+					status.Source = string(secref.RefKindAWSSecretsManager)
+					status.Editable = false
+				case secref.RefKindOS:
+					status.Source = string(secref.RefKindOS)
+				}
+			}
+			statuses[field] = status
+			break
+		}
+	}
+	if len(statuses) == 0 {
+		return nil
+	}
+	return statuses
+}
+
+func redactAgentSettingsSecrets(settings *LLMSettingsPayload) {
+	if settings == nil {
+		return
+	}
+	redactLLMConfigFields(&settings.LLMConfigFieldsPayload)
+	for i := range settings.Profiles {
+		redactLLMConfigFields(&settings.Profiles[i].LLMConfigFieldsPayload)
+	}
+}
+
+func redactLLMConfigFields(fields *LLMConfigFieldsPayload) {
+	if fields == nil {
+		return
+	}
+	fields.APIKey = ""
+	fields.BedrockAWSKey = ""
+	fields.BedrockAWSSecret = ""
+	fields.CloudflareAPIToken = ""
 }
 
 func agentSettingsYAMLLLMNode(doc *yaml.Node) *yaml.Node {

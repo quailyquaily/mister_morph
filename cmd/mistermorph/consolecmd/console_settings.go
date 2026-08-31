@@ -2,6 +2,7 @@ package consolecmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -162,6 +163,7 @@ type consoleSettingsUpdatePayload struct {
 	Lark            *consoleLarkSettingsUpdatePayload     `json:"lark,omitempty"`
 	Mixin           *consoleMixinSettingsUpdatePayload    `json:"mixin,omitempty"`
 	Guard           *consoleGuardSettingsUpdatePayload    `json:"guard,omitempty"`
+	MigrateSecrets  bool                                  `json:"migrate_secrets,omitempty"`
 }
 
 type consoleSettingsEnvManagedPayload struct {
@@ -170,6 +172,131 @@ type consoleSettingsEnvManagedPayload struct {
 	Line     map[string]agentsettings.EnvManagedField `json:"line,omitempty"`
 	Lark     map[string]agentsettings.EnvManagedField `json:"lark,omitempty"`
 	Mixin    map[string]agentsettings.EnvManagedField `json:"mixin,omitempty"`
+}
+
+type consoleSettingsSecretFieldsPayload struct {
+	Telegram map[string]agentsettings.SecretFieldStatus `json:"telegram,omitempty"`
+	Slack    map[string]agentsettings.SecretFieldStatus `json:"slack,omitempty"`
+	Line     map[string]agentsettings.SecretFieldStatus `json:"line,omitempty"`
+	Lark     map[string]agentsettings.SecretFieldStatus `json:"lark,omitempty"`
+}
+
+func deleteConsoleOSSecretIDs(ctx context.Context, store secref.OSStore, ids []string) {
+	if store == nil {
+		return
+	}
+	for _, id := range ids {
+		_ = store.Delete(ctx, id)
+	}
+}
+
+func prepareConsoleSecretUpdates(ctx context.Context, req *consoleSettingsUpdatePayload, store secref.OSStore) ([]string, error) {
+	var newSecretIDs []string
+	if req == nil || store == nil {
+		return nil, nil
+	}
+	fields := make([]**string, 0, 6)
+	if req.Telegram != nil {
+		fields = append(fields, &req.Telegram.BotToken)
+	}
+	if req.Slack != nil {
+		fields = append(fields, &req.Slack.BotToken, &req.Slack.AppToken)
+	}
+	if req.Line != nil {
+		fields = append(fields, &req.Line.ChannelAccessToken, &req.Line.ChannelSecret)
+	}
+	if req.Lark != nil {
+		fields = append(fields, &req.Lark.AppSecret)
+	}
+	for _, field := range fields {
+		if field == nil || *field == nil {
+			continue
+		}
+		value := strings.TrimSpace(**field)
+		if _, ok := secref.ParseSingleRef(value); value == "" || ok {
+			continue
+		}
+		id, err := secref.NewOSSecretID()
+		if err != nil {
+			deleteConsoleOSSecretIDs(ctx, store, newSecretIDs)
+			return nil, err
+		}
+		if err := store.Put(ctx, id, []byte(value)); err != nil {
+			deleteConsoleOSSecretIDs(ctx, store, newSecretIDs)
+			return nil, err
+		}
+		newSecretIDs = append(newSecretIDs, id)
+		ref := secref.OSSecretRef(id)
+		*field = &ref
+	}
+	return newSecretIDs, nil
+}
+
+func migrateConsolePlaintextSecrets(ctx context.Context, configPath string, store secref.OSStore) error {
+	if store == nil {
+		return secref.ErrOSStoreUnavailable
+	}
+	doc, err := loadYAMLDocument(configPath)
+	if err != nil {
+		return err
+	}
+	root, err := configbootstrap.DocumentMapping(doc)
+	if err != nil {
+		return err
+	}
+	fields := []struct {
+		section string
+		name    string
+	}{
+		{section: "telegram", name: "bot_token"},
+		{section: "slack", name: "bot_token"},
+		{section: "slack", name: "app_token"},
+		{section: "line", name: "channel_access_token"},
+		{section: "line", name: "channel_secret"},
+		{section: "lark", name: "app_secret"},
+	}
+	var newSecretIDs []string
+	committed := false
+	defer func() {
+		if !committed {
+			deleteConsoleOSSecretIDs(ctx, store, newSecretIDs)
+		}
+	}()
+	for _, field := range fields {
+		section := configbootstrap.FindMappingValue(root, field.section)
+		node := configbootstrap.FindMappingValue(section, field.name)
+		if node == nil {
+			continue
+		}
+		value := strings.TrimSpace(node.Value)
+		_, isRef := secref.ParseSingleRef(value)
+		if value == "" || strings.Contains(value, "${") || isRef {
+			continue
+		}
+		id, err := secref.NewOSSecretID()
+		if err != nil {
+			return err
+		}
+		if err := store.Put(ctx, id, []byte(value)); err != nil {
+			return err
+		}
+		newSecretIDs = append(newSecretIDs, id)
+		node.Value = secref.OSSecretRef(id)
+		node.Tag = "!!str"
+	}
+	if len(newSecretIDs) == 0 {
+		committed = true
+		return nil
+	}
+	serialized, err := configbootstrap.MarshalDocument(doc)
+	if err != nil {
+		return err
+	}
+	if err := fsstore.WriteTextAtomic(configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600}); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (s *server) handleConsoleSettings(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +329,7 @@ func (s *server) handleConsoleSettingsGet(w http.ResponseWriter, _ *http.Request
 			return
 		}
 	}
-	settings, envManaged := buildConsoleSettingsResponseView(settings, doc)
+	settings, envManaged, secretFields := buildConsoleSettingsResponseView(settings, doc)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"managed_runtimes": settings.ManagedRuntimes,
 		"telegram":         settings.Telegram,
@@ -212,6 +339,7 @@ func (s *server) handleConsoleSettingsGet(w http.ResponseWriter, _ *http.Request
 		"mixin":            settings.Mixin,
 		"guard":            settings.Guard,
 		"env_managed":      envManaged,
+		"secret_fields":    secretFields,
 		"config_path":      configPath,
 	})
 }
@@ -232,6 +360,34 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if req.MigrateSecrets {
+		if err := migrateConsolePlaintextSecrets(r.Context(), configPath, s.secretStore); err != nil {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		current, err = readConsoleSettings(configPath)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	previousDoc, err := loadYAMLDocument(configPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	previousSecretIDs := secref.OSSecretIDsInYAML(previousDoc)
+	newSecretIDs, err := prepareConsoleSecretUpdates(r.Context(), &req, s.secretStore)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			deleteConsoleOSSecretIDs(r.Context(), s.secretStore, newSecretIDs)
+		}
+	}()
 	next, err := normalizeConsoleSettingsUpdatePayload(current, req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -251,13 +407,22 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	committed = true
 
 	doc, docErr := configbootstrap.LoadDocumentBytes(serialized)
 	if docErr != nil {
 		writeError(w, http.StatusInternalServerError, docErr.Error())
 		return
 	}
-	next, envManaged := buildConsoleSettingsResponseView(next, doc)
+	next, envManaged, secretFields := buildConsoleSettingsResponseView(next, doc)
+	currentSecretIDs := secref.OSSecretIDsInYAML(doc)
+	if s.secretStore != nil {
+		for id := range previousSecretIDs {
+			if !currentSecretIDs[id] {
+				_ = s.secretStore.Delete(r.Context(), id)
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":               true,
 		"managed_runtimes": next.ManagedRuntimes,
@@ -268,6 +433,7 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		"mixin":            next.Mixin,
 		"guard":            next.Guard,
 		"env_managed":      envManaged,
+		"secret_fields":    secretFields,
 		"config_path":      configPath,
 	})
 }
@@ -622,7 +788,7 @@ func normalizeConsoleGroupTriggerMode(value string) string {
 func buildConsoleSettingsResponseView(
 	settings consoleSettingsPayload,
 	doc *yaml.Node,
-) (consoleSettingsPayload, consoleSettingsEnvManagedPayload) {
+) (consoleSettingsPayload, consoleSettingsEnvManagedPayload, consoleSettingsSecretFieldsPayload) {
 	envManaged := currentConsoleSettingsEnvManaged()
 	root, _ := configbootstrap.DocumentMapping(doc)
 	settings.Telegram, envManaged.Telegram = buildConsoleTelegramSettingsResponseView(
@@ -665,7 +831,75 @@ func buildConsoleSettingsResponseView(
 	if len(envManaged.Mixin) == 0 {
 		envManaged.Mixin = nil
 	}
-	return settings, envManaged
+	secretFields := buildConsoleSettingsSecretFields(root, envManaged)
+	settings.Telegram.BotToken = ""
+	settings.Slack.BotToken = ""
+	settings.Slack.AppToken = ""
+	settings.Line.ChannelAccessToken = ""
+	settings.Line.ChannelSecret = ""
+	settings.Lark.AppSecret = ""
+	return settings, envManaged, secretFields
+}
+
+func buildConsoleSettingsSecretFields(root *yaml.Node, envManaged consoleSettingsEnvManagedPayload) consoleSettingsSecretFieldsPayload {
+	return consoleSettingsSecretFieldsPayload{
+		Telegram: consoleSettingsSecretStatuses(
+			configbootstrap.FindMappingValue(root, "telegram"),
+			envManaged.Telegram,
+			"bot_token",
+		),
+		Slack: consoleSettingsSecretStatuses(
+			configbootstrap.FindMappingValue(root, "slack"),
+			envManaged.Slack,
+			"bot_token", "app_token",
+		),
+		Line: consoleSettingsSecretStatuses(
+			configbootstrap.FindMappingValue(root, "line"),
+			envManaged.Line,
+			"channel_access_token", "channel_secret",
+		),
+		Lark: consoleSettingsSecretStatuses(
+			configbootstrap.FindMappingValue(root, "lark"),
+			envManaged.Lark,
+			"app_secret",
+		),
+	}
+}
+
+func consoleSettingsSecretStatuses(node *yaml.Node, managed map[string]agentsettings.EnvManagedField, fields ...string) map[string]agentsettings.SecretFieldStatus {
+	statuses := map[string]agentsettings.SecretFieldStatus{}
+	for _, field := range fields {
+		if entry, ok := managed[field]; ok {
+			source := strings.TrimSpace(entry.Source)
+			if source == "" {
+				source = string(secref.RefKindEnv)
+			}
+			statuses[field] = agentsettings.SecretFieldStatus{Configured: true, Source: source, Editable: false}
+			continue
+		}
+		entry := configbootstrap.FindMappingValue(node, field)
+		if entry == nil || strings.TrimSpace(entry.Value) == "" {
+			continue
+		}
+		status := agentsettings.SecretFieldStatus{Configured: true, Source: "file", Editable: true}
+		if ref, ok := secref.ParseSingleRef(strings.TrimSpace(entry.Value)); ok {
+			switch ref.Kind {
+			case secref.RefKindEnv:
+				status.Source = string(secref.RefKindEnv)
+				status.Editable = false
+			case secref.RefKindAWSSecretsManager:
+				status.Source = string(secref.RefKindAWSSecretsManager)
+				status.Editable = false
+			case secref.RefKindOS:
+				status.Source = string(secref.RefKindOS)
+			}
+		}
+		statuses[field] = status
+	}
+	if len(statuses) == 0 {
+		return nil
+	}
+	return statuses
 }
 
 func buildConsoleTelegramSettingsResponseView(

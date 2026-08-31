@@ -32,6 +32,7 @@ func (s *server) handleAgentSettings(w http.ResponseWriter, r *http.Request) {
 	owner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{
 		ConfigPath: configPath,
 		Reader:     s.currentRuntimeConfigReader(),
+		OSStore:    s.secretStore,
 	})
 	agentsettings.NewHandler(agentsettings.HandlerOptions{Owner: owner}).Settings(w, r)
 }

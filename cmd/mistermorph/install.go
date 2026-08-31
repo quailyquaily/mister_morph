@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -39,6 +40,7 @@ func newInstallCmd() *cobra.Command {
 				writeConfig = false
 			}
 			var cfgSetup *installConfigSetup
+			var installSecretStore secref.OSStore
 			if writeConfig {
 				if source, ok := findReadableInstallConfig(cmd, dir); ok {
 					fmt.Printf("[i] found config.yaml, skip interactive setup: %s\n", source)
@@ -46,6 +48,12 @@ func newInstallCmd() *cobra.Command {
 					cfgSetup, err = maybeCollectInstallConfigSetup(cmd, yes)
 					if err != nil {
 						return err
+					}
+					if cfgSetup != nil {
+						installSecretStore = secref.NewOSStore()
+						if err := protectInstallSetupSecrets(cmd.Context(), cfgSetup, installSecretStore); err != nil {
+							return fmt.Errorf("save setup credential in the system secret store: %w", err)
+						}
 					}
 				}
 			}
@@ -101,6 +109,9 @@ func newInstallCmd() *cobra.Command {
 			fmt.Println(clifmt.Headerf("==> Installing setup flow (%d steps)", len(initialSteps)))
 			for i, step := range initialSteps {
 				if err := writeInstallStepFile(i+1, len(initialSteps), step); err != nil {
+					if step.Name == "config.yaml" {
+						discardInstallSetupSecrets(cmd.Context(), cfgSetup, installSecretStore)
+					}
 					return err
 				}
 				if !step.Write {

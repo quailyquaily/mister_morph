@@ -22,6 +22,17 @@ type EnvManagedPayload struct {
 	LLMProfiles map[string]map[string]EnvManagedField `json:"llm_profiles,omitempty"`
 }
 
+type SecretFieldStatus struct {
+	Configured bool   `json:"configured"`
+	Source     string `json:"source"`
+	Editable   bool   `json:"editable"`
+}
+
+type SecretFieldsPayload struct {
+	LLM         map[string]SecretFieldStatus            `json:"llm,omitempty"`
+	LLMProfiles map[string]map[string]SecretFieldStatus `json:"llm_profiles,omitempty"`
+}
+
 // EffectiveRuntimeValues decodes one explicit config snapshot and then applies
 // the process environment fields that are documented as runtime overrides.
 // It never consults Viper's package-global instance.
