@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -201,16 +200,6 @@ func (t *BashTool) runCommand(ctx context.Context, cmdStr string, cwd string, ti
 		Timeout: timeout,
 	})
 	return payload, err
-}
-
-func isBenignCommandStreamReadError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, os.ErrClosed) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "file already closed")
 }
 
 func buildBashSubtaskResult(taskID string, payload bashExecutionPayload, execErr error) *agent.SubtaskResult {

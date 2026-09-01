@@ -3,12 +3,11 @@ package builtin
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
@@ -50,6 +49,23 @@ type shellRunnerSpec struct {
 	EmitChunk                  func(ctx context.Context, stream, text string)
 	TimeoutExitCode            int
 	ReturnObservationOnFailure bool
+}
+
+type shellStreamWriter struct {
+	stream string
+	dst    *limitedBuffer
+	emit   func(stream, text string)
+}
+
+func (w shellStreamWriter) Write(p []byte) (int, error) {
+	n, err := w.dst.Write(p)
+	if n > 0 && w.emit != nil {
+		text := string(bytes.ToValidUTF8(p[:n], []byte("\n[non-utf8 output]\n")))
+		if strings.TrimSpace(text) != "" {
+			w.emit(w.stream, text)
+		}
+	}
+	return n, err
 }
 
 type shellFailureKind int
@@ -143,39 +159,13 @@ func runShellCommand(ctx context.Context, common shellToolCommon, spec shellRunn
 	var stderr limitedBuffer
 	stdout.Limit = common.MaxOutputBytes
 	stderr.Limit = common.MaxOutputBytes
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return shellExecutionPayload{}, shellFailureExec, err
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return shellExecutionPayload{}, shellFailureExec, err
-	}
-	if err := cmd.Start(); err != nil {
-		return shellExecutionPayload{}, shellFailureExec, err
-	}
-
-	var streamWG sync.WaitGroup
-	var stdoutReadErr error
-	var stderrReadErr error
-	streamWG.Add(2)
-	go func() {
-		defer streamWG.Done()
-		stdoutReadErr = readShellPipe(runCtx, "stdout", stdoutPipe, &stdout, streamEmitter(spec, ctx))
-	}()
-	go func() {
-		defer streamWG.Done()
-		stderrReadErr = readShellPipe(runCtx, "stderr", stderrPipe, &stderr, streamEmitter(spec, ctx))
-	}()
-
-	err = cmd.Wait()
-	streamWG.Wait()
-	if err == nil {
-		if stdoutReadErr != nil {
-			err = stdoutReadErr
-		} else if stderrReadErr != nil {
-			err = stderrReadErr
-		}
+	emit := streamEmitter(spec, ctx)
+	cmd.Stdout = shellStreamWriter{stream: "stdout", dst: &stdout, emit: emit}
+	cmd.Stderr = shellStreamWriter{stream: "stderr", dst: &stderr, emit: emit}
+	cmd.WaitDelay = 100 * time.Millisecond
+	err := cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
 	}
 
 	exitCode := 0
@@ -209,41 +199,6 @@ func runShellCommand(ctx context.Context, common shellToolCommon, spec shellRunn
 		err = fmt.Errorf("%s exited with code %d", common.ToolName, exitCode)
 	}
 	return payload, failureKind, err
-}
-
-func readShellPipe(ctx context.Context, stream string, r io.Reader, dst *limitedBuffer, emit func(stream, text string)) error {
-	if r == nil || dst == nil {
-		return nil
-	}
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			chunk := append([]byte(nil), buf[:n]...)
-			_, _ = dst.Write(chunk)
-			if emit != nil {
-				text := string(bytes.ToValidUTF8(chunk, []byte("\n[non-utf8 output]\n")))
-				if strings.TrimSpace(text) != "" {
-					emit(stream, text)
-				}
-			}
-		}
-		if err == nil {
-			continue
-		}
-		if err == io.EOF {
-			return nil
-		}
-		if isBenignCommandStreamReadError(err) {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			return err
-		}
-	}
 }
 
 func streamEmitter(spec shellRunnerSpec, ctx context.Context) func(stream, text string) {
