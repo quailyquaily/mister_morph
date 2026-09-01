@@ -73,10 +73,10 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 ARCHIVE_EXT="tar.gz"
-BIN_NAME="mistermorph"
+BIN_NAME="morph"
 if [[ "${OS}" == "windows" ]]; then
   ARCHIVE_EXT="zip"
-  BIN_NAME="mistermorph.exe"
+  BIN_NAME="morph.exe"
 fi
 
 ARCHIVE="${TMP_DIR}/mistermorph.${ARCHIVE_EXT}"

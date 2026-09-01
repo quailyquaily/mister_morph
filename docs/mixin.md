@@ -33,7 +33,7 @@ A relative `keystore_file` is resolved from the directory containing `config.yam
 Run it as a standalone process:
 
 ```bash
-mistermorph mixin
+morph mixin
 ```
 
 The main CLI overrides are:
@@ -71,7 +71,7 @@ mixin:
 
 The Mixin runtime then shares the Console task store and does not appear as a separate endpoint. Its configuration is available in Console Settings.
 
-Do not start the same bot as both a managed runtime and a separate `mistermorph mixin` process. Both processes would consume the same Blaze message stream.
+Do not start the same bot as both a managed runtime and a separate `morph mixin` process. Both processes would consume the same Blaze message stream.
 
 ## Private conversations and groups
 

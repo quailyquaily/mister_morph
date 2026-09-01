@@ -105,20 +105,20 @@ Implemented channel adapters:
 
 ### 2.7 Command Wiring
 
-`mistermorph telegram`:
+`morph telegram`:
 - starts inproc bus
 - subscribes `AllTopics()` with one dispatcher by `direction + channel`
 - Telegram poll inbound path: Telegram inbound adapter -> bus -> handler -> worker queue
 - business outbound messages via bus: final text publish path, task failures, file-download failures, and plan updates
 - operational/admin messages (for example `/help`, initialization/system notices) may still use direct send
 
-`mistermorph slack`:
+`morph slack`:
 - starts inproc bus
 - subscribes `AllTopics()` with one dispatcher by `direction + channel`
 - inbound path: Slack Socket Mode event -> Slack inbound adapter -> bus -> handler -> per-conversation worker
 - task output and error replies are published as outbound bus messages, then delivered by Slack delivery adapter
 
-`mistermorph line`:
+`morph line`:
 - starts inproc bus
 - subscribes `AllTopics()` with one dispatcher by `direction + channel`
 - inbound path: LINE webhook event -> LINE inbound adapter -> bus -> handler -> per-conversation worker
@@ -244,8 +244,8 @@ Telegram note:
 - Slack inbound/delivery adapters
 - LINE inbound/delivery adapters
 - outbound bus migration in `contactsruntime sender`
-- Slack runtime bus path (`mistermorph slack`) with inbound publish and outbound delivery
-- LINE runtime bus path (`mistermorph line`) with webhook inbound publish and outbound delivery
+- Slack runtime bus path (`morph slack`) with inbound publish and outbound delivery
+- LINE runtime bus path (`morph line`) with webhook inbound publish and outbound delivery
 - main-path test coverage expansion
 - Telegram business outbound via bus for canonical events
 - typed error code propagation in call-site logging

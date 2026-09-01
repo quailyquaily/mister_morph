@@ -16,7 +16,7 @@ Then:
 2. finish setup
 3. use the local Console
 
-You do not need to run `mistermorph console serve`.
+You do not need to run `morph console serve`.
 
 ## Current Shape
 
@@ -114,7 +114,7 @@ uses that default for Linux desktop builds.
 Build the backend binary:
 
 ```bash
-./scripts/build-backend.sh --output ./bin/mistermorph
+./scripts/build-backend.sh --output ./bin/morph
 ```
 
 Build a local desktop release binary:
@@ -132,7 +132,7 @@ go run -tags 'wailsdesktop production' ./desktop/wails
 Build only the desktop wrapper:
 
 ```bash
-go build -tags 'wailsdesktop production' -o ./bin/mistermorph-desktop ./desktop/wails
+go build -tags 'wailsdesktop production' -o ./bin/MrMorph ./desktop/wails
 ```
 
 For local debug builds with DevTools, use:
@@ -149,7 +149,7 @@ Tagged releases currently publish:
 - Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage`, `mistermorph-desktop-linux-amd64.deb`, and `mistermorph-desktop-linux-amd64.tar.gz`
 - Windows `amd64`: `mistermorph-desktop-windows-amd64.zip`
 
-The package includes a sibling backend binary, so the wrapper can start `console serve` locally without a first-run download. macOS and Windows name that backend `mistermorphc`; Linux keeps it as `mistermorph`.
+The package includes a sibling `morph` backend binary, so `MrMorph` can start `console serve` locally without a first-run download.
 
 The Linux deb package installs the app under `/opt/mistermorph`, adds the desktop entry under `/usr/share/applications`, and installs the app icon into the hicolor icon theme and `/usr/share/pixmaps`.
 

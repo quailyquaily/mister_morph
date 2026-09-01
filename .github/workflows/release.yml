@@ -93,8 +93,8 @@ jobs:
             desktop_asset: mistermorph-desktop-linux-amd64.AppImage
             deb_asset: mistermorph-desktop-linux-amd64.deb
             update_asset: mistermorph-desktop-linux-amd64.tar.gz
-            raw_desktop_binary: dist/mistermorph-desktop
-            bundled_backend_binary: dist/mistermorph
+            raw_desktop_binary: dist/MrMorph
+            bundled_backend_binary: dist/morph
             package_kind: appimage
             go_build_tags: "wailsdesktop production"
           - label: macos-arm64
@@ -104,8 +104,8 @@ jobs:
             desktop_asset: mistermorph-desktop-darwin-arm64.dmg
             deb_asset: ""
             update_asset: mistermorph-desktop-darwin-arm64.tar.gz
-            raw_desktop_binary: dist/MisterMorph
-            bundled_backend_binary: dist/mistermorphc
+            raw_desktop_binary: dist/MrMorph
+            bundled_backend_binary: dist/morph
             package_kind: dmg
             go_build_tags: "wailsdesktop production"
 
@@ -232,7 +232,7 @@ jobs:
           DESKTOP_BIN="${{ matrix.raw_desktop_binary }}" \
           BACKEND_BIN="${{ matrix.bundled_backend_binary }}" \
           OUT_DIR="dist" \
-          BUNDLED_BACKEND_NAME="mistermorphc" \
+          BUNDLED_BACKEND_NAME="morph" \
           TARBALL_PATH="dist/${{ matrix.update_asset }}" \
           CODESIGN_IDENTITY="${CODESIGN_IDENTITY}" \
           APPLE_ID="${APPLE_ID}" \

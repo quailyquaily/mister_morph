@@ -38,28 +38,22 @@ desktop_build_version() {
 
 default_desktop_output() {
   case "$(target_goos)" in
-    darwin)
-      printf '%s\n' "./bin/MisterMorph"
-      ;;
     windows)
-      printf '%s\n' "./bin/MisterMorph.exe"
+      printf '%s\n' "./bin/MrMorph.exe"
       ;;
     *)
-      printf '%s\n' "./bin/mistermorph-desktop"
+      printf '%s\n' "./bin/MrMorph"
       ;;
   esac
 }
 
 default_backend_output() {
   case "$(target_goos)" in
-    darwin)
-      printf '%s\n' "./bin/mistermorphc"
-      ;;
     windows)
-      printf '%s\n' "./bin/mistermorphc.exe"
+      printf '%s\n' "./bin/morph.exe"
       ;;
     *)
-      printf '%s\n' "./bin/mistermorph"
+      printf '%s\n' "./bin/morph"
       ;;
   esac
 }
@@ -108,8 +102,8 @@ Default desktop build tags:
   Release build:      wailsdesktop production
 
 Default outputs:
-  desktop: ./bin/MisterMorph on macOS/Windows, ./bin/mistermorph-desktop on Linux
-  backend: ./bin/mistermorphc on macOS/Windows, ./bin/mistermorph on Linux
+  desktop: ./bin/MrMorph (or ./bin/MrMorph.exe on Windows)
+  backend: ./bin/morph (or ./bin/morph.exe on Windows)
 
 Notes:
   - --frontend-config accepts an absolute path, a repo-root-relative path, or

@@ -1,6 +1,6 @@
 # Lark (Feishu) Runtime
 
-This document defines the implemented `mistermorph lark` runtime shape.
+This document defines the implemented `morph lark` runtime shape.
 
 Status on 2026-03-06:
 - implemented for `private + group` text messaging
@@ -12,7 +12,7 @@ Status on 2026-04-30:
 
 Status on 2026-05-19:
 - Feishu/Lark event subscription supports two receive modes at the platform level: long connection through the official SDK WebSocket client, and HTTP webhook to a developer server.
-- The current `mistermorph lark` runtime uses the official SDK WebSocket long connection.
+- The current `morph lark` runtime uses the official SDK WebSocket long connection.
 - No Telegram-style polling mode is documented for receiving bot message events. Inbound messages are received through event subscription.
 - Webhook ingress was removed. There is no webhook compatibility mode.
 - Lark runtime tools are aligned with Telegram's current channel tools: send file, send photo, send voice, and `message_react`.
@@ -55,7 +55,7 @@ Current confidence boundary on 2026-03-06:
 
 ## 2. Scope
 
-- Add `mistermorph lark` as a long-running WebSocket runtime.
+- Add `morph lark` as a long-running WebSocket runtime.
 - Support `private + group` text conversations.
 - Support inbound image understanding for the current user message.
 - Reuse the existing channel pipeline:
@@ -175,14 +175,14 @@ lark:
 Field notes:
 
 - `app_id` + `app_secret` are required to obtain `tenant_access_token`.
-- `console.managed_runtimes: ["lark"]` runs the Lark WebSocket runtime inside `mistermorph console serve`; omit it when running `mistermorph lark` as a separate process.
+- `console.managed_runtimes: ["lark"]` runs the Lark WebSocket runtime inside `morph console serve`; omit it when running `morph lark` as a separate process.
 - `verification_token`, `encrypt_key`, `webhook_listen`, and `webhook_path` are not used and should be removed from old configs.
 - `allowed_chat_ids`: empty means allow every chat the bot receives; if non-empty, drop all other chats after normalization.
 - `base_url` should remain overridable for mocks and for switching between Feishu CN and Lark global environments.
 - WebSocket SDK domain is derived from `base_url` by removing `/open-apis`.
 - typical deployment shape:
-  - Feishu app -> one `mistermorph lark` instance with Feishu `base_url`
-  - Lark app -> another `mistermorph lark` instance with Lark `base_url`
+  - Feishu app -> one `morph lark` instance with Feishu `base_url`
+  - Lark app -> another `morph lark` instance with Lark `base_url`
 - inbound image messages are downloaded under `file_cache_dir/lark/` and passed to image-capable models as image parts
 - the current runtime accepts PNG, JPEG, and WebP images, keeps at most 3 images per message, and rejects images larger than 5 MiB each
 

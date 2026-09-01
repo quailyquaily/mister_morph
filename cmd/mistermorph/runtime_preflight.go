@@ -39,7 +39,7 @@ func shouldCheckOSSecretStore(cmd *cobra.Command) bool {
 		return false
 	}
 	switch cmd.CommandPath() {
-	case "mistermorph run", "mistermorph chat", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark", "mistermorph mixin", "mistermorph console serve":
+	case "morph run", "morph chat", "morph telegram", "morph slack", "morph line", "morph lark", "morph mixin", "morph console serve":
 		return true
 	default:
 		return false
@@ -47,7 +47,7 @@ func shouldCheckOSSecretStore(cmd *cobra.Command) bool {
 }
 
 func isConsoleRepairCommand(cmd *cobra.Command) bool {
-	return cmd != nil && cmd.CommandPath() == "mistermorph console serve"
+	return cmd != nil && cmd.CommandPath() == "morph console serve"
 }
 
 func shouldRunRuntimeFilePreflight(cmd *cobra.Command) bool {
@@ -55,7 +55,7 @@ func shouldRunRuntimeFilePreflight(cmd *cobra.Command) bool {
 		return false
 	}
 	switch cmd.CommandPath() {
-	case "mistermorph run", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark", "mistermorph mixin":
+	case "morph run", "morph telegram", "morph slack", "morph line", "morph lark", "morph mixin":
 		return true
 	default:
 		return false

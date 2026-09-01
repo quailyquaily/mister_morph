@@ -35,10 +35,10 @@ func TestWindowsSigningWorkflowContract(t *testing.T) {
 		"code object is not a malware. You can proceed signing this code object",
 		`"batch_sign"`,
 		"Batch sign command executed successfully.",
-		"MisterMorph.exe",
-		"mistermorphc.exe",
-		"mistermorph-amd64.exe",
-		"mistermorph-arm64.exe",
+		"MrMorph.exe",
+		"morph.exe",
+		"morph-amd64.exe",
+		"morph-arm64.exe",
 		"signtool verify /pa /all /v /tw",
 		"Generate Windows update manifest",
 		"gh release upload",
@@ -71,6 +71,46 @@ func TestWindowsSigningWorkflowContract(t *testing.T) {
 	} {
 		if strings.Contains(workflow, token) {
 			t.Errorf("manual Windows workflow must not contain %q", token)
+		}
+	}
+}
+
+func TestReleaseExecutableNames(t *testing.T) {
+	checks := []struct {
+		file     []string
+		required []string
+	}{
+		{[]string{".goreleaser.yaml"}, []string{"binary: morph"}},
+		{[]string{"scripts", "install-release.sh"}, []string{`BIN_NAME="morph"`, `BIN_NAME="morph.exe"`}},
+		{[]string{"scripts", "build-backend.sh"}, []string{"./bin/morph", "./bin/morph.exe"}},
+		{[]string{"scripts", "build-desktop.sh"}, []string{"./bin/MrMorph", "./bin/MrMorph.exe", "./bin/morph", "./bin/morph.exe"}},
+		{[]string{"scripts", "mistermorph-wrapper.sh"}, []string{`MORPH_CLI_PATH="${MORPH_CLI_PATH:-morph}"`}},
+		{[]string{"desktop", "wails", "packaging", "package-darwin.sh"}, []string{`APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-MrMorph}"`, `BUNDLED_BACKEND_NAME="${BUNDLED_BACKEND_NAME:-morph}"`}},
+		{[]string{"desktop", "wails", "packaging", "package-linux-appimage.sh"}, []string{`APP_BINARY_NAME="${APP_BINARY_NAME:-MrMorph}"`, `BUNDLED_BACKEND_NAME="${BUNDLED_BACKEND_NAME:-morph}"`}},
+		{[]string{"desktop", "wails", "packaging", "package-linux-deb.sh"}, []string{`APP_BINARY_NAME="${APP_BINARY_NAME:-MrMorph}"`, `BUNDLED_BACKEND_NAME="${BUNDLED_BACKEND_NAME:-morph}"`}},
+	}
+	for _, check := range checks {
+		content := readRepoFile(t, check.file...)
+		for _, token := range check.required {
+			if !strings.Contains(content, token) {
+				t.Errorf("%s missing executable name %q", filepath.Join(check.file...), token)
+			}
+		}
+	}
+
+	workflowChecks := []struct {
+		file     []string
+		required []string
+	}{
+		{[]string{".github", "workflows", "release.yml"}, []string{"raw_desktop_binary: dist/MrMorph", "bundled_backend_binary: dist/morph", `BUNDLED_BACKEND_NAME="morph"`}},
+		{[]string{".github", "workflows", "build_app.yaml"}, []string{"--desktop-output ./dist/MrMorph", "--backend-output ./dist/morph"}},
+	}
+	for _, check := range workflowChecks {
+		content := readRepoFile(t, check.file...)
+		for _, token := range check.required {
+			if !strings.Contains(content, token) {
+				t.Errorf("%s missing executable name %q", filepath.Join(check.file...), token)
+			}
 		}
 	}
 }

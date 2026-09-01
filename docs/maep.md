@@ -475,7 +475,7 @@ Current integration points:
   - starts MAEP node + in-process bus (`bus.max_inflight`)
   - ingests `OnDataPush` via MAEP inbound adapter and republishes as validated bus message
   - bus handler projects back to MAEP event for command-level processing and optional contacts sync
-- `mistermorph telegram --with-maep`:
+- `morph telegram --with-maep`:
   - embedded MAEP node uses the same inbound adapter path into bus
   - bus dispatcher routes by `direction + channel` and unifies Telegram/MAEP ingress shape
 

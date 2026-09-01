@@ -24,7 +24,7 @@
    - Windows: `mistermorph-desktop-windows-amd64.zip`
 2. App を起動します。
 3. App 内のセットアップフローを完了します。
-4. そのまま Console UI を使います。`mistermorph console serve` を手動で起動する必要はありません。
+4. そのまま Console UI を使います。`morph console serve` を手動で起動する必要はありません。
 
 ビルド、パッケージ、プラットフォーム別メモは [../app.md](../app.md) を参照してください。
 
@@ -40,18 +40,20 @@ sudo bash /tmp/install-mistermorph.sh
 またはソースからインストールします。
 
 ```bash
-go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
+git clone https://github.com/quailyquaily/mistermorph.git
+cd mistermorph
+go build -o "$(go env GOPATH)/bin/morph" ./cmd/mistermorph
 ```
 
 ワークスペースを初期化し、API Key を設定して、1 回タスクを実行します。
 
 ```bash
-mistermorph install
+morph install
 export MISTER_MORPH_LLM_API_KEY="YOUR_API_KEY"
-mistermorph run --task "Hello!"
+morph run --task "Hello!"
 ```
 
-まだ `config.yaml` がない場合、`mistermorph install` がセットアップウィザードを起動し、必要なワークスペースファイルを書き出します。
+まだ `config.yaml` がない場合、`morph install` がセットアップウィザードを起動し、必要なワークスペースファイルを書き出します。
 
 CLI モードと設定の詳細は [../modes.md](../modes.md) と [../configuration.md](../configuration.md) を参照してください。
 
@@ -99,7 +101,7 @@ CLI モードと設定の詳細は [../modes.md](../modes.md) と [../configurat
 よく使うローカルコマンド：
 
 ```bash
-./scripts/build-backend.sh --output ./bin/mistermorph
+./scripts/build-backend.sh --output ./bin/morph
 ./scripts/build-desktop.sh --release
 go test ./...
 ```

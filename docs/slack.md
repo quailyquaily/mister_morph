@@ -1,18 +1,18 @@
 # Slack Setup (Socket Mode)
 
-This document explains how to prepare credentials for `mistermorph slack`, especially when you only have `client_id/client_secret`.
+This document explains how to prepare credentials for `morph slack`, especially when you only have `client_id/client_secret`.
 
 ## 1. Credential Types
 
 - `client_id` / `client_secret`
   - Used for OAuth token exchange (`code -> token`).
-  - Cannot be used directly to run `mistermorph slack`.
+  - Cannot be used directly to run `morph slack`.
 - Bot Token (`xoxb-...`)
   - Used for Web API calls (for example, `chat.postMessage`).
-  - Required by `mistermorph slack`: `slack.bot_token`.
+  - Required by `morph slack`: `slack.bot_token`.
 - App Token (`xapp-...`)
   - Used by Socket Mode to open the WebSocket connection (`apps.connections.open`).
-  - Required by `mistermorph slack`: `slack.app_token`.
+  - Required by `morph slack`: `slack.app_token`.
 
 ## 2. Enable Socket Mode First
 
@@ -81,7 +81,7 @@ Required `Bot Token Scopes`:
 
 If file sending or emoji reactions are intentionally disabled, the corresponding
 `files:write` or `emoji:read` + `reactions:write` scopes can be omitted. The
-`mistermorph doctor` check treats the current built-in Slack feature set as the
+`morph doctor` check treats the current built-in Slack feature set as the
 baseline and reports those scopes as missing.
 
 Required `App-Level Token` scope:
@@ -111,12 +111,12 @@ After adding or changing any scope:
 
 1. Click `Reinstall to Workspace`.
 2. Use the newest token values (`xoxb` / `xapp`).
-3. Restart `mistermorph slack`.
+3. Restart `morph slack`.
 
 Run this after installing or reinstalling the Slack app:
 
 ```bash
-mistermorph doctor --config /path/to/config.yaml
+morph doctor --config /path/to/config.yaml
 ```
 
 When Slack credentials are configured, or `slack` is listed in
@@ -226,7 +226,7 @@ Remaining limitation:
 
 ## 11. Heartbeat Delivery
 
-`mistermorph slack` can run heartbeat together with Slack runtime when:
+`morph slack` can run heartbeat together with Slack runtime when:
 
 - `cron.enabled: true`
 - `heartbeat.enabled: true`

@@ -91,7 +91,7 @@ Implemented error codes:
 
 ## 4) Command Wiring
 
-### 4.1 `mistermorph telegram`
+### 4.1 `morph telegram`
 - Starts inproc bus using `bus.max_inflight`.
 - Subscribes `AllTopics()` and dispatches by `direction + channel`.
 - Inbound paths:
@@ -101,7 +101,7 @@ Implemented error codes:
 - Business outputs (task output, task failure, file-download failure, plan updates) are on bus outbound.
 - Operational/admin responses (`/help`, bootstrap guidance, etc.) may still use direct send.
 
-### 4.2 `mistermorph slack`
+### 4.2 `morph slack`
 - Starts inproc bus using `bus.max_inflight`.
 - Subscribes `AllTopics()` and dispatches by `direction + channel`.
 - Inbound path: Slack Socket Mode events -> Slack inbound adapter -> bus -> handler -> worker queue.

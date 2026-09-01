@@ -387,14 +387,14 @@ If you configure at least one allowlisted auth profile, `bash` still works but `
 Login and inspect the local status:
 
 ```bash
-mistermorph auth xai login
-mistermorph auth xai status
+morph auth xai login
+morph auth xai status
 ```
 
 To select it as the default provider after login:
 
 ```bash
-mistermorph auth xai login --set-default
+morph auth xai login --set-default
 ```
 
 Equivalent configuration:
@@ -419,7 +419,7 @@ Login success confirms authentication, not model entitlement. xAI may still reje
 Logout removes the local token even if remote revocation fails:
 
 ```bash
-mistermorph auth xai logout
+morph auth xai logout
 ```
 
 ## Example

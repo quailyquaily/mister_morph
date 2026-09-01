@@ -36,21 +36,23 @@ curl -fsSL -o /tmp/install-mistermorph.sh https://raw.githubusercontent.com/quai
 sudo bash /tmp/install-mistermorph.sh
 ```
 
-Or install from source:
+Or build from source:
 
 ```bash
-go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
+git clone https://github.com/quailyquaily/mistermorph.git
+cd mistermorph
+go build -o "$(go env GOPATH)/bin/morph" ./cmd/mistermorph
 ```
 
 Set up a workspace, set an API key, and run one task:
 
 ```bash
-mistermorph install
+morph install
 export MISTER_MORPH_LLM_API_KEY="YOUR_API_KEY"
-mistermorph run --task "Hello!"
+morph run --task "Hello!"
 ```
 
-If `config.yaml` is missing, `mistermorph install` starts the setup wizard and writes the first workspace files.
+If `config.yaml` is missing, `morph install` starts the setup wizard and writes the first workspace files.
 
 CLI modes and configuration details: [docs/modes.md](docs/modes.md), [docs/configuration.md](docs/configuration.md)
 
@@ -98,7 +100,7 @@ Full docs index: [docs/README.md](docs/README.md)
 Useful commands:
 
 ```bash
-./scripts/build-backend.sh --output ./bin/mistermorph
+./scripts/build-backend.sh --output ./bin/morph
 ./scripts/build-desktop.sh --release
 go test ./...
 ```

@@ -28,16 +28,16 @@ uses that default for Linux desktop builds.
 Build console assets first:
 
 ```bash
-./scripts/build-backend.sh --output ./bin/mistermorph
+./scripts/build-backend.sh --output ./bin/morph
 ```
 
-If you use the default output path, the backend binary is `./bin/mistermorph`
-(or `./bin/mistermorph.exe` on Windows).
+If you use the default output path, the backend binary is `./bin/morph`
+(or `./bin/morph.exe` on Windows).
 
 To build a backend binary without embedding the Console SPA, use:
 
 ```bash
-./scripts/build-backend.sh --no-embed-frontend --output ./bin/mistermorph
+./scripts/build-backend.sh --no-embed-frontend --output ./bin/morph
 ```
 
 The bundled `mistermorph` backend should stay `CGO_ENABLED=0`.
@@ -61,11 +61,11 @@ go run -tags 'wailsdesktop production' ./desktop/wails
 Build desktop binary:
 
 ```bash
-go build -tags 'wailsdesktop production' -o ./bin/mistermorph-desktop ./desktop/wails
+go build -tags 'wailsdesktop production' -o ./bin/MrMorph ./desktop/wails
 ```
 
 For local Linux builds with DevTools enabled, use `scripts/build-desktop.sh`. It automatically switches Linux debug builds to `wailsdesktop dev devtools`, because Wails v3 alpha does not currently support `linux + production + devtools`.
-With default outputs, that script writes `./bin/MisterMorph` and `./bin/mistermorphc` on macOS, `./bin/MisterMorph.exe` and `./bin/mistermorphc.exe` on Windows, and `./bin/mistermorph-desktop` and `./bin/mistermorph` on Linux.
+With default outputs, that script writes `./bin/MrMorph` and `./bin/morph` on macOS and Linux, or `./bin/MrMorph.exe` and `./bin/morph.exe` on Windows.
 
 ## Config file forwarding
 
@@ -86,8 +86,8 @@ When enabled, the desktop host checks the release `update.json` on startup and d
 Backend binary candidate order:
 
 1. `MISTERMORPH_DESKTOP_BACKEND_BIN`
-2. `./bin/mistermorphc` on macOS/Windows, or `./bin/mistermorph` on Linux
-3. sibling paths near desktop executable (`mistermorphc` before `mistermorph` on macOS/Windows; `mistermorph` on Linux; legacy `mistermorph-backend` still accepted)
+2. `./bin/morph`
+3. sibling paths near the desktop executable (`morph`; legacy `mistermorphc`, `mistermorph`, and `mistermorph-backend` names are still accepted)
 4. `PATH` lookup (`mistermorph`)
 5. download from GitHub releases (enabled by default)
 
@@ -115,11 +115,11 @@ The desktop runtime checks the stable latest-release URL:
 https://downloads.mistermorph.com/latest/update.json
 ```
 
-The macOS and Windows desktop release packages bundle a sibling `mistermorphc` backend binary; the Linux package keeps the sibling backend as `mistermorph`.
+Every desktop release package bundles a sibling `morph` backend binary.
 The Linux deb package installs the app under `/opt/mistermorph`, adds the desktop entry under `/usr/share/applications`, and installs the app icon into the hicolor icon theme and `/usr/share/pixmaps`.
 The Linux updater tarball is not an `.AppImage` wrapped in another archive; it contains the unpacked AppDir bundle so the updater asset is a real Linux app payload.
 That bundled backend is built with `CGO_ENABLED=0` on purpose; keep it that way unless the CLI/backend grows an unavoidable native dependency.
-The Windows release bundle includes both `MisterMorph.exe` and `mistermorphc.exe`; keep them in the same directory after unzip.
+The Windows release bundle includes both `MrMorph.exe` and `morph.exe`; keep them in the same directory after unzip.
 The Windows release workflow also generates a `.ico` and Windows `.syso` resource on the runner so the published desktop executable carries the app icon.
 The macOS packaging script signs the `.app` bundle in two modes:
 

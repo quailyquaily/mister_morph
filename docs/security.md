@@ -6,7 +6,7 @@ title: Security
 
 This document focuses on:
 
-- **process isolation** and **filesystem sandboxing** for long-lived runtime processes such as `mistermorph telegram`, `mistermorph slack`, `mistermorph line`, `mistermorph lark`, or `mistermorph console serve`
+- **process isolation** and **filesystem sandboxing** for long-lived runtime processes such as `morph telegram`, `morph slack`, `morph line`, `morph lark`, or `morph console serve`
 - **secret handling** for authenticated outbound HTTP calls (profile-based credential injection)
 - **Guard (M1)**: outbound allowlists, redaction, async approvals, and audit logs
 

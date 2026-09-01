@@ -15,10 +15,10 @@ target_goos() {
 default_backend_output() {
   case "$(target_goos)" in
     windows)
-      printf '%s\n' "./bin/mistermorph.exe"
+      printf '%s\n' "./bin/morph.exe"
       ;;
     *)
-      printf '%s\n' "./bin/mistermorph"
+      printf '%s\n' "./bin/morph"
       ;;
   esac
 }
@@ -58,7 +58,7 @@ Options:
 
 Notes:
   - Default behavior embeds the Console frontend into the backend binary.
-  - Default output path is ./bin/mistermorph (or ./bin/mistermorph.exe on Windows).
+  - Default output path is ./bin/morph (or ./bin/morph.exe on Windows).
   - --frontend-config accepts an absolute path, a repo-root-relative path, or
     a path relative to web/console, for example: vite.config.js
   - --tags can be repeated. Values are passed to go build as one tag list.

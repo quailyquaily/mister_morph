@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Edit these defaults for this Morph instance. Each value may also be
 # overridden with an environment variable of the same name.
-MORPH_CLI_PATH="${MORPH_CLI_PATH:-mistermorph}"
+MORPH_CLI_PATH="${MORPH_CLI_PATH:-morph}"
 MORPH_FILE_STATE_DIR="${MORPH_FILE_STATE_DIR:-${HOME}/.morph}"
 # The install command creates config.yaml inside MORPH_FILE_STATE_DIR.
 MORPH_CONFIG_PATH="${MORPH_CONFIG_PATH:-${MORPH_FILE_STATE_DIR}/config.yaml}"

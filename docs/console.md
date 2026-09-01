@@ -3,7 +3,7 @@
 This document describes the Console SPA under `web/console`, used by:
 
 ```bash
-mistermorph console serve
+morph console serve
 ```
 
 Stack:
@@ -204,7 +204,7 @@ Paginated runtime lists return `items`, `limit`, `has_next`, and optional `next_
 
 ## Setup Wizard
 
-- When no readable `config.yaml` is found, `mistermorph install` starts an interactive setup wizard.
+- When no readable `config.yaml` is found, `morph install` starts an interactive setup wizard.
 - The wizard now includes Console setup inputs:
   - `console.listen`
   - `console.base_path`
@@ -296,4 +296,4 @@ Notes:
 - During frontend dev, Vite page is enough; backend static `dist` is mainly for production serving.
 - If you omit `--console-static-dir`, `console serve` falls back to its embedded SPA assets.
 - `./scripts/stage-console-assets.sh` is required before `go run ./cmd/mistermorph ...`, because the CLI validates embedded Console assets at startup.
-- Optional external endpoints should point to an existing channel runtime such as `mistermorph telegram`, `mistermorph slack`, `mistermorph line`, or `mistermorph lark`.
+- Optional external endpoints should point to an existing channel runtime such as `morph telegram`, `morph slack`, `morph line`, or `morph lark`.

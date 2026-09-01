@@ -96,7 +96,7 @@ Current wiring:
 3. `OnDataPush -> maep inbound adapter -> bus.PublishValidated`
 4. bus handler converts back to event and executes command-level behavior (printing + optional contacts sync)
 
-### 5.2 `mistermorph telegram --with-maep`
+### 5.2 `morph telegram --with-maep`
 Current wiring:
 1. embedded MAEP node enabled by `--with-maep`
 2. `OnDataPush -> maep inbound adapter -> bus`

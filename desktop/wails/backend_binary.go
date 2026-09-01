@@ -157,42 +157,21 @@ func isExecutableFile(path string) bool {
 
 func desktopBackendBinaryBaseName() string {
 	if goRuntime.GOOS == "windows" {
-		return "mistermorph.exe"
+		return "morph.exe"
 	}
-	return "mistermorph"
-}
-
-func desktopBundledBackendBinaryBaseName() string {
-	if goRuntime.GOOS == "windows" {
-		return "mistermorphc.exe"
-	}
-	if goRuntime.GOOS == "linux" {
-		return desktopBackendBinaryBaseName()
-	}
-	return "mistermorphc"
-}
-
-func desktopLegacyBundledBackendBinaryBaseName() string {
-	if goRuntime.GOOS == "windows" {
-		return "mistermorph-backend.exe"
-	}
-	return "mistermorph-backend"
+	return "morph"
 }
 
 func desktopBackendCandidateBaseNames() []string {
-	bundled := desktopBundledBackendBinaryBaseName()
-	base := desktopBackendBinaryBaseName()
-	legacy := desktopLegacyBundledBackendBinaryBaseName()
-	out := make([]string, 0, 3)
-	seen := map[string]struct{}{}
-	for _, name := range []string{bundled, base, legacy} {
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
+	extension := ""
+	if goRuntime.GOOS == "windows" {
+		extension = ".exe"
 	}
-	return out
+	names := []string{desktopBackendBinaryBaseName()}
+	if goRuntime.GOOS != "linux" {
+		names = append(names, "mistermorphc"+extension)
+	}
+	return append(names, "mistermorph"+extension, "mistermorph-backend"+extension)
 }
 
 func desktopBackendAutoDownloadEnabled() bool {
@@ -248,7 +227,7 @@ func downloadMistermorphBinary(ctx context.Context, version string) (string, err
 	if tag == "" {
 		tag = "latest"
 	}
-	dstName := fmt.Sprintf("mistermorph-%s-%s-%s", sanitizeTag(tag), goRuntime.GOOS, goRuntime.GOARCH)
+	dstName := fmt.Sprintf("morph-%s-%s-%s", sanitizeTag(tag), goRuntime.GOOS, goRuntime.GOARCH)
 	if goRuntime.GOOS == "windows" {
 		dstName += ".exe"
 	}

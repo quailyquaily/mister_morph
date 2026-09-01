@@ -23,16 +23,16 @@ func TestShouldPrepareRootRegistry(t *testing.T) {
 		path string
 		want bool
 	}{
-		{path: "mistermorph run", want: true},
-		{path: "mistermorph chat", want: true},
-		{path: "mistermorph telegram", want: true},
-		{path: "mistermorph slack", want: true},
-		{path: "mistermorph line", want: true},
-		{path: "mistermorph lark", want: true},
-		{path: "mistermorph mixin", want: true},
-		{path: "mistermorph tools", want: true},
-		{path: "mistermorph console serve", want: false},
-		{path: "mistermorph version", want: false},
+		{path: "morph run", want: true},
+		{path: "morph chat", want: true},
+		{path: "morph telegram", want: true},
+		{path: "morph slack", want: true},
+		{path: "morph line", want: true},
+		{path: "morph lark", want: true},
+		{path: "morph mixin", want: true},
+		{path: "morph tools", want: true},
+		{path: "morph console serve", want: false},
+		{path: "morph version", want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {

@@ -95,19 +95,19 @@ jobs:
           GOOS=windows GOARCH=amd64 \
             go build -trimpath -tags "wailsdesktop production" \
             -ldflags "-s -w -X main.desktopVersion=${version} -H=windowsgui" \
-            -o "${unsigned_dir}/MisterMorph.exe" ./desktop/wails
+            -o "${unsigned_dir}/MrMorph.exe" ./desktop/wails
 
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
             go build -trimpath -ldflags "-s -w" \
-            -o "${unsigned_dir}/mistermorphc.exe" ./cmd/mistermorph
+            -o "${unsigned_dir}/morph.exe" ./cmd/mistermorph
 
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
             go build -trimpath -ldflags "${cli_ldflags}" \
-            -o "${unsigned_dir}/mistermorph-amd64.exe" ./cmd/mistermorph
+            -o "${unsigned_dir}/morph-amd64.exe" ./cmd/mistermorph
 
           CGO_ENABLED=0 GOOS=windows GOARCH=arm64 \
             go build -trimpath -ldflags "${cli_ldflags}" \
-            -o "${unsigned_dir}/mistermorph-arm64.exe" ./cmd/mistermorph
+            -o "${unsigned_dir}/morph-arm64.exe" ./cmd/mistermorph
 
       - name: Setup Java for CodeSignTool
         uses: actions/setup-java@v5
@@ -277,32 +277,32 @@ jobs:
           $desktopAsset = "mistermorph-desktop-windows-amd64.zip"
           $desktopDir = "dist/package-desktop"
           New-Item -ItemType Directory -Force -Path $desktopDir | Out-Null
-          Copy-Item "$signedDir/MisterMorph.exe" "$desktopDir/MisterMorph.exe"
-          Copy-Item "$signedDir/mistermorphc.exe" "$desktopDir/mistermorphc.exe"
+          Copy-Item "$signedDir/MrMorph.exe" "$desktopDir/MrMorph.exe"
+          Copy-Item "$signedDir/morph.exe" "$desktopDir/morph.exe"
           Copy-Item "LICENSE" "$desktopDir/LICENSE"
           @"
           MisterMorph Desktop for Windows.
 
-          Keep MisterMorph.exe and mistermorphc.exe in the same directory.
-          Launch the app with MisterMorph.exe.
+          Keep MrMorph.exe and morph.exe in the same directory.
+          Launch the app with MrMorph.exe.
           "@ | Set-Content "$desktopDir/README-desktop.txt" -Encoding utf8NoBOM
           Compress-Archive -Path "$desktopDir/*" -DestinationPath "$releaseDir/$desktopAsset"
 
           $cliPackages = @(
             @{
-              Source = "$signedDir/mistermorph-amd64.exe"
+              Source = "$signedDir/morph-amd64.exe"
               Asset = "mistermorph_${version}_windows_amd64.zip"
               Staging = "dist/package-cli-amd64"
             },
             @{
-              Source = "$signedDir/mistermorph-arm64.exe"
+              Source = "$signedDir/morph-arm64.exe"
               Asset = "mistermorph_${version}_windows_arm64.zip"
               Staging = "dist/package-cli-arm64"
             }
           )
           foreach ($package in $cliPackages) {
             New-Item -ItemType Directory -Force -Path $package.Staging | Out-Null
-            Copy-Item $package.Source "$($package.Staging)/mistermorph.exe"
+            Copy-Item $package.Source "$($package.Staging)/morph.exe"
             Copy-Item "LICENSE" "$($package.Staging)/LICENSE"
             Copy-Item "README.md" "$($package.Staging)/README.md"
             Compress-Archive -Path "$($package.Staging)/*" -DestinationPath "$releaseDir/$($package.Asset)"

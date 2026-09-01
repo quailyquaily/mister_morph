@@ -64,7 +64,7 @@ func ExecuteContext(ctx context.Context) (err error) {
 
 func newRootRuntime() *rootRuntime {
 	cmd := &cobra.Command{
-		Use:               "mistermorph",
+		Use:               "morph",
 		Short:             "Unified Agent CLI",
 		PersistentPreRunE: runRootPreflight,
 	}
@@ -550,7 +550,7 @@ func shouldPrepareRootRegistry(cmd *cobra.Command) bool {
 		return false
 	}
 	switch cmd.CommandPath() {
-	case "mistermorph run", "mistermorph chat", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark", "mistermorph mixin", "mistermorph tools":
+	case "morph run", "morph chat", "morph telegram", "morph slack", "morph line", "morph lark", "morph mixin", "morph tools":
 		return true
 	default:
 		return false

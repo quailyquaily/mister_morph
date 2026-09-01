@@ -1,6 +1,6 @@
 # LINE Setup and Configuration
 
-This document explains how to configure `mistermorph line` end-to-end.
+This document explains how to configure `morph line` end-to-end.
 
 Current runtime capability:
 - Webhook ingress with signature verification (`X-Line-Signature`)
@@ -54,7 +54,7 @@ LINE Messaging API send
 
 ## 1. LINE Console Step-by-Step (Do This First)
 
-Follow this sequence in LINE Developers Console so you can actually start `mistermorph line`:
+Follow this sequence in LINE Developers Console so you can actually start `morph line`:
 
 1. Create a LINE Messaging API channel.
 - Go to LINE Developers Console.
@@ -74,7 +74,7 @@ Follow this sequence in LINE Developers Console so you can actually start `miste
 - Map it to `line.channel_access_token`.
 
 4. Start local runtime first.
-- Run `mistermorph line` locally and expose webhook port:
+- Run `morph line` locally and expose webhook port:
 ```bash
 go run ./cmd/mistermorph line \
   --line-channel-access-token "$MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN" \

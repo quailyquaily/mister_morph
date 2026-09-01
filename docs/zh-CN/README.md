@@ -24,7 +24,7 @@
    - Windows: `mistermorph-desktop-windows-amd64.zip`
 2. 启动 App。
 3. 在 App 内完成首次配置。
-4. 直接使用 Console UI，无需再手动运行 `mistermorph console serve`。
+4. 直接使用 Console UI，无需再手动运行 `morph console serve`。
 
 构建、打包与平台说明见：[../app.md](../app.md)
 
@@ -37,21 +37,23 @@ curl -fsSL -o /tmp/install-mistermorph.sh https://raw.githubusercontent.com/quai
 sudo bash /tmp/install-mistermorph.sh
 ```
 
-或者从源码安装：
+或者从源码构建：
 
 ```bash
-go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
+git clone https://github.com/quailyquaily/mistermorph.git
+cd mistermorph
+go build -o "$(go env GOPATH)/bin/morph" ./cmd/mistermorph
 ```
 
 初始化工作目录、设置 API Key，并运行一个任务：
 
 ```bash
-mistermorph install
+morph install
 export MISTER_MORPH_LLM_API_KEY="YOUR_API_KEY"
-mistermorph run --task "Hello!"
+morph run --task "Hello!"
 ```
 
-如果当前还没有 `config.yaml`，`mistermorph install` 会启动初始化向导并写入所需的工作区文件。
+如果当前还没有 `config.yaml`，`morph install` 会启动初始化向导并写入所需的工作区文件。
 
 CLI 模式与配置说明见：[../modes.md](../modes.md)、[../configuration.md](../configuration.md)
 
@@ -99,7 +101,7 @@ CLI 模式与配置说明见：[../modes.md](../modes.md)、[../configuration.md
 常用本地命令：
 
 ```bash
-./scripts/build-backend.sh --output ./bin/mistermorph
+./scripts/build-backend.sh --output ./bin/morph
 ./scripts/build-desktop.sh --release
 go test ./...
 ```

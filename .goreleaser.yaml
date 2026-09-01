@@ -9,7 +9,7 @@ before:
 builds:
   - id: mistermorph
     main: ./cmd/mistermorph
-    binary: mistermorph
+    binary: morph
     env:
       - CGO_ENABLED=0
     goos:

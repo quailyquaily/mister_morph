@@ -18,7 +18,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "mistermorph %s\n", strings.TrimSpace(version))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "morph %s\n", strings.TrimSpace(version))
 			if c := strings.TrimSpace(commit); c != "" && c != "none" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "commit: %s\n", c)
 			}

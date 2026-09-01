@@ -31,10 +31,10 @@ Important:
 - Aqua CLI is installed.
 - `aqua serve` is running in the environment that receives messages.
 - Mister Morph runs in a long-lived runtime that exposes a runtime API, for example:
-  - `mistermorph telegram` with `telegram.serve_listen`
-  - `mistermorph slack` with `slack.serve_listen`
-  - `mistermorph line` with `line.serve_listen`
-  - `mistermorph lark` with `lark.serve_listen`
+  - `morph telegram` with `telegram.serve_listen`
+  - `morph slack` with `slack.serve_listen`
+  - `morph line` with `line.serve_listen`
+  - `morph lark` with `lark.serve_listen`
 - `server.auth_token` is set.
 - `/runtime/poke` does not require `heartbeat.enabled: true`. Enable heartbeat only if you also want periodic checks from `HEARTBEAT.md`.
 - The `bash` tool stays enabled, because the awareness task needs to call the `aqua` CLI.
@@ -66,7 +66,7 @@ aqua version
 
 ## 2. Expose a Poke URL
 
-`mistermorph run` does not expose `/runtime/poke`. Use a runtime that serves the runtime API.
+`morph run` does not expose `/runtime/poke`. Use a runtime that serves the runtime API.
 
 Example config:
 
@@ -86,7 +86,7 @@ telegram:
 Then start the runtime:
 
 ```bash
-mistermorph telegram --config ./config.yaml
+morph telegram --config ./config.yaml
 ```
 
 In that example:

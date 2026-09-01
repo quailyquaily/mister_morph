@@ -52,19 +52,19 @@ jobs:
       - name: Build desktop app and bundled backend
         run: |
           ./scripts/build-desktop.sh --release --no-frontend \
-            --desktop-output ./dist/mistermorph-desktop \
-            --backend-output ./dist/mistermorph
-          sha256sum dist/mistermorph-desktop > dist/mistermorph-desktop.sha256
-          sha256sum dist/mistermorph > dist/mistermorph.sha256
+            --desktop-output ./dist/MrMorph \
+            --backend-output ./dist/morph
+          sha256sum dist/MrMorph > dist/MrMorph.sha256
+          sha256sum dist/morph > dist/morph.sha256
 
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v4
         with:
           name: mistermorph-desktop-linux-amd64
           path: |
-            dist/mistermorph-desktop
-            dist/mistermorph-desktop.sha256
-            dist/mistermorph
-            dist/mistermorph.sha256
+            dist/MrMorph
+            dist/MrMorph.sha256
+            dist/morph
+            dist/morph.sha256
           if-no-files-found: error
           retention-days: 3
