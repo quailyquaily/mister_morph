@@ -532,6 +532,7 @@ func (s *server) handler() http.Handler {
 		register("/settings/auto-update/check", s.handleAutoUpdateCheck)
 		register("/setup/integrity", s.handleSetupIntegrity)
 		register("/setup/file", s.handleSetupRepairFile)
+		register("/setup/secret", s.handleSetupRepairSecret)
 	}
 
 	mux.HandleFunc("/health", s.handleHealth)

@@ -143,7 +143,7 @@ const SETUP_FREE_PATHS = new Set([
   "/setup/persona",
   "/setup/soul",
   "/setup/done",
-  "/setup/repair",
+	"/troubleshooting",
   "/settings",
   "/settings/agent",
   "/settings/tools",
@@ -198,9 +198,9 @@ const routes = [
     meta: { endpointScoped: true, setupStage: "done" },
   },
   {
-    path: `${ENDPOINT_SCOPE_PATH}/setup/repair`,
-    component: RepairView,
-    meta: { endpointScoped: true },
+	path: `${ENDPOINT_SCOPE_PATH}/troubleshooting`,
+	component: RepairView,
+	meta: { endpointScoped: true, shellless: true },
   },
   { path: `${ENDPOINT_SCOPE_PATH}/chat`, component: ChatView, meta: { endpointScoped: true } },
   {
@@ -232,7 +232,7 @@ const routes = [
   { path: "/setup/persona", redirect: legacyEndpointRedirect("/setup/persona") },
   { path: "/setup/soul", redirect: legacyEndpointRedirect("/setup/soul") },
   { path: "/setup/done", redirect: legacyEndpointRedirect("/setup/done") },
-  { path: "/setup/repair", redirect: legacyEndpointRedirect("/setup/repair") },
+	{ path: "/troubleshooting", redirect: legacyEndpointRedirect("/troubleshooting") },
   { path: "/chat", redirect: legacyEndpointRedirect("/chat") },
   { path: "/chat/:topic_id", redirect: legacyEndpointRedirect("/chat/:topic_id") },
   { path: "/runtime", redirect: legacyEndpointRedirect("/settings/runtime") },
@@ -323,7 +323,10 @@ router.beforeEach(async (to) => {
   try {
     const integrityItems = blockingSetupIntegrityItems(await fetchConsoleSetupIntegrity().catch(() => []));
     if (integrityItems.length > 0) {
-      if (toPagePath === "/setup/repair" || isAllowedRepairSetupRoute(to, integrityItems)) {
+	  if (
+		toPagePath === "/troubleshooting" ||
+		isAllowedRepairSetupRoute(to, integrityItems)
+	  ) {
         return true;
       }
       return { path: setupStagePath("repair"), query: { redirect: to.fullPath } };

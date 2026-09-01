@@ -3234,6 +3234,10 @@ const SettingsView = {
         const profileSecretFields = payload?.secret_fields?.llm_profiles?.[nextName];
         profile._secretFields =
           profileSecretFields && typeof profileSecretFields === "object" ? profileSecretFields : {};
+        profile.api_key = "";
+        profile.bedrock_aws_key = "";
+        profile.bedrock_aws_secret = "";
+        profile.cloudflare_api_token = "";
         profile._secretDirty.clear();
         profile._savedName = nextName;
         profile._savedSnapshot = JSON.stringify(serializeLLMProfile(profile));

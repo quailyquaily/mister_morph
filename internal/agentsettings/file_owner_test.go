@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -309,6 +310,143 @@ func TestFileOwnerPreservesAndRotatesOSManagedProfileSecret(t *testing.T) {
 	raw, _ = os.ReadFile(configPath)
 	if strings.Contains(string(raw), "new-profile-secret") || !strings.Contains(string(raw), secref.OSSecretRef(newID)) {
 		t.Fatalf("profile secret was not stored as OS ref:\n%s", raw)
+	}
+}
+
+func TestFileOwnerSavingSecondProfilePreservesFirstProfileSecretRef(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := `llm:
+  provider: openai
+  model: gpt-main
+  profiles:
+    first:
+      provider: openai
+      model: gpt-first
+    second:
+      provider: openai
+      model: gpt-second
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+
+	updateProfile := func(name, apiKey string) {
+		t.Helper()
+		var update AgentSettingsUpdate
+		body := fmt.Sprintf(
+			`{"llm":{"profile":{"original_name":%q,"name":%q,"provider":"openai","model":%q,"api_key":%q}}}`,
+			name,
+			name,
+			"gpt-"+name,
+			apiKey,
+		)
+		if err := json.Unmarshal([]byte(body), &update); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := owner.Update(context.Background(), update); err != nil {
+			t.Fatalf("save profile %q: %v", name, err)
+		}
+	}
+
+	updateProfile("first", "first-secret")
+	firstID := backend.puts[0]
+	updateProfile("second", "second-secret")
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "first-secret") || strings.Contains(string(raw), "second-secret") {
+		t.Fatalf("saving second profile exposed a profile secret:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), secref.OSSecretRef(firstID)) {
+		t.Fatalf("saving second profile replaced the first profile secret ref:\n%s", raw)
+	}
+	if len(backend.puts) != 2 {
+		t.Fatalf("secret store writes = %v, want one write per profile", backend.puts)
+	}
+	if !strings.Contains(string(raw), secref.OSSecretRef(backend.puts[1])) {
+		t.Fatalf("second profile secret ref is missing:\n%s", raw)
+	}
+}
+
+func TestFileOwnerSingleProfileUpdatesPreserveUnrelatedYAMLAndFallbacks(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := `llm:
+  provider: openai
+  model: gpt-main
+  profiles:
+    first:
+      provider: openai
+      model: gpt-first
+    untouched:
+      provider: openai
+      model: gpt-untouched
+      extension: keep-me
+  routes:
+    main_loop:
+      fallback_profiles: [first, untouched]
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath: configPath,
+		Reader:     readFileOwnerTestConfig(t, configPath),
+	})
+
+	rename := LLMProfileUpdate{
+		OriginalName: "first",
+		LLMProfileSettingsPayload: LLMProfileSettingsPayload{
+			Name: "renamed",
+			LLMConfigFieldsPayload: LLMConfigFieldsPayload{
+				Provider: "openai",
+				Model:    "gpt-renamed",
+			},
+		},
+	}
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{Profile: &rename},
+	}); err != nil {
+		t.Fatalf("rename profile: %v", err)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	fallbacks := readFileOwnerTestConfig(t, configPath).GetStringSlice("llm.routes.main_loop.fallback_profiles")
+	if strings.Join(fallbacks, ",") != "renamed,untouched" {
+		t.Fatalf("profile rename did not update fallbacks:\n%s", raw)
+	}
+	if !strings.Contains(text, "extension: keep-me") {
+		t.Fatalf("profile rename removed unrelated YAML:\n%s", raw)
+	}
+
+	name := "renamed"
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{DeleteProfile: &name},
+	}); err != nil {
+		t.Fatalf("delete profile: %v", err)
+	}
+	raw, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = string(raw)
+	fallbacks = readFileOwnerTestConfig(t, configPath).GetStringSlice("llm.routes.main_loop.fallback_profiles")
+	if strings.Join(fallbacks, ",") != "untouched" || strings.Contains(text, "renamed:") {
+		t.Fatalf("profile delete did not update profile and fallback:\n%s", raw)
+	}
+	if !strings.Contains(text, "extension: keep-me") {
+		t.Fatalf("profile delete removed unrelated YAML:\n%s", raw)
 	}
 }
 

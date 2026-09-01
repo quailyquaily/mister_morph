@@ -145,6 +145,7 @@ func TestConsoleRuntimeMountExposesConsoleOwnedSettings(t *testing.T) {
 		{method: http.MethodDelete, path: "/runtime/auth/pro/logout"},
 		{method: http.MethodDelete, path: "/runtime/setup/integrity"},
 		{method: http.MethodDelete, path: "/runtime/setup/file?key=config"},
+		{method: http.MethodPatch, path: "/runtime/setup/secret"},
 	}
 
 	for _, tt := range tests {

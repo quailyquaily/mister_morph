@@ -764,9 +764,6 @@ func marshalFileSettingsUpdateWithSource(configPath string, values AgentSettings
 	} else if !isInvalidConfigYAMLError(readErr) && !os.IsNotExist(readErr) {
 		return nil, readErr
 	}
-	if err := expandSingleLLMProfileUpdate(current.LLM, &values.LLM); err != nil {
-		return nil, err
-	}
 	if err := applyAgentSettingsUpdateDocument(doc, current, values); err != nil {
 		return nil, err
 	}
@@ -774,6 +771,12 @@ func marshalFileSettingsUpdateWithSource(configPath string, values AgentSettings
 }
 
 func applyAgentSettingsUpdateDocument(doc *yaml.Node, current FileSettings, values AgentSettingsUpdate) error {
+	if values.LLM.Profiles != nil && (values.LLM.Profile != nil || values.LLM.DeleteProfile != nil) {
+		return fmt.Errorf("profiles cannot be combined with a single profile update")
+	}
+	if values.LLM.Profile != nil && values.LLM.DeleteProfile != nil {
+		return fmt.Errorf("profile and delete_profile cannot be combined")
+	}
 	nextLLM := applyLLMSettingsUpdate(current.LLM, values.LLM)
 	root, err := configbootstrap.DocumentMapping(doc)
 	if err != nil {
@@ -783,9 +786,6 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current FileSettings, valu
 	llmNode := configbootstrap.EnsureMappingValue(root, llmSettingsKey)
 	applyLLMConfigFieldsUpdate(llmNode, nextLLM.LLMConfigFieldsPayload, values.LLM.LLMConfigFieldsUpdate)
 	if values.LLM.Profiles != nil {
-		if values.LLM.Profile != nil {
-			renameLLMProfileNode(llmNode, values.LLM.Profile.OriginalName, values.LLM.Profile.Name)
-		}
 		profiles, err := normalizeLLMProfileSettings(*values.LLM.Profiles)
 		if err != nil {
 			return err
@@ -794,8 +794,42 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current FileSettings, valu
 			return err
 		}
 	}
-	if values.LLM.FallbackProfiles != nil {
-		setMainLoopFallbackProfilesNode(llmNode, *values.LLM.FallbackProfiles)
+	if values.LLM.Profile != nil {
+		if err := setSingleLLMProfileNode(llmNode, values.LLM.Profile); err != nil {
+			return err
+		}
+	}
+	if values.LLM.DeleteProfile != nil {
+		if err := deleteSingleLLMProfileNode(llmNode, *values.LLM.DeleteProfile); err != nil {
+			return err
+		}
+	}
+	fallbackProfiles := values.LLM.FallbackProfiles
+	if values.LLM.Profile != nil {
+		originalName := strings.TrimSpace(values.LLM.Profile.OriginalName)
+		nextName := strings.TrimSpace(values.LLM.Profile.Name)
+		if originalName != "" && originalName != nextName {
+			next := append([]string(nil), current.LLM.FallbackProfiles...)
+			for i := range next {
+				if strings.EqualFold(strings.TrimSpace(next[i]), originalName) {
+					next[i] = nextName
+				}
+			}
+			fallbackProfiles = &next
+		}
+	}
+	if values.LLM.DeleteProfile != nil {
+		name := strings.TrimSpace(*values.LLM.DeleteProfile)
+		next := make([]string, 0, len(current.LLM.FallbackProfiles))
+		for _, fallback := range current.LLM.FallbackProfiles {
+			if !strings.EqualFold(strings.TrimSpace(fallback), name) {
+				next = append(next, fallback)
+			}
+		}
+		fallbackProfiles = &next
+	}
+	if fallbackProfiles != nil {
+		setMainLoopFallbackProfilesNode(llmNode, *fallbackProfiles)
 	}
 
 	configbootstrap.DeleteMappingKey(root, "multimodal")
@@ -1060,21 +1094,11 @@ func stringPointer(value string) *string {
 	return &next
 }
 
-func stringSlicePointer(values []string) *[]string {
-	next := append([]string(nil), values...)
-	return &next
-}
-
 func toolEnabledUpdateValue(update *ToolEnabledUpdate) *bool {
 	if update == nil {
 		return nil
 	}
 	return update.Enabled
-}
-
-func profileSettingsPointer(values []LLMProfileSettingsPayload) *[]LLMProfileSettingsPayload {
-	next := append([]LLMProfileSettingsPayload(nil), values...)
-	return &next
 }
 
 func validateAgentLLMRoute(values llmutil.RuntimeValues, purpose string) error {
@@ -1139,89 +1163,85 @@ func normalizeLLMProfileSettings(profiles []LLMProfileSettingsPayload) ([]LLMPro
 	return out, nil
 }
 
-func expandSingleLLMProfileUpdate(current LLMSettingsPayload, update *LLMSettingsUpdate) error {
-	if update == nil || (update.Profile == nil && update.DeleteProfile == nil) {
-		return nil
+func setSingleLLMProfileNode(llmNode *yaml.Node, update *LLMProfileUpdate) error {
+	normalized, err := normalizeLLMProfileSettings([]LLMProfileSettingsPayload{
+		update.LLMProfileSettingsPayload,
+	})
+	if err != nil {
+		return err
 	}
-	if update.Profiles != nil {
-		return fmt.Errorf("profiles cannot be combined with a single profile update")
+	profile := normalized[0]
+	originalName := strings.TrimSpace(update.OriginalName)
+	profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
+	targetIndex := -1
+	if originalName != "" && profilesNode != nil && profilesNode.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(profilesNode.Content); i += 2 {
+			if strings.EqualFold(strings.TrimSpace(profilesNode.Content[i].Value), originalName) {
+				targetIndex = i
+				break
+			}
+		}
 	}
-	if update.Profile != nil && update.DeleteProfile != nil {
-		return fmt.Errorf("profile and delete_profile cannot be combined")
+	if originalName != "" && targetIndex < 0 {
+		return fmt.Errorf("profile %q not found", originalName)
 	}
-
-	profiles := append([]LLMProfileSettingsPayload(nil), current.Profiles...)
-	fallbacks := append([]string(nil), current.FallbackProfiles...)
-	if update.Profile != nil {
-		normalized, err := normalizeLLMProfileSettings([]LLMProfileSettingsPayload{
-			update.Profile.LLMProfileSettingsPayload,
-		})
-		if err != nil {
-			return err
-		}
-		next := normalized[0]
-		originalName := strings.TrimSpace(update.Profile.OriginalName)
-		targetIndex := -1
-		if originalName != "" {
-			for i := range profiles {
-				if strings.EqualFold(strings.TrimSpace(profiles[i].Name), originalName) {
-					targetIndex = i
-					break
-				}
-			}
-			if targetIndex < 0 {
-				return fmt.Errorf("profile %q not found", originalName)
+	if profilesNode != nil && profilesNode.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(profilesNode.Content); i += 2 {
+			if i != targetIndex && strings.EqualFold(strings.TrimSpace(profilesNode.Content[i].Value), profile.Name) {
+				return fmt.Errorf("duplicate profile %q", profile.Name)
 			}
 		}
-		for i := range profiles {
-			if i == targetIndex {
-				continue
-			}
-			if strings.EqualFold(strings.TrimSpace(profiles[i].Name), next.Name) {
-				return fmt.Errorf("duplicate profile %q", next.Name)
-			}
-		}
-		if targetIndex < 0 {
-			profiles = append(profiles, next)
-		} else {
-			profiles[targetIndex] = next
-			if originalName != next.Name {
-				for i := range fallbacks {
-					if strings.EqualFold(strings.TrimSpace(fallbacks[i]), originalName) {
-						fallbacks[i] = next.Name
-					}
-				}
-				update.FallbackProfiles = stringSlicePointer(fallbacks)
-			}
-		}
-		update.Profiles = profileSettingsPointer(profiles)
-		return nil
 	}
 
-	name := strings.TrimSpace(*update.DeleteProfile)
+	var profileNode *yaml.Node
+	if targetIndex >= 0 {
+		profilesNode.Content[targetIndex].Value = profile.Name
+		profileNode = profilesNode.Content[targetIndex+1]
+	} else {
+		profilesNode = configbootstrap.EnsureMappingValue(llmNode, "profiles")
+		profileNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		profilesNode.Content = append(profilesNode.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: profile.Name},
+			profileNode,
+		)
+	}
+
+	fields := llmProfileSettingsAsUpdate(profile)
+	if !update.secretFieldProvided("api_key", update.APIKey) {
+		fields.APIKey = nil
+	}
+	if !update.secretFieldProvided("bedrock_aws_key", update.BedrockAWSKey) {
+		fields.BedrockAWSKey = nil
+	}
+	if !update.secretFieldProvided("bedrock_aws_secret", update.BedrockAWSSecret) {
+		fields.BedrockAWSSecret = nil
+	}
+	if !update.secretFieldProvided("cloudflare_api_token", update.CloudflareAPIToken) {
+		fields.CloudflareAPIToken = nil
+	}
+	applyLLMConfigFieldsUpdate(profileNode, profile.LLMConfigFieldsPayload, fields)
+	return nil
+}
+
+func deleteSingleLLMProfileNode(llmNode *yaml.Node, name string) error {
+	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("profile name is required")
 	}
-	targetIndex := -1
-	for i := range profiles {
-		if strings.EqualFold(strings.TrimSpace(profiles[i].Name), name) {
-			targetIndex = i
-			break
+	profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
+	if profilesNode != nil && profilesNode.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(profilesNode.Content); i += 2 {
+			if !strings.EqualFold(strings.TrimSpace(profilesNode.Content[i].Value), name) {
+				continue
+			}
+			profilesNode.Content = append(profilesNode.Content[:i], profilesNode.Content[i+2:]...)
+			if len(profilesNode.Content) == 0 {
+				configbootstrap.DeleteMappingKey(llmNode, "profiles")
+			}
+			return nil
 		}
 	}
-	if targetIndex < 0 {
-		return fmt.Errorf("profile %q not found", name)
-	}
-	profiles = append(profiles[:targetIndex], profiles[targetIndex+1:]...)
-	filteredFallbacks := fallbacks[:0]
-	for _, fallback := range fallbacks {
-		if !strings.EqualFold(strings.TrimSpace(fallback), name) {
-			filteredFallbacks = append(filteredFallbacks, fallback)
-		}
-	}
-	update.Profiles = profileSettingsPointer(profiles)
-	update.FallbackProfiles = stringSlicePointer(filteredFallbacks)
-	return nil
+	return fmt.Errorf("profile %q not found", name)
 }
 
 func llmProfileSettingsAsUpdate(profile LLMProfileSettingsPayload) LLMConfigFieldsUpdate {
@@ -1240,24 +1260,6 @@ func llmProfileSettingsAsUpdate(profile LLMProfileSettingsPayload) LLMConfigFiel
 		CloudflareAccountID: stringPointer(profile.CloudflareAccountID),
 		ReasoningEffort:     stringPointer(profile.ReasoningEffort),
 		ToolsEmulationMode:  stringPointer(profile.ToolsEmulationMode),
-	}
-}
-
-func renameLLMProfileNode(llmNode *yaml.Node, originalName, nextName string) {
-	originalName = strings.TrimSpace(originalName)
-	nextName = strings.TrimSpace(nextName)
-	if llmNode == nil || originalName == "" || nextName == "" || originalName == nextName {
-		return
-	}
-	profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
-	if profilesNode == nil || profilesNode.Kind != yaml.MappingNode {
-		return
-	}
-	for i := 0; i+1 < len(profilesNode.Content); i += 2 {
-		if strings.EqualFold(strings.TrimSpace(profilesNode.Content[i].Value), originalName) {
-			profilesNode.Content[i].Value = nextName
-			return
-		}
 	}
 }
 

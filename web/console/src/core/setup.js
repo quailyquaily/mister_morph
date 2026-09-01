@@ -64,7 +64,7 @@ function consoleSetupTargetEndpointRef(state) {
 
 function setupStagePath(stage, endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   if (stage === "repair") {
-    return endpointRoutePath(endpointRef, "/setup/repair");
+	return endpointRoutePath(endpointRef, "/troubleshooting");
   }
   if (stage === "persona") {
     return endpointRoutePath(endpointRef, "/setup/persona");

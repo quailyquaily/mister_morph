@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
 
@@ -46,7 +48,8 @@ func TestHandleSetupIntegrityListsBrokenFiles(t *testing.T) {
 	}
 	var payload struct {
 		Items []struct {
-			Key string `json:"key"`
+			Key  string `json:"key"`
+			Code string `json:"code"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -54,6 +57,9 @@ func TestHandleSetupIntegrityListsBrokenFiles(t *testing.T) {
 	}
 	if len(payload.Items) != 2 {
 		t.Fatalf("len(items) = %d, want 2", len(payload.Items))
+	}
+	if payload.Items[0].Code != "config_invalid" || payload.Items[1].Code != "identity_invalid" {
+		t.Fatalf("issue codes = %#v", payload.Items)
 	}
 }
 
@@ -94,5 +100,67 @@ func TestHandleSetupRepairFilePutRepairsIdentity(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"ok"`)) {
 		t.Fatalf("response should report repaired file: %s", rec.Body.String())
+	}
+}
+
+func TestHandleSetupRepairSecretPutRestoresMissingSecret(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  profiles:\n    main:\n      api_key: "+secref.OSSecretRef(id)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous := viper.Get("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() { viper.Set("config", previous) })
+	store := &consoleSettingsTestOSStore{values: map[string]string{}}
+	body := `{"field_path":["llm","profiles","main","api_key"],"value":"replacement-key"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/setup/secret", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	(&server{secretStore: store}).handleSetupRepairSecret(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := store.values[id]; got != "replacement-key" {
+		t.Fatalf("stored value = %q, want replacement-key", got)
+	}
+	if got := store.labels[id]; got != "llm.profiles.main.api_key" {
+		t.Fatalf("stored label = %q, want llm.profiles.main.api_key", got)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), secref.OSSecretRef(id)) || strings.Contains(string(raw), "replacement-key") {
+		t.Fatalf("config reference changed unexpectedly:\n%s", raw)
+	}
+}
+
+func TestHandleSetupRepairSecretDeleteRemovesReference(t *testing.T) {
+	const id = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  profiles:\n    main:\n      api_key: "+secref.OSSecretRef(id)+"\n      model: gpt-test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous := viper.Get("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() { viper.Set("config", previous) })
+	store := &consoleSettingsTestOSStore{values: map[string]string{}}
+	body := `{"field_path":["llm","profiles","main","api_key"]}`
+	req := httptest.NewRequest(http.MethodDelete, "/api/setup/secret", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	(&server{secretStore: store}).handleSetupRepairSecret(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "api_key") || !strings.Contains(string(raw), "model: gpt-test") {
+		t.Fatalf("config reference was not removed cleanly:\n%s", raw)
 	}
 }

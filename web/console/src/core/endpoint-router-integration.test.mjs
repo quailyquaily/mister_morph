@@ -24,7 +24,7 @@ test("endpoint-owned pages are mounted under the endpoint route scope", async ()
     "/setup/persona",
     "/setup/soul",
     "/setup/done",
-    "/setup/repair",
+	"/troubleshooting",
   ]) {
     assert.ok(
       source.includes(`\`\${ENDPOINT_SCOPE_PATH}${suffix}\``),
@@ -40,6 +40,7 @@ test("old endpoint-owned paths redirect to the local console scope", async () =>
 
   assert.match(source, /legacyEndpointRedirect\("\/todo"\)/);
   assert.match(source, /legacyEndpointRedirect\("\/chat\/:topic_id"\)/);
+	assert.match(source, /legacyEndpointRedirect\("\/troubleshooting"\)/);
 });
 
 test("agent switching navigates through the route and endpoint changes remount the page", async () => {
