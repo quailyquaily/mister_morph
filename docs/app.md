@@ -6,9 +6,9 @@ Mister Morph includes a desktop App that wraps the existing Console backend and 
 
 Download a release asset from [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases):
 
-- macOS `arm64`: `mistermorph-desktop-darwin-arm64.dmg`
-- Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage` or `mistermorph-desktop-linux-amd64.deb`
-- Windows `amd64`: `mistermorph-desktop-windows-amd64.zip`
+- macOS `arm64`: `MrMorph-darwin-arm64.dmg`
+- Linux `amd64`: `MrMorph-linux-amd64.AppImage` or `MrMorph-linux-amd64.deb`
+- Windows `amd64`: `MrMorph-windows-amd64.zip`
 
 Then:
 
@@ -145,9 +145,9 @@ For local debug builds with DevTools, use:
 
 Tagged releases currently publish:
 
-- macOS `arm64`: `mistermorph-desktop-darwin-arm64.dmg`
-- Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage`, `mistermorph-desktop-linux-amd64.deb`, and `mistermorph-desktop-linux-amd64.tar.gz`
-- Windows `amd64`: `mistermorph-desktop-windows-amd64.zip`
+- macOS `arm64`: `MrMorph-darwin-arm64.dmg`
+- Linux `amd64`: `MrMorph-linux-amd64.AppImage`, `MrMorph-linux-amd64.deb`, and `MrMorph-linux-amd64.tar.gz`
+- Windows `amd64`: `MrMorph-windows-amd64.zip`
 
 The package includes a sibling `morph` backend binary, so `MrMorph` can start `console serve` locally without a first-run download.
 

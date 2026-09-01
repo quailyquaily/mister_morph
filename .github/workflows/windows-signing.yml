@@ -274,7 +274,7 @@ jobs:
           $releaseDir = "dist/release-upload"
           New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
-          $desktopAsset = "mistermorph-desktop-windows-amd64.zip"
+          $desktopAsset = "MrMorph-windows-amd64.zip"
           $desktopDir = "dist/package-desktop"
           New-Item -ItemType Directory -Force -Path $desktopDir | Out-Null
           Copy-Item "$signedDir/MrMorph.exe" "$desktopDir/MrMorph.exe"
@@ -291,12 +291,12 @@ jobs:
           $cliPackages = @(
             @{
               Source = "$signedDir/morph-amd64.exe"
-              Asset = "mistermorph_${version}_windows_amd64.zip"
+              Asset = "morph_${version}_windows_amd64.zip"
               Staging = "dist/package-cli-amd64"
             },
             @{
               Source = "$signedDir/morph-arm64.exe"
-              Asset = "mistermorph_${version}_windows_arm64.zip"
+              Asset = "morph_${version}_windows_arm64.zip"
               Staging = "dist/package-cli-arm64"
             }
           )
@@ -330,8 +330,8 @@ jobs:
           }
 
           $cliAssets = @(
-            "mistermorph_${version}_windows_amd64.zip",
-            "mistermorph_${version}_windows_arm64.zip"
+            "morph_${version}_windows_amd64.zip",
+            "morph_${version}_windows_arm64.zip"
           )
           $checksumLines = @()
           foreach ($line in Get-Content "$checksumDir/checksums.txt") {
@@ -382,7 +382,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $checksumDir | Out-Null
 
           gh release download $env:RELEASE_TAG `
-            --pattern "mistermorph-desktop-*.sha256" `
+            --pattern "MrMorph-*.sha256" `
             --dir $checksumDir `
             --clobber
           if ($LASTEXITCODE -ne 0) {

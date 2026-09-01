@@ -60,7 +60,7 @@ jobs:
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mistermorph-desktop-linux-amd64
+          name: MrMorph-linux-amd64
           path: |
             dist/MrMorph
             dist/MrMorph.sha256

@@ -102,9 +102,9 @@ Optional envs:
 
 Tag releases now build desktop release assets in GitHub Actions:
 
-- macOS: `mistermorph-desktop-darwin-arm64.dmg` and `mistermorph-desktop-darwin-arm64.tar.gz`
-- Linux: `mistermorph-desktop-linux-amd64.AppImage`, `mistermorph-desktop-linux-amd64.deb`, and `mistermorph-desktop-linux-amd64.tar.gz`
-- Windows: `mistermorph-desktop-windows-amd64.zip`
+- macOS: `MrMorph-darwin-arm64.dmg` and `MrMorph-darwin-arm64.tar.gz`
+- Linux: `MrMorph-linux-amd64.AppImage`, `MrMorph-linux-amd64.deb`, and `MrMorph-linux-amd64.tar.gz`
+- Windows: `MrMorph-windows-amd64.zip`
 - Update manifest: `update.json`
 
 The release workflow generates `update.json` from the published release metadata and uploads it alongside the desktop assets.

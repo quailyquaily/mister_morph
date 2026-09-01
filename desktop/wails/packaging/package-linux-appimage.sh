@@ -15,8 +15,8 @@ BUNDLED_BACKEND_NAME="${BUNDLED_BACKEND_NAME:-morph}"
 ICON_PNG="${ICON_PNG:-${ROOT_DIR}/desktop/wails/packaging/appicon.png}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
 WORK_ROOT="${WORK_ROOT:-${OUT_DIR}/appimage-work}"
-APPIMAGE_NAME="${APPIMAGE_NAME:-mistermorph-desktop-linux-${ARCH}.AppImage}"
-TARBALL_PATH="${TARBALL_PATH:-${OUT_DIR}/mistermorph-desktop-linux-${ARCH}.tar.gz}"
+APPIMAGE_NAME="${APPIMAGE_NAME:-MrMorph-linux-${ARCH}.AppImage}"
+TARBALL_PATH="${TARBALL_PATH:-${OUT_DIR}/MrMorph-linux-${ARCH}.tar.gz}"
 
 abspath() {
   local path="$1"

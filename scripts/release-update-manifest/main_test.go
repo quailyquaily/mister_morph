@@ -33,16 +33,13 @@ func TestMatchReleaseAsset(t *testing.T) {
 		want    string
 		matched bool
 	}{
-		{name: "linux", asset: "mistermorph-desktop-linux-amd64.AppImage", want: "linux-amd64", matched: true},
-		{name: "linux versioned", asset: "mistermorph-desktop-v0.2.93-linux-amd64.AppImage", want: "linux-amd64", matched: true},
-		{name: "linux tarball", asset: "mistermorph-desktop-linux-amd64.tar.gz", want: "linux-amd64", matched: true},
-		{name: "linux deb", asset: "mistermorph-desktop-linux-amd64.deb", matched: false},
-		{name: "macos", asset: "mistermorph-desktop-darwin-arm64.dmg", want: "macos-arm64", matched: true},
-		{name: "macos versioned", asset: "mistermorph-desktop-v0.2.93-darwin-arm64.dmg", want: "macos-arm64", matched: true},
-		{name: "macos tarball", asset: "mistermorph-desktop-darwin-arm64.tar.gz", want: "macos-arm64", matched: true},
-		{name: "windows", asset: "mistermorph-desktop-windows-amd64.zip", want: "windows-amd64", matched: true},
-		{name: "windows versioned", asset: "mistermorph-desktop-v0.2.93-windows-amd64.zip", want: "windows-amd64", matched: true},
-		{name: "cli asset", asset: "mistermorph_0.2.41_linux_amd64.tar.gz", matched: false},
+		{name: "linux", asset: "MrMorph-linux-amd64.AppImage", want: "linux-amd64", matched: true},
+		{name: "linux tarball", asset: "MrMorph-linux-amd64.tar.gz", want: "linux-amd64", matched: true},
+		{name: "linux deb", asset: "MrMorph-linux-amd64.deb", matched: false},
+		{name: "macos", asset: "MrMorph-darwin-arm64.dmg", want: "macos-arm64", matched: true},
+		{name: "macos tarball", asset: "MrMorph-darwin-arm64.tar.gz", want: "macos-arm64", matched: true},
+		{name: "windows", asset: "MrMorph-windows-amd64.zip", want: "windows-amd64", matched: true},
+		{name: "cli asset", asset: "morph_0.2.41_linux_amd64.tar.gz", matched: false},
 	}
 
 	for _, tc := range cases {
@@ -70,8 +67,8 @@ func TestLoadChecksums(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	checksumPath := filepath.Join(linuxDir, "mistermorph-desktop-linux-amd64.AppImage.sha256")
-	if err := os.WriteFile(checksumPath, []byte("ABCDEF0123 *mistermorph-desktop-linux-amd64.AppImage\n"), 0o644); err != nil {
+	checksumPath := filepath.Join(linuxDir, "MrMorph-linux-amd64.AppImage.sha256")
+	if err := os.WriteFile(checksumPath, []byte("ABCDEF0123 *MrMorph-linux-amd64.AppImage\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -81,8 +78,8 @@ func TestLoadChecksums(t *testing.T) {
 	}
 
 	want := "sha256:abcdef0123"
-	if got["mistermorph-desktop-linux-amd64.AppImage"] != want {
-		t.Fatalf("checksum = %q, want %q", got["mistermorph-desktop-linux-amd64.AppImage"], want)
+	if got["MrMorph-linux-amd64.AppImage"] != want {
+		t.Fatalf("checksum = %q, want %q", got["MrMorph-linux-amd64.AppImage"], want)
 	}
 }
 
@@ -95,32 +92,32 @@ func TestBuildUpdateManifest(t *testing.T) {
 		PublishedAt: "2026-03-29T12:34:56Z",
 		Assets: []releaseAsset{
 			{
-				Name:               "mistermorph-desktop-darwin-arm64.dmg",
-				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/mistermorph-desktop-darwin-arm64.dmg",
+				Name:               "MrMorph-darwin-arm64.dmg",
+				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/MrMorph-darwin-arm64.dmg",
 				Size:               123,
 			},
 			{
-				Name:               "mistermorph-desktop-darwin-arm64.tar.gz",
-				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/mistermorph-desktop-darwin-arm64.tar.gz",
+				Name:               "MrMorph-darwin-arm64.tar.gz",
+				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/MrMorph-darwin-arm64.tar.gz",
 				Size:               124,
 			},
 			{
-				Name:               "mistermorph-desktop-linux-amd64.AppImage",
-				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/mistermorph-desktop-linux-amd64.AppImage",
+				Name:               "MrMorph-linux-amd64.AppImage",
+				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/MrMorph-linux-amd64.AppImage",
 				Size:               456,
 			},
 			{
-				Name:               "mistermorph-desktop-linux-amd64.tar.gz",
-				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/mistermorph-desktop-linux-amd64.tar.gz",
+				Name:               "MrMorph-linux-amd64.tar.gz",
+				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/MrMorph-linux-amd64.tar.gz",
 				Size:               457,
 			},
 			{
-				Name:               "mistermorph-desktop-windows-amd64.zip",
-				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/mistermorph-desktop-windows-amd64.zip",
+				Name:               "MrMorph-windows-amd64.zip",
+				BrowserDownloadURL: "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/MrMorph-windows-amd64.zip",
 				Size:               789,
 			},
 			{
-				Name:               "mistermorph_0.2.41_linux_amd64.tar.gz",
+				Name:               "morph_0.2.41_linux_amd64.tar.gz",
 				BrowserDownloadURL: "https://example.com/ignored",
 				Size:               999,
 			},
@@ -128,12 +125,12 @@ func TestBuildUpdateManifest(t *testing.T) {
 	}
 
 	checksums := map[string]string{
-		"mistermorph-desktop-darwin-arm64.dmg":     "sha256:aaa",
-		"mistermorph-desktop-darwin-arm64.tar.gz":  "sha256:aaat",
-		"mistermorph-desktop-linux-amd64.AppImage": "sha256:bbb",
-		"mistermorph-desktop-linux-amd64.tar.gz":   "sha256:bbbt",
-		"mistermorph-desktop-windows-amd64.zip":    "sha256:ccc",
-		"mistermorph_0.2.41_linux_amd64.tar.gz":    "sha256:ignored",
+		"MrMorph-darwin-arm64.dmg":        "sha256:aaa",
+		"MrMorph-darwin-arm64.tar.gz":     "sha256:aaat",
+		"MrMorph-linux-amd64.AppImage":    "sha256:bbb",
+		"MrMorph-linux-amd64.tar.gz":      "sha256:bbbt",
+		"MrMorph-windows-amd64.zip":       "sha256:ccc",
+		"morph_0.2.41_linux_amd64.tar.gz": "sha256:ignored",
 	}
 
 	got, err := buildUpdateManifest(release, checksums)
@@ -154,10 +151,10 @@ func TestBuildUpdateManifest(t *testing.T) {
 		t.Fatalf("Mandatory = true, want false")
 	}
 
-	if platform := got.Platforms["macos-arm64"]; platform.URL != "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/mistermorph-desktop-darwin-arm64.tar.gz" || platform.Checksum != "sha256:aaat" || platform.Size != 124 {
+	if platform := got.Platforms["macos-arm64"]; platform.URL != "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/MrMorph-darwin-arm64.tar.gz" || platform.Checksum != "sha256:aaat" || platform.Size != 124 {
 		t.Fatalf("macos-arm64 platform = %#v", platform)
 	}
-	if platform := got.Platforms["linux-amd64"]; platform.URL != "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/mistermorph-desktop-linux-amd64.tar.gz" || platform.Checksum != "sha256:bbbt" || platform.Size != 457 {
+	if platform := got.Platforms["linux-amd64"]; platform.URL != "https://github.com/quailyquaily/mistermorph/releases/download/v0.2.41/MrMorph-linux-amd64.tar.gz" || platform.Checksum != "sha256:bbbt" || platform.Size != 457 {
 		t.Fatalf("linux-amd64 platform = %#v", platform)
 	}
 	if platform := got.Platforms["windows-amd64"]; platform.URL == "" || platform.Checksum != "sha256:ccc" || platform.Size != 789 {
@@ -180,8 +177,8 @@ func TestRunWritesManifest(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	if err := os.WriteFile(
-		filepath.Join(artifactsDir, "linux-amd64", "mistermorph-desktop-linux-amd64.AppImage.sha256"),
-		[]byte("0123456789abcdef *mistermorph-desktop-linux-amd64.AppImage\n"),
+		filepath.Join(artifactsDir, "linux-amd64", "MrMorph-linux-amd64.AppImage.sha256"),
+		[]byte("0123456789abcdef *MrMorph-linux-amd64.AppImage\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -193,8 +190,8 @@ func TestRunWritesManifest(t *testing.T) {
 		PublishedAt: "2026-03-29T12:34:56Z",
 		Assets: []releaseAsset{
 			{
-				Name:               "mistermorph-desktop-linux-amd64.AppImage",
-				BrowserDownloadURL: "https://example.com/mistermorph-desktop-linux-amd64.AppImage",
+				Name:               "MrMorph-linux-amd64.AppImage",
+				BrowserDownloadURL: "https://example.com/MrMorph-linux-amd64.AppImage",
 				Size:               456,
 			},
 		},

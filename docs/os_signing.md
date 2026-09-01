@@ -8,9 +8,9 @@ Signing does not make a build safe by itself. It gives the operating system a pu
 
 The tag release workflow builds these desktop assets:
 
-- macOS: `mistermorph-desktop-darwin-arm64.dmg`
-- Windows: `mistermorph-desktop-windows-amd64.zip`
-- Linux: `mistermorph-desktop-linux-amd64.AppImage` and `mistermorph-desktop-linux-amd64.deb`
+- macOS: `MrMorph-darwin-arm64.dmg`
+- Windows: `MrMorph-windows-amd64.zip`
+- Linux: `MrMorph-linux-amd64.AppImage` and `MrMorph-linux-amd64.deb`
 
 macOS signs and notarizes the `.app` and `.dmg`.
 
@@ -88,7 +88,7 @@ Useful checks on macOS:
 codesign --verify --deep --strict --verbose=2 MisterMorph.app
 spctl --assess --type execute --verbose MisterMorph.app
 xcrun stapler validate MisterMorph.app
-xcrun stapler validate mistermorph-desktop-darwin-arm64.dmg
+xcrun stapler validate MrMorph-darwin-arm64.dmg
 ```
 
 Use `notarytool log` when notarization fails. Most failures are caused by a missing hardened runtime signature, an unsigned nested executable, a wrong Developer ID certificate type, or a broken timestamp.

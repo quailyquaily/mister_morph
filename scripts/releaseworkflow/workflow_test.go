@@ -115,6 +115,29 @@ func TestReleaseExecutableNames(t *testing.T) {
 	}
 }
 
+func TestReleaseArtifactNames(t *testing.T) {
+	checks := []struct {
+		file     []string
+		required []string
+	}{
+		{[]string{".goreleaser.yaml"}, []string{`name_template: "morph_{{ .Version }}_{{ .Os }}_{{ .Arch }}"`}},
+		{[]string{"scripts", "install-release.sh"}, []string{`/morph_${ASSET_VERSION}_${OS}_${ARCH}.${ARCHIVE_EXT}`}},
+		{[]string{"desktop", "wails", "packaging", "package-darwin.sh"}, []string{`MrMorph-darwin-${ARCH}.dmg`, `MrMorph-darwin-${ARCH}.tar.gz`}},
+		{[]string{"desktop", "wails", "packaging", "package-linux-appimage.sh"}, []string{`MrMorph-linux-${ARCH}.AppImage`, `MrMorph-linux-${ARCH}.tar.gz`}},
+		{[]string{"desktop", "wails", "packaging", "package-linux-deb.sh"}, []string{`MrMorph-linux-${ARCH}.deb`}},
+		{[]string{".github", "workflows", "release.yml"}, []string{"MrMorph-linux-amd64.AppImage", "MrMorph-linux-amd64.deb", "MrMorph-darwin-arm64.dmg"}},
+		{[]string{".github", "workflows", "windows-signing.yml"}, []string{"MrMorph-windows-amd64.zip", `morph_${version}_windows_amd64.zip`, `morph_${version}_windows_arm64.zip`}},
+	}
+	for _, check := range checks {
+		content := readRepoFile(t, check.file...)
+		for _, token := range check.required {
+			if !strings.Contains(content, token) {
+				t.Errorf("%s missing release artifact name %q", filepath.Join(check.file...), token)
+			}
+		}
+	}
+}
+
 func TestAutomaticReleaseExcludesUnsignedWindowsArtifacts(t *testing.T) {
 	releaseWorkflow := readRepoFile(t, ".github", "workflows", "release.yml")
 	goReleaserConfig := readRepoFile(t, ".goreleaser.yaml")

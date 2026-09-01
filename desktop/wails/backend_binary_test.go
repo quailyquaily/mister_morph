@@ -42,14 +42,14 @@ func TestDesktopBackendAutoDownloadEnabled(t *testing.T) {
 func TestPickReleaseAsset(t *testing.T) {
 	assets := []githubReleaseAsset{
 		{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums.txt"},
-		{Name: "mistermorph_0.2.1_linux_amd64.tar.gz", BrowserDownloadURL: "https://example.com/mistermorph_0.2.1_linux_amd64.tar.gz"},
-		{Name: "mistermorph_0.2.1_darwin_arm64.tar.gz", BrowserDownloadURL: "https://example.com/mistermorph_0.2.1_darwin_arm64.tar.gz"},
+		{Name: "morph_0.2.1_linux_amd64.tar.gz", BrowserDownloadURL: "https://example.com/morph_0.2.1_linux_amd64.tar.gz"},
+		{Name: "morph_0.2.1_darwin_arm64.tar.gz", BrowserDownloadURL: "https://example.com/morph_0.2.1_darwin_arm64.tar.gz"},
 	}
 	asset, err := pickReleaseAsset(assets, "linux", "amd64")
 	if err != nil {
 		t.Fatalf("pickReleaseAsset() error = %v", err)
 	}
-	if asset.Name != "mistermorph_0.2.1_linux_amd64.tar.gz" {
+	if asset.Name != "morph_0.2.1_linux_amd64.tar.gz" {
 		t.Fatalf("unexpected asset: %q", asset.Name)
 	}
 }

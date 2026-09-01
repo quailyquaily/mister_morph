@@ -90,9 +90,9 @@ jobs:
             os: ubuntu-24.04
             goos: linux
             goarch: amd64
-            desktop_asset: mistermorph-desktop-linux-amd64.AppImage
-            deb_asset: mistermorph-desktop-linux-amd64.deb
-            update_asset: mistermorph-desktop-linux-amd64.tar.gz
+            desktop_asset: MrMorph-linux-amd64.AppImage
+            deb_asset: MrMorph-linux-amd64.deb
+            update_asset: MrMorph-linux-amd64.tar.gz
             raw_desktop_binary: dist/MrMorph
             bundled_backend_binary: dist/morph
             package_kind: appimage
@@ -101,9 +101,9 @@ jobs:
             os: macos-14
             goos: darwin
             goarch: arm64
-            desktop_asset: mistermorph-desktop-darwin-arm64.dmg
+            desktop_asset: MrMorph-darwin-arm64.dmg
             deb_asset: ""
-            update_asset: mistermorph-desktop-darwin-arm64.tar.gz
+            update_asset: MrMorph-darwin-arm64.tar.gz
             raw_desktop_binary: dist/MrMorph
             bundled_backend_binary: dist/morph
             package_kind: dmg

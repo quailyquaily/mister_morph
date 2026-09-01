@@ -79,8 +79,8 @@ if [[ "${OS}" == "windows" ]]; then
   BIN_NAME="morph.exe"
 fi
 
-ARCHIVE="${TMP_DIR}/mistermorph.${ARCHIVE_EXT}"
-URL="https://github.com/${REPO}/releases/download/${VERSION_TAG}/mistermorph_${ASSET_VERSION}_${OS}_${ARCH}.${ARCHIVE_EXT}"
+ARCHIVE="${TMP_DIR}/morph.${ARCHIVE_EXT}"
+URL="https://github.com/${REPO}/releases/download/${VERSION_TAG}/morph_${ASSET_VERSION}_${OS}_${ARCH}.${ARCHIVE_EXT}"
 
 echo "Downloading ${URL}"
 curl -fL "${URL}" -o "${ARCHIVE}"

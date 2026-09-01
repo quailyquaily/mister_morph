@@ -19,9 +19,9 @@
 ### デスクトップ App（推奨）
 
 1. [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) ページから対象プラットフォームの配布物を取得します。
-   - macOS: `mistermorph-desktop-darwin-arm64.dmg`
-   - Linux: `mistermorph-desktop-linux-amd64.AppImage` または `mistermorph-desktop-linux-amd64.deb`
-   - Windows: `mistermorph-desktop-windows-amd64.zip`
+   - macOS: `MrMorph-darwin-arm64.dmg`
+   - Linux: `MrMorph-linux-amd64.AppImage` または `MrMorph-linux-amd64.deb`
+   - Windows: `MrMorph-windows-amd64.zip`
 2. App を起動します。
 3. App 内のセットアップフローを完了します。
 4. そのまま Console UI を使います。`morph console serve` を手動で起動する必要はありません。

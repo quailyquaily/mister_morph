@@ -19,9 +19,9 @@
 ### 桌面 App（推荐）
 
 1. 从 [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) 页面下载对应平台的安装包：
-   - macOS: `mistermorph-desktop-darwin-arm64.dmg`
-   - Linux: `mistermorph-desktop-linux-amd64.AppImage` 或 `mistermorph-desktop-linux-amd64.deb`
-   - Windows: `mistermorph-desktop-windows-amd64.zip`
+   - macOS: `MrMorph-darwin-arm64.dmg`
+   - Linux: `MrMorph-linux-amd64.AppImage` 或 `MrMorph-linux-amd64.deb`
+   - Windows: `MrMorph-windows-amd64.zip`
 2. 启动 App。
 3. 在 App 内完成首次配置。
 4. 直接使用 Console UI，无需再手动运行 `morph console serve`。
