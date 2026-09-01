@@ -130,6 +130,7 @@ key: "${UNSET_VAR_XYZ_NEVER_SET}"
 type fakeSecretRefSource struct {
 	secrets map[string]string
 	os      map[string]string
+	osErr   error
 	errs    map[string]error
 	calls   map[string]int
 }
@@ -153,6 +154,9 @@ func (f fakeSecretRefSource) GetAWSSecretString(_ context.Context, secretID stri
 }
 
 func (f fakeSecretRefSource) GetOSSecretString(_ context.Context, id string) (string, error) {
+	if f.osErr != nil {
+		return "", f.osErr
+	}
 	value, ok := f.os[id]
 	if !ok {
 		return "", secref.ErrOSSecretNotFound
@@ -238,6 +242,16 @@ func TestReadExpandedConfigWithSource_OSSecretFailureStopsLoad(t *testing.T) {
 	err := ReadExpandedConfigWithSource(viper.New(), path, fakeSecretRefSource{}, nil)
 	if !errors.Is(err, secref.ErrOSSecretNotFound) {
 		t.Fatalf("readExpandedConfigWithSource() error = %v, want ErrOSSecretNotFound", err)
+	}
+	var refErr *ScalarReferenceError
+	if !errors.As(err, &refErr) {
+		t.Fatalf("readExpandedConfigWithSource() error type = %T, want *ScalarReferenceError", err)
+	}
+	if got := strings.Join(refErr.Path, "."); got != "llm.api_key" {
+		t.Fatalf("reference path = %q, want llm.api_key", got)
+	}
+	if refErr.Ref.Kind != secref.RefKindOS || refErr.Ref.SecretID != id {
+		t.Fatalf("reference = %#v, want OS secret %q", refErr.Ref, id)
 	}
 	if strings.Contains(fmt.Sprint(err), id) {
 		t.Fatalf("config load error leaked OS secret id: %v", err)

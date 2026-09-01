@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +19,35 @@ import (
 // This avoids corrupting values like bcrypt hashes ($2a$10$...) or
 // regex patterns that contain literal dollar signs.
 var envVarRe = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
+
+// ScalarReferenceError identifies the config field whose reference could not
+// be resolved. Error omits the reference value so secret identifiers do not
+// leak into logs or user-facing validation messages.
+type ScalarReferenceError struct {
+	Path []string
+	Ref  secref.Ref
+	Err  error
+}
+
+func (e *ScalarReferenceError) Error() string {
+	if e == nil {
+		return "config reference error"
+	}
+	if e.Err == nil {
+		return "config reference error"
+	}
+	if len(e.Path) == 0 {
+		return e.Err.Error()
+	}
+	return fmt.Sprintf("%s: %v", strings.Join(e.Path, "."), e.Err)
+}
+
+func (e *ScalarReferenceError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
 
 // ExpandStrictEnv replaces only ${VAR} references with their environment
 // values. Bare $VAR references are left untouched. It returns the expanded
@@ -228,7 +258,12 @@ func resolveConfigScalar(
 	}
 	result, err := resolver.ResolveString(ctx, value, secref.Options{EnvMissing: secref.EnvMissingWarn})
 	if err != nil {
-		return "", err
+		ref, _ := secref.ParseSingleRef(value)
+		return "", &ScalarReferenceError{
+			Path: append([]string(nil), path...),
+			Ref:  ref,
+			Err:  err,
+		}
 	}
 	out.MissingEnv = append(out.MissingEnv, result.MissingEnv...)
 	out.Warnings = append(out.Warnings, result.Warnings...)

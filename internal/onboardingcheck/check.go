@@ -2,6 +2,7 @@ package onboardingcheck
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	markdownutil "github.com/quailyquaily/mistermorph/internal/markdown"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -28,23 +30,36 @@ const (
 	FileKeySoul     = "soul"
 )
 
+const (
+	CodeFileUnreadable           = "file_unreadable"
+	CodeConfigEmpty              = "config_empty"
+	CodeConfigInvalid            = "config_invalid"
+	CodeInvalidSecretRef         = "invalid_secret_ref"
+	CodeOSSecretNotFound         = "os_secret_not_found"
+	CodeOSSecretStoreUnavailable = "os_secret_store_unavailable"
+	CodeIdentityInvalid          = "identity_invalid"
+	CodeSoulInvalid              = "soul_invalid"
+)
+
 type Item struct {
-	Key    string `json:"key"`
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Stage  string `json:"stage"`
-	Status Status `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Key       string   `json:"key"`
+	Name      string   `json:"name"`
+	Path      string   `json:"path"`
+	Stage     string   `json:"stage"`
+	Status    Status   `json:"status"`
+	Error     string   `json:"error,omitempty"`
+	Code      string   `json:"code,omitempty"`
+	FieldPath []string `json:"field_path,omitempty"`
 }
 
 func (i Item) IsBroken() bool {
 	return i.Status == StatusUnreadable || i.Status == StatusMalformed
 }
 
-func Check(configPath string, stateDir string) []Item {
+func Check(configPath string, stateDir string, source secref.Source) []Item {
 	stateDir = strings.TrimSpace(stateDir)
 	return []Item{
-		InspectConfigPath(configPath),
+		InspectConfigPath(configPath, source),
 		InspectIdentityYAMLPath(filepath.Join(stateDir, "persona", "identity.yaml")),
 		InspectSoulPath(filepath.Join(stateDir, "persona", "soul.md")),
 	}
@@ -60,7 +75,7 @@ func BrokenItems(items []Item) []Item {
 	return out
 }
 
-func InspectConfigPath(path string) Item {
+func InspectConfigPath(path string, source secref.Source) Item {
 	item := baseItem(FileKeyConfig, "config.yaml", "llm", path)
 	raw, err := os.ReadFile(item.Path)
 	if err != nil {
@@ -68,12 +83,18 @@ func InspectConfigPath(path string) Item {
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		item.Status = StatusMalformed
+		item.Code = CodeConfigEmpty
 		item.Error = "config.yaml is empty"
 		return item
 	}
 	tmp := viper.New()
-	if err := configutil.ReadExpandedConfig(tmp, item.Path, nil); err != nil {
+	if err := configutil.ReadExpandedConfigWithSource(tmp, item.Path, source, nil); err != nil {
 		item.Status = StatusMalformed
+		item.Code = configIssueCode(err)
+		var refErr *configutil.ScalarReferenceError
+		if errors.As(err, &refErr) {
+			item.FieldPath = append([]string(nil), refErr.Path...)
+		}
 		item.Error = fmt.Sprintf("invalid config yaml: %v", err)
 		return item
 	}
@@ -89,6 +110,7 @@ func InspectIdentityYAMLPath(path string) Item {
 	}
 	if err := ValidateIdentityYAML(string(raw)); err != nil {
 		item.Status = StatusMalformed
+		item.Code = CodeIdentityInvalid
 		item.Error = err.Error()
 		return item
 	}
@@ -107,6 +129,7 @@ func InspectSoulPath(path string) Item {
 	}
 	if err := ValidateSoulMarkdown(string(raw)); err != nil {
 		item.Status = StatusMalformed
+		item.Code = CodeSoulInvalid
 		item.Error = err.Error()
 		return item
 	}
@@ -169,6 +192,20 @@ func itemForReadError(item Item, err error) Item {
 		return item
 	}
 	item.Status = StatusUnreadable
+	item.Code = CodeFileUnreadable
 	item.Error = err.Error()
 	return item
+}
+
+func configIssueCode(err error) string {
+	switch {
+	case errors.Is(err, secref.ErrInvalidSecretRef):
+		return CodeInvalidSecretRef
+	case errors.Is(err, secref.ErrOSSecretNotFound):
+		return CodeOSSecretNotFound
+	case errors.Is(err, secref.ErrOSStoreUnavailable), errors.Is(err, secref.ErrOSSecretResolveFailed):
+		return CodeOSSecretStoreUnavailable
+	default:
+		return CodeConfigInvalid
+	}
 }
