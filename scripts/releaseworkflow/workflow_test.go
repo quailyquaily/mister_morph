@@ -126,9 +126,11 @@ func TestDarwinPackageBuildsStyledDMG(t *testing.T) {
 	for _, token := range []string{
 		"DMG_BACKGROUND_SOURCE",
 		"DMG_STAGING_DIR",
+		`DMG_MOUNT_DIR="/Volumes/${DMG_VOLUME_NAME}"`,
 		".background",
 		`ln -s "/Applications"`,
 		"osascript",
+		"if exists disk volumeName then",
 		"-format UDRW",
 		"hdiutil attach",
 		"hdiutil detach",
@@ -137,6 +139,9 @@ func TestDarwinPackageBuildsStyledDMG(t *testing.T) {
 		if !strings.Contains(script, token) {
 			t.Errorf("macOS package script missing %q", token)
 		}
+	}
+	if strings.Contains(script, `-mountpoint "${DMG_MOUNT_DIR}"`) {
+		t.Fatal("macOS package script must let Disk Arbitration mount the DMG where Finder can see it")
 	}
 
 	assertOrdered(t, script,

@@ -22,7 +22,7 @@ TARBALL_PATH="${TARBALL_PATH:-${OUT_DIR}/mistermorph-desktop-darwin-${ARCH}.tar.
 WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mistermorph-darwin-package.XXXXXX")"
 ICONSET_DIR="${WORK_ROOT}/mistermorph.iconset"
 DMG_STAGING_DIR="${WORK_ROOT}/dmg"
-DMG_MOUNT_DIR="${WORK_ROOT}/mount"
+DMG_MOUNT_DIR="/Volumes/${DMG_VOLUME_NAME}"
 RW_DMG_PATH="${WORK_ROOT}/mistermorph-rw.dmg"
 ICNS_PATH="${OUT_DIR}/mistermorph.icns"
 DMG_ATTACHED=false
@@ -58,7 +58,7 @@ require_file "${DMG_BACKGROUND_SOURCE}"
 mkdir -p "${OUT_DIR}" "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
 rm -rf "${APP_DIR}" "${DMG_PATH}" "${TARBALL_PATH}" "${ICNS_PATH}"
 mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
-mkdir -p "${ICONSET_DIR}" "${DMG_STAGING_DIR}/.background" "${DMG_MOUNT_DIR}"
+mkdir -p "${ICONSET_DIR}" "${DMG_STAGING_DIR}/.background"
 
 render_icon() {
   local size="$1"
@@ -164,7 +164,6 @@ hdiutil attach \
 	-readwrite \
 	-noverify \
 	-noautoopen \
-	-mountpoint "${DMG_MOUNT_DIR}" \
 	"${RW_DMG_PATH}" >/dev/null
 DMG_ATTACHED=true
 
@@ -172,6 +171,17 @@ osascript - "${DMG_VOLUME_NAME}" "${APP_BUNDLE_NAME}.app" <<'APPLESCRIPT'
 on run arguments
 	set volumeName to item 1 of arguments
 	set appItemName to item 2 of arguments
+	set finderReady to false
+	repeat 20 times
+		tell application "Finder"
+			if exists disk volumeName then
+				set finderReady to true
+				exit repeat
+			end if
+		end tell
+		delay 0.5
+	end repeat
+	if not finderReady then error "Finder did not register disk " & volumeName
 	tell application "Finder"
 		set targetDisk to disk volumeName
 		tell targetDisk
