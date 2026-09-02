@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 CALLER_DIR="$(pwd)"
 PACKAGE_NAME="${PACKAGE_NAME:-mistermorph-desktop}"
 APP_BINARY_NAME="${APP_BINARY_NAME:-MrMorph}"
-DISPLAY_NAME="${DISPLAY_NAME:-MisterMorph}"
+DISPLAY_NAME="${DISPLAY_NAME:-MrMorph}"
 APPLICATION_ID="${APPLICATION_ID:-com.mistermorph}"
 VERSION="${VERSION:-0.0.0}"
 ARCH="${ARCH:-amd64}"
@@ -97,7 +97,7 @@ cat > "${PACKAGE_ROOT}/usr/share/applications/${DESKTOP_FILE_NAME}" <<EOF
 [Desktop Entry]
 Type=Application
 Name=${DISPLAY_NAME}
-Comment=MisterMorph Desktop
+Comment=MrMorph Desktop
 Exec=${INSTALL_DIR}/${APP_BINARY_NAME}
 Icon=${APPLICATION_ID}
 Categories=Development;Utility;
