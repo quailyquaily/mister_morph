@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -24,16 +25,12 @@ type terminalRenderer struct {
 	// in the current table (including 1-space padding on each side).
 	// Populated when entering a Table node and cleared when exiting.
 	tableColWidths []int
-	// tableCellIdx tracks which column is currently being rendered.
-	tableCellIdx int
-	// tableRowIdx tracks the current body row (1-based).
-	tableRowIdx int
-	// tableRowCount is the total number of body rows.
-	tableRowCount int
+	// width is the maximum rendered line width. Zero means unconstrained.
+	width int
 }
 
-func newTerminalRenderer(color bool) *terminalRenderer {
-	return &terminalRenderer{color: color}
+func newTerminalRenderer(color bool, width int) *terminalRenderer {
+	return &terminalRenderer{color: color, width: width}
 }
 
 func (r *terminalRenderer) pushStyle(code string) {
@@ -246,7 +243,6 @@ func (r *terminalRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer
 	reg.Register(extast.KindTable, r.renderTable)
 	reg.Register(extast.KindTableHeader, r.renderTableHeader)
 	reg.Register(extast.KindTableRow, r.renderTableRow)
-	reg.Register(extast.KindTableCell, r.renderTableCell)
 }
 
 func (r *terminalRenderer) renderDocument(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -489,6 +485,116 @@ func drawTableBorder(w util.BufWriter, widths []int, left, cross, right string) 
 	_, _ = w.WriteString("\n")
 }
 
+func tableWidth(widths []int) int {
+	width := len(widths) + 1 // outer borders and column separators
+	for _, columnWidth := range widths {
+		width += columnWidth
+	}
+	return width
+}
+
+func fitTableColumnWidths(natural []int, maximum int) []int {
+	if maximum <= 0 || tableWidth(natural) <= maximum || len(natural) == 0 {
+		return natural
+	}
+
+	available := maximum - len(natural) - 1
+	if available < len(natural) {
+		return natural
+	}
+
+	widths := make([]int, len(natural))
+	for idx := range widths {
+		widths[idx] = 1
+	}
+	remaining := available - len(widths)
+	for remaining > 0 {
+		active := 0
+		for idx := range widths {
+			if widths[idx] < natural[idx] {
+				active++
+			}
+		}
+		if active == 0 {
+			break
+		}
+
+		share := max(1, remaining/active)
+		for idx := range widths {
+			if widths[idx] >= natural[idx] || remaining == 0 {
+				continue
+			}
+			increase := min(share, natural[idx]-widths[idx], remaining)
+			widths[idx] += increase
+			remaining -= increase
+		}
+	}
+	return widths
+}
+
+func tableCells(node ast.Node) []ast.Node {
+	cells := make([]ast.Node, 0, 4)
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if child.Kind() == extast.KindTableCell {
+			cells = append(cells, child)
+		}
+	}
+	return cells
+}
+
+func tableCellLayout(width int) (leftPadding, contentWidth, rightPadding int) {
+	switch {
+	case width >= 3:
+		return 1, width - 2, 1
+	case width == 2:
+		return 0, 1, 1
+	default:
+		return 0, 1, 0
+	}
+}
+
+func (r *terminalRenderer) renderTableCells(w util.BufWriter, source []byte, node ast.Node, header bool) {
+	cells := tableCells(node)
+	lines := make([][]string, len(r.tableColWidths))
+	rowHeight := 1
+	for idx, columnWidth := range r.tableColWidths {
+		text := ""
+		if idx < len(cells) {
+			text = getCellText(cells[idx], source)
+		}
+		_, contentWidth, _ := tableCellLayout(columnWidth)
+		lines[idx] = strings.Split(ansi.Hardwrap(text, contentWidth, false), "\n")
+		if len(lines[idx]) > rowHeight {
+			rowHeight = len(lines[idx])
+		}
+	}
+
+	for lineIdx := 0; lineIdx < rowHeight; lineIdx++ {
+		_, _ = w.WriteString("│")
+		for columnIdx, columnWidth := range r.tableColWidths {
+			leftPadding, contentWidth, rightPadding := tableCellLayout(columnWidth)
+			_, _ = w.WriteString(strings.Repeat(" ", leftPadding))
+			text := ""
+			if lineIdx < len(lines[columnIdx]) {
+				text = lines[columnIdx][lineIdx]
+			}
+			if header && r.color && text != "" {
+				_, _ = w.WriteString("\x1b[1m")
+				_, _ = w.WriteString(text)
+				_, _ = w.WriteString("\x1b[0m")
+			} else {
+				_, _ = w.WriteString(text)
+			}
+			padding := contentWidth - ansi.StringWidth(text) + rightPadding
+			if padding > 0 {
+				_, _ = w.WriteString(strings.Repeat(" ", padding))
+			}
+			_, _ = w.WriteString("│")
+		}
+		_, _ = w.WriteString("\n")
+	}
+}
+
 func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		r.blockEnter(w, node)
@@ -496,13 +602,9 @@ func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast
 		// the renderer walks it for output. Add 2 for 1-space padding on
 		// each side of the cell content.
 		colWidths := make(map[int]int)
-		r.tableRowCount = 0
 		ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 			if !entering {
 				return ast.WalkContinue, nil
-			}
-			if n.Kind() == extast.KindTableRow {
-				r.tableRowCount++
 			}
 			if n.Kind() != extast.KindTableCell {
 				return ast.WalkContinue, nil
@@ -521,73 +623,32 @@ func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast
 			}
 			return ast.WalkContinue, nil
 		})
-		r.tableColWidths = make([]int, len(colWidths))
+		naturalWidths := make([]int, len(colWidths))
 		for idx, cw := range colWidths {
-			r.tableColWidths[idx] = cw
+			naturalWidths[idx] = cw
 		}
-		r.tableCellIdx = 0
-		r.tableRowIdx = 0
+		r.tableColWidths = fitTableColumnWidths(naturalWidths, r.width)
 		drawTableBorder(w, r.tableColWidths, "┌", "┬", "┐")
 	} else {
 		drawTableBorder(w, r.tableColWidths, "└", "┴", "┘")
 		r.tableColWidths = nil
-		r.tableCellIdx = 0
-		r.tableRowIdx = 0
-		r.tableRowCount = 0
 	}
 	return ast.WalkContinue, nil
 }
 
 func (r *terminalRenderer) renderTableHeader(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
-		if r.color {
-			r.pushStyle("\x1b[1m")
-			_, _ = w.WriteString("\x1b[1m")
-		}
-		_, _ = w.WriteString("│")
-		return ast.WalkContinue, nil
+		r.renderTableCells(w, source, node, true)
+		drawTableBorder(w, r.tableColWidths, "├", "┼", "┤")
 	}
-	// Exiting header: right border, then a separator line.
-	// TableHeader contains TableCell nodes directly (no intermediate TableRow),
-	// so we must reset the cell index here as well as in renderTableRow.
-	_, _ = w.WriteString("│\n")
-	if r.color {
-		r.closeStyle(w)
-	}
-	drawTableBorder(w, r.tableColWidths, "├", "┼", "┤")
-	r.tableCellIdx = 0
-	return ast.WalkContinue, nil
+	return ast.WalkSkipChildren, nil
 }
 
 func (r *terminalRenderer) renderTableRow(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
-		r.tableRowIdx++
-		_, _ = w.WriteString("│")
-		return ast.WalkContinue, nil
+		r.renderTableCells(w, source, node, false)
 	}
-	_, _ = w.WriteString("│\n")
-	r.tableCellIdx = 0
-	return ast.WalkContinue, nil
-}
-
-func (r *terminalRenderer) renderTableCell(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		if r.tableCellIdx < len(r.tableColWidths) {
-			text := getCellText(node.(*extast.TableCell), source)
-			pad := r.tableColWidths[r.tableCellIdx] - runewidth.StringWidth(text) - 1
-			if pad > 0 {
-				_, _ = w.WriteString(strings.Repeat(" ", pad))
-			}
-			r.tableCellIdx++
-		}
-		return ast.WalkContinue, nil
-	}
-	if node.PreviousSibling() != nil {
-		_, _ = w.WriteString("│ ")
-	} else {
-		_, _ = w.WriteString(" ")
-	}
-	return ast.WalkContinue, nil
+	return ast.WalkSkipChildren, nil
 }
 
 // RenderMarkdown renders markdown text to terminal-friendly output with ANSI
@@ -601,7 +662,11 @@ func renderMarkdown(text string, color bool) string {
 	text = preprocessTableRows(text)
 
 	buf := bytes.NewBuffer(nil)
-	tr := newTerminalRenderer(color)
+	width := getTermWidth()
+	if width > 1 {
+		width--
+	}
+	tr := newTerminalRenderer(color, width)
 
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.Table),
