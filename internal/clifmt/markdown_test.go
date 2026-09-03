@@ -3,6 +3,8 @@ package clifmt
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestRenderMarkdownHeading(t *testing.T) {
@@ -87,6 +89,42 @@ func TestRenderMarkdownTableCJK(t *testing.T) {
 	}
 	if !strings.Contains(out, "项目") || !strings.Contains(out, "名称") {
 		t.Fatalf("expected CJK cell contents, got: %q", out)
+	}
+}
+
+func TestRenderMarkdownTableFitsTerminalWidth(t *testing.T) {
+	t.Setenv("COLUMNS", "32")
+	input := "| Original filename | New filename |\n|---|---|\n| wise_transfer_confirmation_2348647674.pdf | 20260903_wise_DING_YI.pdf |"
+	out := renderMarkdown(input, true)
+
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if width := ansi.StringWidth(line); width > 31 {
+			t.Fatalf("table line width = %d, want <= 31: %q", width, line)
+		}
+		if !strings.Contains("┌├│└", string([]rune(line)[0])) {
+			t.Fatalf("table line has no left border: %q", line)
+		}
+		last := []rune(line)[len([]rune(line))-1]
+		if !strings.Contains("┐┤│┘", string(last)) {
+			t.Fatalf("table line has no right border: %q", line)
+		}
+	}
+	for _, part := range []string{"wise_transfe", "r_confirmati", "4.pdf", "20260903_wis", "e_DING_YI"} {
+		if !strings.Contains(out, part) {
+			t.Fatalf("wrapped table lost %q: %q", part, out)
+		}
+	}
+}
+
+func TestRenderMarkdownTableFitsTerminalWidthWithCJK(t *testing.T) {
+	t.Setenv("COLUMNS", "24")
+	input := "| 原文件名 | 新文件名 |\n|---|---|\n| 梦华刘的转账确认文件 | 九月账单文件 |"
+	out := renderMarkdown(input, false)
+
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if width := ansi.StringWidth(line); width > 23 {
+			t.Fatalf("table line width = %d, want <= 23: %q", width, line)
+		}
 	}
 }
 
