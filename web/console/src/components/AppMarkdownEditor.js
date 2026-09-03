@@ -331,7 +331,7 @@ const AppMarkdownEditor = {
           @change="insertReference"
         >
           <span class="markdown-editor-toolbar-glyph" aria-hidden="true">
-              <QIconUserCircle class="markdown-editor-toolbar-icon" />
+              <PhUserCircle class="markdown-editor-toolbar-icon" />
           </span>
         </QDropdownMenu>
         <QDropdownMenu
@@ -353,7 +353,7 @@ const AppMarkdownEditor = {
           @change="insertReference"
         >
           <span class="markdown-editor-toolbar-glyph" aria-hidden="true">
-            <QIconMessageSquare class="markdown-editor-toolbar-icon" />
+            <PhChat class="markdown-editor-toolbar-icon" />
           </span>
         </QDropdownMenu>
         <slot name="toolbar"></slot>

@@ -360,7 +360,7 @@ const ChatHistoryItem = {
           <div v-if="approvalVisible" :class="surfaceClass" class="chat-history-approval-surface">
             <section :class="approvalPanelClass" role="region" :aria-label="approvalHeading">
               <header class="chat-approval-head">
-                <QIconShieldTick class="chat-approval-icon" aria-hidden="true" />
+                <PhShieldCheck class="chat-approval-icon" aria-hidden="true" />
                 <div class="chat-approval-title-line">
                   <span class="chat-approval-title">{{ approvalHeading }}</span>
                   <code v-if="approvalToolName" class="chat-approval-tool">{{ approvalToolName }}</code>
@@ -384,7 +384,7 @@ const ChatHistoryItem = {
                 </div>
               </dl>
               <div v-if="item.approvalError" class="chat-approval-error" role="alert">
-                <QIconInfoCircle class="icon" aria-hidden="true" />
+                <PhInfo class="icon" aria-hidden="true" />
                 <span>{{ item.approvalError }}</span>
               </div>
               <div v-if="approvalPending" class="chat-approval-actions">
@@ -413,7 +413,7 @@ const ChatHistoryItem = {
             :aria-label="copyLabel"
             @click.stop="emitCopy"
           >
-            <QIconCopy class="icon" />
+            <PhCopy class="icon" />
           </button>
         </div>
       </template>
@@ -428,7 +428,7 @@ const ChatHistoryItem = {
             :aria-label="filePreviewLabel + ': ' + file.name"
             @click="emitPreviewFile(file)"
           >
-            <QIconPaperclip class="chat-history-file-icon" />
+            <PhPaperclip class="chat-history-file-icon" />
             <span class="chat-history-file-name">{{ file.name }}</span>
           </button>
         </div>
@@ -443,7 +443,7 @@ const ChatHistoryItem = {
           :aria-label="copyLabel"
           @click.stop="emitCopy"
         >
-          <QIconCopy class="icon" />
+          <PhCopy class="icon" />
         </button>
       </template>
     </article>

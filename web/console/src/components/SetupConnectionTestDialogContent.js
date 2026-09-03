@@ -178,11 +178,11 @@ const SetupConnectionTestDialogContent = {
       <div class="connection-test-context">
         <div class="connection-test-intro">
           <div class="connection-test-target-row">
-            <QIconCompass class="connection-test-target-icon icon" />
+            <PhCompass class="connection-test-target-icon icon" />
             <span class="connection-test-target-text">{{ targetHost || t("setup_llm_test_target_loading") }}</span>
           </div>
           <div class="connection-test-target-row">
-            <QIconCpuChip class="connection-test-target-icon icon" />
+            <PhCpu class="connection-test-target-icon icon" />
             <span class="connection-test-target-text">{{ targetModel || t("setup_llm_test_target_loading") }}</span>
           </div>
         </div>
@@ -192,7 +192,7 @@ const SetupConnectionTestDialogContent = {
       <QFence
         v-if="error"
         type="danger"
-        icon="QIconCloseCircle"
+        icon="PhXCircle"
         :text="error"
       />
 
@@ -218,7 +218,7 @@ const SetupConnectionTestDialogContent = {
                   @keydown.space.prevent="toggleRawResponse(item)"
                 >
                   <span class="connection-test-benchmark-toggle-text">{{ benchmarkSummaryText(item) }}</span>
-                  <QIconArrowRight :class="['connection-test-benchmark-toggle-icon', { 'is-open': isRawExpanded(item) }]" />
+                  <PhArrowRight :class="['connection-test-benchmark-toggle-icon', { 'is-open': isRawExpanded(item) }]" />
                 </div>
               </div>
               <div class="connection-test-benchmark-side">

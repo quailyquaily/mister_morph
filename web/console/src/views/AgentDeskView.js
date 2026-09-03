@@ -799,7 +799,7 @@ const AgentDeskView = {
               :title="t('agent_desk_add_tab')"
               @click="addTab"
             >
-              <QIconPlus class="icon" />
+              <PhPlus class="icon" />
             </button>
             <button
               type="button"
@@ -809,7 +809,7 @@ const AgentDeskView = {
               :title="t('agent_desk_keyboard_help')"
               @click="keyboardHelpOpen = true"
             >
-              <QIconKeyboard class="icon" />
+              <PhKeyboard class="icon" />
             </button>
             <button
               type="button"
@@ -818,7 +818,7 @@ const AgentDeskView = {
               :title="t('agent_desk_exit')"
               @click="exitDesk"
             >
-              <QIconLogout class="icon" />
+              <PhSignOut class="icon" />
             </button>
           </div>
         </aside>

@@ -214,7 +214,7 @@ const InferenceProviderPicker = {
           <span class="inference-provider-trigger-title">{{ selectedTitle }}</span>
         </span>
         <span class="inference-provider-trigger-chevron" aria-hidden="true">
-          <QIconChevronDown class="icon" />
+          <PhCaretDown class="icon" />
         </span>
       </button>
 

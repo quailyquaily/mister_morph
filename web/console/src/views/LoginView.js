@@ -122,7 +122,7 @@ const LoginView = {
           @keydown.enter.prevent="submit"
         />
         <QButton :loading="busy" class="primary" @click="submit">{{ t("login_button") }}</QButton>
-        <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+        <QFence v-if="err" type="danger" icon="PhXCircle" :text="err" />
       </form>
       <div class="login-footer">
         <div class="login-divider" aria-hidden="true"></div>

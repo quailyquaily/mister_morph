@@ -459,7 +459,7 @@ const RuntimePanel = {
   template: `
     <div class="runtime-panel">
       <QProgress v-if="loading" :infinite="true" />
-      <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <QFence v-if="err" type="danger" icon="PhXCircle" :text="err" />
 
       <section class="runtime-page">
         <header class="runtime-hero block-default">

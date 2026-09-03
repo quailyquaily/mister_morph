@@ -347,8 +347,8 @@ const ArtifactPreviewCard = {
               :loading="loading"
               @click="togglePreview"
             >
-              <QIconChevronUp v-if="expanded" class="icon" />
-              <QIconChevronDown v-else class="icon" />
+              <PhCaretUp v-if="expanded" class="icon" />
+              <PhCaretDown v-else class="icon" />
             </QButton>
             <QButton
               class="plain xs icon"
@@ -358,7 +358,7 @@ const ArtifactPreviewCard = {
               :loading="loading"
               @click="refreshPreview"
             >
-              <QIconRefresh class="icon" />
+              <PhArrowClockwise class="icon" />
             </QButton>
             <QButton
               class="plain xs icon"
@@ -368,7 +368,7 @@ const ArtifactPreviewCard = {
               :loading="downloading"
               @click="downloadArtifact"
             >
-              <QIconDownloadCloud class="icon" />
+              <PhCloudArrowDown class="icon" />
             </QButton>
             <QButton
               class="plain xs icon"
@@ -377,8 +377,8 @@ const ArtifactPreviewCard = {
               :disabled="!canPreview || !expanded || !entryURL"
               @click="toggleFullscreenPreview"
             >
-              <QIconCloseCircle v-if="previewFullscreen" class="icon" />
-              <QIconExpand v-else class="icon" />
+              <PhXCircle v-if="previewFullscreen" class="icon" />
+              <PhCornersOut v-else class="icon" />
             </QButton>
           </div>
         </header>
@@ -390,11 +390,11 @@ const ArtifactPreviewCard = {
             :aria-label="fullscreenActionLabel"
             @click="toggleFullscreenPreview"
           >
-            <QIconCloseCircle class="icon" />
+            <PhXCircle class="icon" />
           </QButton>
         </div>
 
-        <QFence v-if="error" type="danger" icon="QIconCloseCircle" :text="error" />
+        <QFence v-if="error" type="danger" icon="PhXCircle" :text="error" />
 
         <div v-if="expanded && entryURL" class="artifact-preview-frame-shell" :class="{ 'is-image': isImagePreview }">
           <img

@@ -177,7 +177,7 @@ const ImageUploadField = {
           aria-hidden="true"
         ></span>
         <span v-else class="image-upload-placeholder" aria-hidden="true">
-          <QIconEcosystem class="icon" />
+          <PhCube class="icon" />
         </span>
       </button>
 
@@ -206,7 +206,7 @@ const ImageUploadField = {
               aria-hidden="true"
             ></span>
             <span v-else class="image-upload-preview-dialog-placeholder" aria-hidden="true">
-              <QIconEcosystem class="icon" />
+              <PhCube class="icon" />
             </span>
           </div>
 

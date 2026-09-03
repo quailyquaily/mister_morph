@@ -228,16 +228,11 @@
   color: var(--text-2);
 }
 
-.mobile-agent-switcher-route-icon svg,
-.mobile-agent-switcher-route-arrow svg {
+.mobile-agent-switcher-route-icon,
+.mobile-agent-switcher-route-arrow {
   display: block;
   width: 14px;
   height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .mobile-agent-switcher-empty {

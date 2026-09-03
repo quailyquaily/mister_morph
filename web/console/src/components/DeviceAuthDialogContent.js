@@ -176,7 +176,7 @@ const DeviceAuthDialogContent = {
       <QFence
         v-if="error"
         type="danger"
-        icon="QIconCloseCircle"
+        icon="PhXCircle"
         :text="error"
       />
 
@@ -200,7 +200,7 @@ const DeviceAuthDialogContent = {
       <QFence
         v-if="status?.file_mode_ok === false"
         type="danger"
-        icon="QIconCloseCircle"
+        icon="PhXCircle"
         :text="status?.file_mode_warning || ''"
       />
 
@@ -221,7 +221,7 @@ const DeviceAuthDialogContent = {
               :disabled="!userCode"
               @click="copyUserCode"
             >
-              <QIconCopy class="icon" />
+              <PhCopy class="icon" />
             </QButton>
           </div>
         </div>

@@ -981,7 +981,7 @@ const AuditView = {
               :aria-label="t('audit_title')"
               @click="showIndexView"
             >
-              <QIconArrowLeft class="icon" />
+              <PhArrowLeft class="icon" />
             </QButton>
             <div class="audit-ledger-copy">
               <h3 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h3>
@@ -994,7 +994,7 @@ const AuditView = {
                 :aria-label="t('action_refresh')"
                 @click="refreshLatest"
               >
-                <QIconRefresh class="icon" />
+                <PhArrowClockwise class="icon" />
               </QButton>
               <div v-if="meta.exists && (auditGroups.length > 0 || pageValue > 1)" class="audit-pagination">
                 <QButton
@@ -1004,7 +1004,7 @@ const AuditView = {
                   :aria-label="t('audit_newer')"
                   @click="goPrev"
                 >
-                  <QIconArrowLeft class="icon" />
+                  <PhArrowLeft class="icon" />
                 </QButton>
                 <code class="audit-page-indicator">{{ pageText }}</code>
                 <QButton
@@ -1014,14 +1014,14 @@ const AuditView = {
                   :aria-label="t('audit_older')"
                   @click="goNext"
                 >
-                  <QIconArrowRight class="icon" />
+                  <PhArrowRight class="icon" />
                 </QButton>
               </div>
             </div>
           </header>
 
         <QProgress v-if="loading" :infinite="true" />
-        <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+        <QFence v-if="err" type="danger" icon="PhXCircle" :text="err" />
 
         <div v-if="meta.exists" class="audit-feed">
           <section v-for="group in auditGroups" :key="group.key" class="audit-group">
@@ -1099,7 +1099,7 @@ const AuditView = {
               :aria-label="t('audit_title')"
               @click="showIndexView"
             >
-              <QIconArrowLeft class="icon" />
+              <PhArrowLeft class="icon" />
             </QButton>
             <div class="audit-ledger-copy">
               <h3 class="audit-ledger-title workspace-document-title">{{ t("tasks_title") }}</h3>
@@ -1112,7 +1112,7 @@ const AuditView = {
                 :aria-label="t('action_refresh')"
                 @click="loadTaskStream"
               >
-                <QIconRefresh class="icon" />
+                <PhArrowClockwise class="icon" />
               </QButton>
               <div class="audit-pagination">
                 <QButton
@@ -1122,7 +1122,7 @@ const AuditView = {
                   :aria-label="t('audit_newer')"
                   @click="prevTaskPage"
                 >
-                  <QIconArrowLeft class="icon" />
+                  <PhArrowLeft class="icon" />
                 </QButton>
                 <code class="audit-page-indicator">{{ tasksPageText }}</code>
                 <QButton
@@ -1132,14 +1132,14 @@ const AuditView = {
                   :aria-label="t('audit_older')"
                   @click="nextTaskPage"
                 >
-                  <QIconArrowRight class="icon" />
+                  <PhArrowRight class="icon" />
                 </QButton>
               </div>
             </div>
           </header>
 
           <QProgress v-if="taskLoading" :infinite="true" />
-          <QFence v-if="taskErr" type="danger" icon="QIconCloseCircle" :text="taskErr" />
+          <QFence v-if="taskErr" type="danger" icon="PhXCircle" :text="taskErr" />
 
           <div class="stack audit-task-stream">
             <QCard
@@ -1166,7 +1166,7 @@ const AuditView = {
                 <div class="task-row-side">
                   <time class="task-time">{{ formatTime(item.created_at) }}</time>
                   <span class="task-row-arrow" aria-hidden="true">
-                    <QIconArrowRight class="icon" />
+                    <PhArrowRight class="icon" />
                   </span>
                 </div>
               </div>

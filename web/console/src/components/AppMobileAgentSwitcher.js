@@ -203,17 +203,9 @@ const AppMobileAgentSwitcher = {
           class="mobile-bottom-menu-item mobile-agent-switcher-route"
           @click="openOverview"
         >
-          <span class="mobile-agent-switcher-route-icon" aria-hidden="true">
-            <svg viewBox="0 0 16 16" focusable="false">
-              <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z" />
-            </svg>
-          </span>
+          <PhNetwork class="mobile-agent-switcher-route-icon" />
           <span class="mobile-agent-switcher-name">{{ t('nav_overview') }}</span>
-          <span class="mobile-agent-switcher-route-arrow" aria-hidden="true">
-            <svg viewBox="0 0 16 16" focusable="false">
-              <path d="m6 4 4 4-4 4" />
-            </svg>
-          </span>
+          <PhCaretRight class="mobile-agent-switcher-route-arrow" />
         </button>
       </div>
     </AppMobileBottomMenu>

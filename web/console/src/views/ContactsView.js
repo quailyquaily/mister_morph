@@ -461,7 +461,6 @@ const ContactsView = {
       pageClass,
       displayName,
       isAgent,
-      isActive,
       statusText,
       kindText,
       channelLabel,
@@ -498,7 +497,7 @@ const ContactsView = {
             :aria-label="t('contacts_title')"
             @click="showIndexView"
           >
-            <QIconArrowLeft class="icon" />
+            <PhArrowLeft class="icon" />
           </QButton>
           <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
         </div>
@@ -523,7 +522,7 @@ const ContactsView = {
             <div v-if="loading" class="contacts-index-loading" aria-hidden="true">
               <QSkeleton variant="card" height="62px" :count="4" />
             </div>
-            <QFence v-else-if="err" class="contacts-index-error" type="danger" icon="QIconCloseCircle" :text="err" />
+            <QFence v-else-if="err" class="contacts-index-error" type="danger" icon="PhXCircle" :text="err" />
 
             <div
               v-if="!loading && filteredItems.length > 0"
@@ -547,8 +546,8 @@ const ContactsView = {
                     :endpointRef="endpointState.selectedRef"
                   />
                   <span :class="isAgent(item) ? 'contacts-kind-badge is-agent' : 'contacts-kind-badge'">
-                    <QIconCpuChip v-if="isAgent(item)" class="icon" />
-                    <QIconUserCircle v-else class="icon" />
+                    <PhCpu v-if="isAgent(item)" class="icon" />
+                    <PhUserCircle v-else class="icon" />
                   </span>
                 </span>
                 <span class="workspace-sidebar-item-copy">
@@ -576,24 +575,12 @@ const ContactsView = {
                     size="detail"
                   />
                   <span :class="isAgent(selectedContact) ? 'contacts-kind-badge is-agent' : 'contacts-kind-badge'">
-                    <QIconCpuChip v-if="isAgent(selectedContact)" class="icon" />
-                    <QIconUserCircle v-else class="icon" />
+                    <PhCpu v-if="isAgent(selectedContact)" class="icon" />
+                    <PhUserCircle v-else class="icon" />
                   </span>
                 </span>
                 <div class="contacts-detail-copy">
                   <h3 class="contacts-detail-title workspace-document-title">{{ displayName(selectedContact) }}</h3>
-                  <p class="contacts-detail-state">
-                    <span class="contacts-detail-state-item">
-                      <span>{{ kindText(selectedContact) }}</span>
-                    </span>
-                    <span
-                      :class="isActive(selectedContact) ? 'contacts-detail-state-item is-active' : 'contacts-detail-state-item'"
-                    >
-                      <QIconCheckCircle v-if="isActive(selectedContact)" class="icon" aria-hidden="true" />
-                      <QIconCloseCircle v-else class="icon" aria-hidden="true" />
-                      <span>{{ statusText(selectedContact) }}</span>
-                    </span>
-                  </p>
                 </div>
               </div>
 
@@ -605,7 +592,7 @@ const ContactsView = {
               </div>
               <div v-else class="contacts-detail-actions">
                 <QButton class="outlined contacts-edit-action" @click="startEdit">
-                  <QIconEdit class="icon contacts-detail-action-icon" />
+                  <PhPencilSimple class="icon contacts-detail-action-icon" />
                   <span>{{ t("action_edit") }}</span>
                 </QButton>
                 <QButton
@@ -614,7 +601,7 @@ const ContactsView = {
                   :aria-label="t('action_delete')"
                   @click="confirmDelete"
                 >
-                  <QIconTrash class="icon" />
+                  <PhTrash class="icon" />
                 </QButton>
               </div>
             </header>
@@ -622,7 +609,7 @@ const ContactsView = {
             <div v-if="editing" class="contacts-editor-body">
               <QSkeleton v-if="editorLoading" variant="card" height="360px" :count="1" />
               <template v-else>
-                <QFence v-if="editorErr" type="danger" icon="QIconCloseCircle" :text="editorErr" />
+                <QFence v-if="editorErr" type="danger" icon="PhXCircle" :text="editorErr" />
                 <QTextarea
                   v-model="editorYAML"
                   class="contacts-editor-textarea"
@@ -697,7 +684,7 @@ const ContactsView = {
 
       <QMessageDialog
         v-model="deleteDialogOpen"
-        icon="QIconTrash"
+        icon="PhTrash"
         iconColor="red"
         :title="t('action_delete')"
         :text="deleteDialogText"

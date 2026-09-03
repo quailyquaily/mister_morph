@@ -405,7 +405,7 @@ const ImageAdjustDialog = {
               :disabled="busy || !imageReady"
               @click="zoomIn"
             >
-              <QIconPlus class="icon" />
+              <PhPlus class="icon" />
             </QButton>
           </div>
 

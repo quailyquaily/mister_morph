@@ -26,7 +26,7 @@ const SOUL_PRESET_CONTENT = {
 
 const SOUL_PRESET_VISUALS = {
   research_scholar: {
-    icon: "QIconEcosystem",
+    icon: "PhCube",
     faceSrc: scholarFaceImage,
     spriteSrc: scholarSpriteImage,
     spriteFrames: 4,
@@ -35,7 +35,7 @@ const SOUL_PRESET_VISUALS = {
     spriteScale: 2.5,
   },
   software_engineer: {
-    icon: "QIconSpeedoMeter",
+    icon: "PhGauge",
     faceSrc: engineerFaceImage,
     spriteSrc: engineerSpriteImage,
     spriteFrames: 4,
@@ -44,7 +44,7 @@ const SOUL_PRESET_VISUALS = {
     spriteScale: 2.5,
   },
   cat: {
-    icon: "QIconFingerprint",
+    icon: "PhFingerprint",
     faceSrc: catFaceImage,
     spriteSrc: catSpriteImage,
     spriteFrames: 2,
@@ -53,7 +53,7 @@ const SOUL_PRESET_VISUALS = {
     spriteScale: 2.5,
   },
   dog: {
-    icon: "QIconUsers",
+    icon: "PhUsers",
     faceSrc: dogFaceImage,
     spriteSrc: dogSpriteImage,
     spriteFrames: 2,

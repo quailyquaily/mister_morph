@@ -10,6 +10,7 @@
     "test": "node --test src/core/*.test.mjs"
   },
   "dependencies": {
+    "@phosphor-icons/vue": "^2.2.1",
     "overtype": "^2.3.5",
     "pinia": "^3.0.4",
     "quail-ui": "0.9.10",

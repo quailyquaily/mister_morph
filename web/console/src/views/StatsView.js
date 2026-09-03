@@ -511,7 +511,7 @@ const StatsView = {
   template: `
     <AppPage :title="t('stats_title')">
       <QProgress v-if="loading" :infinite="true" />
-      <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <QFence v-if="err" type="danger" icon="PhXCircle" :text="err" />
 
       <section class="stats-page">
         <header class="stats-hero block-default">
@@ -582,7 +582,7 @@ const StatsView = {
 
                 <section class="stats-band stats-band-cost">
                   <header class="stats-band-head">
-                    <QIconWallet class="stats-band-icon icon" />
+                    <PhWallet class="stats-band-icon icon" />
                     <span class="stats-band-title">{{ t("stats_costs") }}</span>
                   </header>
                   <div class="stats-band-grid">
@@ -595,7 +595,7 @@ const StatsView = {
 
                 <section class="stats-band stats-band-token">
                   <header class="stats-band-head">
-                    <QIconBarChart class="stats-band-icon icon" />
+                    <PhChartBar class="stats-band-icon icon" />
                     <span class="stats-band-title">{{ t("stats_tokens") }}</span>
                   </header>
                   <div class="stats-band-grid">
@@ -619,13 +619,13 @@ const StatsView = {
                             class="stats-model-ledger-group"
                           >
                             <span class="stats-model-ledger-group-copy">
-                              <QIconWallet class="stats-model-ledger-group-icon icon" />
+                              <PhWallet class="stats-model-ledger-group-icon icon" />
                               <span>{{ t("stats_costs") }}</span>
                             </span>
                           </th>
                           <th :colspan="modelLedgerTokenColumns(host.models).length" class="stats-model-ledger-group">
                             <span class="stats-model-ledger-group-copy">
-                              <QIconBarChart class="stats-model-ledger-group-icon icon" />
+                              <PhChartBar class="stats-model-ledger-group-icon icon" />
                               <span>{{ t("stats_tokens") }}</span>
                             </span>
                           </th>
@@ -658,7 +658,7 @@ const StatsView = {
                                   :alt="modelVendorMeta(model.model).label"
                                   class="stats-model-vendor-image"
                                 />
-                                <QIconCpuChip v-else class="stats-model-vendor-fallback icon" />
+                                <PhCpu v-else class="stats-model-vendor-fallback icon" />
                               </span>
                               <code class="stats-model-name">{{ model.model }}</code>
                             </div>
@@ -716,13 +716,13 @@ const StatsView = {
                             class="stats-model-ledger-group"
                           >
                             <span class="stats-model-ledger-group-copy">
-                              <QIconWallet class="stats-model-ledger-group-icon icon" />
+                              <PhWallet class="stats-model-ledger-group-icon icon" />
                               <span>{{ t("stats_costs") }}</span>
                             </span>
                           </th>
                           <th :colspan="modelLedgerTokenColumns(visibleModels).length" class="stats-model-ledger-group">
                             <span class="stats-model-ledger-group-copy">
-                              <QIconBarChart class="stats-model-ledger-group-icon icon" />
+                              <PhChartBar class="stats-model-ledger-group-icon icon" />
                               <span>{{ t("stats_tokens") }}</span>
                             </span>
                           </th>
@@ -755,7 +755,7 @@ const StatsView = {
                                   :alt="modelVendorMeta(model.model).label"
                                   class="stats-model-vendor-image"
                                 />
-                                <QIconCpuChip v-else class="stats-model-vendor-fallback icon" />
+                                <PhCpu v-else class="stats-model-vendor-fallback icon" />
                               </span>
                               <code class="stats-model-name">{{ model.model }}</code>
                             </div>

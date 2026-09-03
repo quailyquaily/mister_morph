@@ -94,7 +94,7 @@ const SettingsCreditsPanel = {
   template: `
     <div class="settings-panel-body settings-panel-body-plain settings-credits-panel">
       <QProgress v-if="loading" :infinite="true" />
-      <QFence v-if="error" type="danger" icon="QIconCloseCircle" :text="error" />
+      <QFence v-if="error" type="danger" icon="PhXCircle" :text="error" />
 
       <QCard variant="default">
         <div class="settings-panel-shell">
@@ -131,7 +131,7 @@ const SettingsCreditsPanel = {
                   </span>
                 </span>
                 <strong class="settings-credits-contributor-name">{{ item.name }}</strong>
-                <QIconLinkExternal class="settings-credits-external-icon icon" aria-hidden="true" />
+                <PhArrowSquareOut class="settings-credits-external-icon icon" aria-hidden="true" />
               </a>
             </div>
             <p v-else class="settings-credits-empty">{{ t("settings_credits_empty_contributors") }}</p>
@@ -171,7 +171,7 @@ const SettingsCreditsPanel = {
                   :aria-label="t('settings_credits_open_link')"
                   @click="openExternal(item.link)"
                 >
-                  <QIconLinkExternal class="settings-credits-external-icon icon" />
+                  <PhArrowSquareOut class="settings-credits-external-icon icon" />
                 </QButton>
               </article>
             </div>

@@ -332,11 +332,7 @@ const AgentSwitcher = {
         <img v-if="triggerAvatar" class="agent-switcher-avatar" :src="triggerAvatar" alt="" />
         <span v-else class="agent-switcher-avatar is-empty" aria-hidden="true"></span>
         <span class="agent-switcher-name">{{ triggerName }}</span>
-        <span class="agent-switcher-chevron" aria-hidden="true">
-          <svg viewBox="0 0 16 16" focusable="false">
-            <path d="m4 6 4 4 4-4" />
-          </svg>
-        </span>
+        <PhCaretDown class="agent-switcher-chevron" />
       </button>
 
       <div
@@ -365,17 +361,9 @@ const AgentSwitcher = {
           data-agent-switcher-action
           @click="openDesk"
         >
-          <span class="agent-switcher-route-icon" aria-hidden="true">
-            <svg viewBox="0 0 16 16" focusable="false">
-              <path d="M2.5 2.5h11v11h-11zM8 2.5v11M2.5 8h11" />
-            </svg>
-          </span>
+          <PhGridFour class="agent-switcher-route-icon" />
           <span class="agent-switcher-name">{{ t('endpoint_switcher_desk') }}</span>
-          <span class="agent-switcher-route-arrow" aria-hidden="true">
-            <svg viewBox="0 0 16 16" focusable="false">
-              <path d="m6 4 4 4-4 4" />
-            </svg>
-          </span>
+          <PhCaretRight class="agent-switcher-route-arrow" />
         </button>
         <button
           type="button"
@@ -383,17 +371,9 @@ const AgentSwitcher = {
           data-agent-switcher-action
           @click="openOverview"
         >
-          <span class="agent-switcher-route-icon" aria-hidden="true">
-            <svg viewBox="0 0 16 16" focusable="false">
-              <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z" />
-            </svg>
-          </span>
+          <PhNetwork class="agent-switcher-route-icon" />
           <span class="agent-switcher-name">{{ t('nav_overview') }}</span>
-          <span class="agent-switcher-route-arrow" aria-hidden="true">
-            <svg viewBox="0 0 16 16" focusable="false">
-              <path d="m6 4 4 4-4 4" />
-            </svg>
-          </span>
+          <PhCaretRight class="agent-switcher-route-arrow" />
         </button>
       </div>
 
@@ -433,30 +413,14 @@ const AgentSwitcher = {
               class="agent-switcher-route"
               @click="openDesk"
             >
-              <span class="agent-switcher-route-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" focusable="false">
-                  <path d="M2.5 2.5h11v11h-11zM8 2.5v11M2.5 8h11" />
-                </svg>
-              </span>
+              <PhGridFour class="agent-switcher-route-icon" />
               <span class="agent-switcher-name">{{ t('endpoint_switcher_desk') }}</span>
-              <span class="agent-switcher-route-arrow" aria-hidden="true">
-                <svg viewBox="0 0 16 16" focusable="false">
-                  <path d="m6 4 4 4-4 4" />
-                </svg>
-              </span>
+              <PhCaretRight class="agent-switcher-route-arrow" />
             </button>
             <button type="button" class="agent-switcher-route" @click="openOverview">
-              <span class="agent-switcher-route-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" focusable="false">
-                  <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z" />
-                </svg>
-              </span>
+              <PhNetwork class="agent-switcher-route-icon" />
               <span class="agent-switcher-name">{{ t('nav_overview') }}</span>
-              <span class="agent-switcher-route-arrow" aria-hidden="true">
-                <svg viewBox="0 0 16 16" focusable="false">
-                  <path d="m6 4 4 4-4 4" />
-                </svg>
-              </span>
+              <PhCaretRight class="agent-switcher-route-arrow" />
             </button>
           </div>
         </section>
