@@ -279,17 +279,17 @@ const TodoCalendar = {
             :aria-label="t('todo_action_add')"
             @click="$emit('add-task')"
           >
-            <QIconPlus class="icon" />
+            <PhPlus class="icon" />
           </QButton>
         </div>
 
         <div class="todo-calendar-month-nav">
           <QButton class="plain sm icon" :title="t('todo_calendar_previous')" :aria-label="t('todo_calendar_previous')" @click="setMonth(-1)">
-            <QIconArrowLeft class="icon" />
+            <PhArrowLeft class="icon" />
           </QButton>
           <h3 class="todo-calendar-month-title">{{ monthTitle }}</h3>
           <QButton class="plain sm icon" :title="t('todo_calendar_next')" :aria-label="t('todo_calendar_next')" @click="setMonth(1)">
-            <QIconArrowRight class="icon" />
+            <PhArrowRight class="icon" />
           </QButton>
           <QButton class="plain sm todo-calendar-today" @click="showToday">{{ t("todo_calendar_today") }}</QButton>
         </div>

@@ -4172,7 +4172,7 @@ const SettingsView = {
             :aria-label="t('settings_title')"
             @click="showIndexView"
           >
-            <QIconArrowLeft class="icon" />
+            <PhArrowLeft class="icon" />
           </QButton>
           <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
         </div>
@@ -4223,16 +4223,7 @@ const SettingsView = {
                       hideActionLabel
                       :disabled="agentLoading || agentSaving"
                     >
-                      <svg
-                        class="settings-llm-actions-menu-icon"
-                        viewBox="0 0 16 16"
-                        aria-hidden="true"
-                        focusable="false"
-                      >
-                        <circle cx="3" cy="8" r="1.25" fill="currentColor" />
-                        <circle cx="8" cy="8" r="1.25" fill="currentColor" />
-                        <circle cx="13" cy="8" r="1.25" fill="currentColor" />
-                      </svg>
+                      <PhDotsThree class="settings-llm-actions-menu-icon" />
                       <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
                     </QDropdownMenu>
                   </div>
@@ -4241,7 +4232,7 @@ const SettingsView = {
                 <QFence
                   v-if="agentValidationVisible && agentValidationError"
                   type="danger"
-                  icon="QIconCloseCircle"
+                  icon="PhXCircle"
                   :text="agentValidationError"
                 />
 
@@ -4326,16 +4317,7 @@ const SettingsView = {
                                 hideActionLabel
                                 :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                               >
-                                <svg
-                                  class="settings-llm-actions-menu-icon"
-                                  viewBox="0 0 16 16"
-                                  aria-hidden="true"
-                                  focusable="false"
-                                >
-                                  <circle cx="3" cy="8" r="1.25" fill="currentColor" />
-                                  <circle cx="8" cy="8" r="1.25" fill="currentColor" />
-                                  <circle cx="13" cy="8" r="1.25" fill="currentColor" />
-                                </svg>
+                                <PhDotsThree class="settings-llm-actions-menu-icon" />
                                 <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
                               </QDropdownMenu>
                             </div>
@@ -4389,7 +4371,7 @@ const SettingsView = {
                           :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                           @click="addLLMProfile"
                         >
-                          <QIconPlus class="icon" />
+                          <PhPlus class="icon" />
                           {{ t("settings_agent_profile_add") }}
                         </QButton>
                       </div>
@@ -4426,7 +4408,7 @@ const SettingsView = {
                               :disabled="agentLoading || agentSaving || agentSettingsReadOnly || index === 0"
                               @click="moveFallbackProfile(index, -1)"
                             >
-                              <QIconChevronUp class="icon" />
+                              <PhCaretUp class="icon" />
                             </QButton>
                             <QButton
                               type="button"
@@ -4436,7 +4418,7 @@ const SettingsView = {
                               :disabled="agentLoading || agentSaving || agentSettingsReadOnly || index === state.llm.fallback_profiles.length - 1"
                               @click="moveFallbackProfile(index, 1)"
                             >
-                              <QIconChevronDown class="icon" />
+                              <PhCaretDown class="icon" />
                             </QButton>
                             <QButton
                               type="button"
@@ -4446,7 +4428,7 @@ const SettingsView = {
                               :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                               @click="removeFallbackProfile(index)"
                             >
-                              <QIconTrash class="icon" />
+                              <PhTrash class="icon" />
                             </QButton>
                           </div>
                         </div>
@@ -4457,7 +4439,7 @@ const SettingsView = {
                           :disabled="agentLoading || agentSaving || agentSettingsReadOnly || !profileOptions.length"
                           @click="addFallbackProfile"
                         >
-                          <QIconPlus class="icon" />
+                          <PhPlus class="icon" />
                           {{ t("settings_agent_fallback_add") }}
                         </QButton>
                       </div>
@@ -4976,7 +4958,7 @@ const SettingsView = {
                 <QFence
                   v-if="skillsValidationVisible && skillsValidationError"
                   type="danger"
-                  icon="QIconCloseCircle"
+                  icon="PhXCircle"
                   :text="skillsValidationError"
                 />
 
@@ -5192,7 +5174,7 @@ const SettingsView = {
                         <p class="settings-card-note">{{ t("settings_logs_hint") }}</p>
                       </div>
                       <QButton class="outlined settings-console-control settings-console-action" @click="openLogsPage">
-                        <QIconCode class="icon settings-console-action-icon" />
+                        <PhCode class="icon settings-console-action-icon" />
                         {{ t("settings_logs_open") }}
                       </QButton>
                     </div>
@@ -5234,7 +5216,7 @@ const SettingsView = {
                         :aria-label="t('settings_desktop_update_check_action')"
                         @click="runDesktopUpdateCheck"
                       >
-                        <QIconRefresh class="icon settings-console-action-icon" />
+                        <PhArrowClockwise class="icon settings-console-action-icon" />
                       </QButton>
                     </div>
                   </div>
@@ -5256,8 +5238,8 @@ const SettingsView = {
                         @click="copyDesktopUpdateChecksum"
                       >
                         <code>{{ desktopUpdateChecksum || "-" }}</code>
-                        <QIconCheckCircle v-if="desktopChecksumCopied" class="icon settings-desktop-update-checksum-icon" />
-                        <QIconCopy v-else class="icon settings-desktop-update-checksum-icon" />
+                        <PhCheckCircle v-if="desktopChecksumCopied" class="icon settings-desktop-update-checksum-icon" />
+                        <PhCopy v-else class="icon settings-desktop-update-checksum-icon" />
                       </button>
                     </div>
 
@@ -5276,7 +5258,7 @@ const SettingsView = {
                         class="plain sm settings-desktop-update-result-action"
                         @click="openDesktopUpdateReleases"
                       >
-                        <QIconArrowUpRight class="icon settings-console-action-icon" />
+                        <PhArrowUpRight class="icon settings-console-action-icon" />
                         {{ t("settings_desktop_update_view_releases_action") }}
                       </QButton>
                       <QButton
@@ -5284,7 +5266,7 @@ const SettingsView = {
                         :disabled="desktopUpdateDownloadDisabled"
                         @click="openDesktopUpdateDownload"
                       >
-                        <QIconDownloadCloud class="icon settings-console-action-icon" />
+                        <PhCloudArrowDown class="icon settings-console-action-icon" />
                         {{ t("settings_desktop_update_download_action") }}
                       </QButton>
                     </div>
@@ -5326,7 +5308,7 @@ const SettingsView = {
               <QFence
                 v-if="activeSaveKind === 'agent' && agentValidationVisible && agentValidationError"
                 type="danger"
-                icon="QIconCloseCircle"
+                icon="PhXCircle"
                 :text="agentValidationError"
               />
 
@@ -5447,7 +5429,7 @@ const SettingsView = {
       />
       <QMessageDialog
         v-model="deleteProfileDialogOpen"
-        icon="QIconTrash"
+        icon="PhTrash"
         iconColor="red"
         :title="t('action_delete')"
         :text="deleteProfileDialogText"

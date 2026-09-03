@@ -256,14 +256,14 @@ const router = createRouter({
 });
 
 const NAV_ITEMS_META = [
-  { id: "/chat", titleKey: "nav_chat", icon: "QIconMessageChatSquare" },
-  { id: "/contacts", titleKey: "nav_contacts", icon: "QIconUsers" },
-  { id: "/todo", titleKey: "nav_todo", icon: "QIconInbox" },
+  { id: "/chat", titleKey: "nav_chat", icon: "PhChats" },
+  { id: "/contacts", titleKey: "nav_contacts", icon: "PhUsers" },
+  { id: "/todo", titleKey: "nav_todo", icon: "PhTray" },
   { id: "__sep_primary", separator: true },
-  { id: "/stats", titleKey: "nav_stats", icon: "QIconBarChart" },
-  { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
+  { id: "/stats", titleKey: "nav_stats", icon: "PhChartBar" },
+  { id: "/audit", titleKey: "nav_audit", icon: "PhFingerprint" },
   { id: "__sep_secondary", separator: true },
-  { id: "/settings", titleKey: "nav_settings", icon: "QIconSettings" },
+  { id: "/settings", titleKey: "nav_settings", icon: "PhGearSix" },
 ];
 
 router.beforeEach(async (to) => {

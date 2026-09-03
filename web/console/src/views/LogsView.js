@@ -286,7 +286,7 @@ const LogsView = {
         </header>
 
         <QProgress v-if="loading && entries.length === 0" :infinite="true" />
-        <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+        <QFence v-if="err" type="danger" icon="PhXCircle" :text="err" />
 
         <div v-if="hasNewer" class="logs-newer-note">
           <span>{{ t("logs_new_available") }}</span>

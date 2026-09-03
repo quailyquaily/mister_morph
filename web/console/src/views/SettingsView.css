@@ -84,12 +84,9 @@
   overscroll-behavior: contain;
 }
 
-.settings-panel-card.q-card-default {
-  margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
-}
-
+.settings-panel-card.q-card-default,
 .settings-runtime-panel {
-  margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
+  margin: 16px var(--content-gutter-x) var(--content-gutter-y) 0;
 }
 
 .settings-panel-body-plain > .q-card.q-card-default,
@@ -927,12 +924,9 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
     height: 100%;
   }
 
-  .settings-panel-card.q-card-default {
-    margin: 0 var(--content-gutter-x) var(--content-gutter-y);
-  }
-
+  .settings-panel-card.q-card-default,
   .settings-runtime-panel {
-    margin: 0 var(--content-gutter-x) var(--content-gutter-y);
+    margin: 16px var(--content-gutter-x) var(--content-gutter-y);
   }
 
   .settings-panel-body-plain {

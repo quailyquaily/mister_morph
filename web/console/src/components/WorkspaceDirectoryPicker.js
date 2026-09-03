@@ -450,7 +450,7 @@ const WorkspaceDirectoryPicker = {
           v-if="error"
           class="chat-workspace-pane-fence"
           type="danger"
-          icon="QIconCloseCircle"
+          icon="PhXCircle"
           :text="error"
         />
         <div class="chat-workspace-dialog-shell">
@@ -489,7 +489,7 @@ const WorkspaceDirectoryPicker = {
                 <code class="chat-workspace-browser-parent-path" :title="createParent">{{ createParent || t('chat_workspace_dialog_selection_empty') }}</code>
               </span>
               <QButton class="plain xs chat-workspace-browser-create-button" :disabled="createDisabled || createOpen" @click="openCreate">
-                <QIconPlus class="icon" />
+                <PhPlus class="icon" />
                 <span>{{ t('chat_workspace_dialog_new_directory') }}</span>
               </QButton>
             </div>

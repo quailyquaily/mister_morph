@@ -341,13 +341,13 @@ export default {
         id: "chat-composer-upload-files",
         title: props.uploadLabel,
         value: "upload",
-        icon: "QIconPaperclip",
+        icon: "PhPaperclip",
       },
       {
         id: "chat-composer-add-workspace",
         title: props.attachLabel,
         value: "workspace",
-        icon: "QIconEcosystem",
+        icon: "PhCube",
       },
     ]);
     const addUsesDialog = computed(() => compactDialogViewport.value);
@@ -1066,7 +1066,7 @@ export default {
               :title="item.status === 'ready' ? resolvedFileLabels.preview : fileItemMeta(item)"
               @click="previewFile(item)"
             >
-              <QIconPaperclip class="chat-composer-file-icon" />
+              <PhPaperclip class="chat-composer-file-icon" />
               <span class="chat-composer-file-copy">
                 <span class="chat-composer-file-name">{{ item.name }}</span>
                 <span v-if="fileItemMeta(item)" class="chat-composer-file-meta">{{ fileItemMeta(item) }}</span>
@@ -1079,7 +1079,7 @@ export default {
               :aria-label="resolvedFileLabels.remove + ': ' + item.name"
               @click="$emit('removeFile', item)"
             >
-              <QIconCloseCircle class="icon" />
+              <PhXCircle class="icon" />
             </button>
           </article>
         </div>
@@ -1100,7 +1100,7 @@ export default {
               :loading="uploading"
               @change="selectAddAction"
             >
-              <QIconPlus class="chat-composer-add-icon" />
+              <PhPlus class="chat-composer-add-icon" />
               <span class="chat-composer-add-label">{{ addLabel }}</span>
             </QDropdownMenu>
             <div v-else :class="['q-dropdown-menu', addMenuClass]">
@@ -1118,10 +1118,10 @@ export default {
                   @click.stop="openAddDialog"
                 >
                   <div v-if="uploading" class="ocean" aria-hidden="true"><div class="wave"></div></div>
-                  <QIconPlus class="chat-composer-add-icon" />
+                  <PhPlus class="chat-composer-add-icon" />
                   <span class="chat-composer-add-label">{{ addLabel }}</span>
                   <span class="empty-block"></span>
-                  <QIconChevronDown class="icon chevron-icon" aria-hidden="true" />
+                  <PhCaretDown class="icon chevron-icon" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -1185,7 +1185,7 @@ export default {
                         {{ selectedLLMProfileItem?.title || llmProfileLabel }}
                       </div>
                     </div>
-                    <QIconChevronDown class="icon chevron-icon" aria-hidden="true" />
+                    <PhCaretDown class="icon chevron-icon" aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -1198,16 +1198,8 @@ export default {
               :aria-label="sendLabel"
               @click="stopMode ? $emit('stop') : $emit('submit')"
             >
-              <svg
-                v-if="stopMode"
-                class="icon chat-composer-stop-icon"
-                viewBox="0 0 14 14"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <rect x="3" y="3" width="8" height="8" rx="1.25" fill="currentColor" />
-              </svg>
-              <QIconSend v-else class="icon" />
+              <PhStop v-if="stopMode" class="icon chat-composer-stop-icon" />
+              <PhPaperPlaneTilt v-else class="icon" />
             </QButton>
           </div>
         </div>

@@ -181,7 +181,7 @@ const AppMobileBottomNav = {
         aria-haspopup="dialog"
         @click="toggleMore"
       >
-        <QIconGrid class="mobile-bottom-nav-icon icon" />
+        <PhSquaresFour class="mobile-bottom-nav-icon icon" />
       </button>
 
       <AppMobileAgentSwitcher

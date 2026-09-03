@@ -42,7 +42,7 @@ const DEFAULT_TODO_TITLE = "";
 const HEARTBEAT_FILE_NAME = "HEARTBEAT.md";
 const HEARTBEAT_ITEM_KEY = "__heartbeat__";
 const CONSOLE_NOTIFICATION_CHAT_ID = "console:user";
-const CONSOLE_NOTIFICATION_ICON = "QIconDesktop";
+const CONSOLE_NOTIFICATION_ICON = "PhDesktop";
 const CHAT_PLATFORM_LOGOS = {
   discord: channelDiscordLogoURL,
   lark: channelLarkLogoURL,
@@ -50,9 +50,6 @@ const CHAT_PLATFORM_LOGOS = {
   slack: channelSlackLogoURL,
   telegram: channelTelegramLogoURL,
 };
-const CHAT_NONE_ICON_URL = `data:image/svg+xml,${encodeURIComponent(
-  '<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="256" cy="256" r="222" fill="#EEF0F3"/><path d="M170 342L342 170" stroke="#6F7782" stroke-width="48" stroke-linecap="round"/><circle cx="256" cy="256" r="142" stroke="#6F7782" stroke-width="36"/></svg>'
-)}`;
 const CONTACT_REF_PROTOCOLS = new Set(["tg", "slack", "line", "line_user", "lark", "lark_user", "discord"]);
 const UTC_TIMEZONE_ITEMS = [
   { value: "UTC-12", label: "UTC-12", cityKey: "todo_timezone_city_baker_island" },
@@ -771,7 +768,7 @@ const TodoView = {
     ]);
     const repeatKindTabs = computed(() => REPEAT_KINDS.map((kind) => ({ id: kind.id, title: t(kind.labelKey) })));
     const chatMenuItems = computed(() => [
-      { id: "chat-none", title: t("todo_chat_none"), value: "", image: CHAT_NONE_ICON_URL },
+      { id: "chat-none", title: t("todo_chat_none"), value: "", icon: "PhProhibit" },
       ...chatOptions.value.map((item) => ({
         id: `chat-${item.chat_id}`,
         title: chatOptionTitle(item),
@@ -794,7 +791,7 @@ const TodoView = {
           subtitle: llmDefaultRouteModel.value,
           value: "",
           image: defaultVendor.icon || undefined,
-          icon: defaultVendor.icon ? undefined : "QIconCpuChip",
+          icon: defaultVendor.icon ? undefined : "PhCpu",
         },
         ...llmProfiles.value.map((profile) => {
           const vendor = modelVendorMeta(profile.modelName);
@@ -804,7 +801,7 @@ const TodoView = {
             subtitle: profile.modelName,
             value: profile.name,
             image: vendor.icon || undefined,
-            icon: vendor.icon ? undefined : "QIconCpuChip",
+            icon: vendor.icon ? undefined : "PhCpu",
           };
         }),
       ];
@@ -1039,7 +1036,7 @@ const TodoView = {
           id: `llm-profile-unavailable-${profile}`,
           title: t("todo_llm_profile_unavailable", { profile }),
           value: profile,
-          icon: "QIconCpuChip",
+          icon: "PhCpu",
         }
       );
     }
@@ -2447,7 +2444,7 @@ const TodoView = {
             :aria-label="t('todo_nav_title')"
             @click="showIndexView"
           >
-            <QIconArrowLeft class="icon" />
+            <PhArrowLeft class="icon" />
           </QButton>
           <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
         </div>
@@ -2481,7 +2478,7 @@ const TodoView = {
               :aria-label="t('todo_action_add')"
               @click="addTask"
             >
-              <QIconPlus class="icon" />
+              <PhPlus class="icon" />
             </QButton>
           </div>
 
@@ -2611,16 +2608,7 @@ const TodoView = {
                     :disabled="saving || loading"
                     :loading="runningTaskKey === selectedTask._key"
                   >
-                    <svg
-                      class="todo-task-actions-menu-icon"
-                      viewBox="0 0 16 16"
-                      aria-hidden="true"
-                      focusable="false"
-                    >
-                      <circle cx="3" cy="8" r="1.25" fill="currentColor" />
-                      <circle cx="8" cy="8" r="1.25" fill="currentColor" />
-                      <circle cx="13" cy="8" r="1.25" fill="currentColor" />
-                    </svg>
+                    <PhDotsThree class="todo-task-actions-menu-icon" />
                     <span class="todo-task-actions-menu-accessible">{{ t("todo_action_more") }}</span>
                   </QDropdownMenu>
                 </div>
@@ -2884,7 +2872,7 @@ const TodoView = {
                       :disabled="saving || loading"
                       @click="removeBashEnvRow(selectedTask, index)"
                     >
-                      <QIconTrash class="icon" />
+                      <PhTrash class="icon" />
                     </QButton>
                   </div>
                 </div>
@@ -2894,7 +2882,7 @@ const TodoView = {
                   :disabled="saving || loading"
                   @click="addBashEnvRow(selectedTask)"
                 >
-                  <QIconPlus class="icon" />
+                  <PhPlus class="icon" />
                   {{ t("todo_bash_env_add") }}
                 </QButton>
               </div>
@@ -2945,7 +2933,7 @@ const TodoView = {
               :disabled="loading || saving"
               @click="addTask"
             >
-              <QIconPlus class="icon" />
+              <PhPlus class="icon" />
               {{ t("todo_action_add") }}
             </QButton>
           </div>
@@ -2953,7 +2941,7 @@ const TodoView = {
       </div>
       <QMessageDialog
         v-model="deleteDialogOpen"
-        icon="QIconTrash"
+        icon="PhTrash"
         iconColor="red"
         :title="t('action_delete')"
         :text="deleteDialogText"

@@ -294,7 +294,7 @@ const AgentChatPane = {
           subtitle: defaultProfile.modelName,
           value: "",
           image: defaultVendor.icon || undefined,
-          icon: defaultVendor.icon ? undefined : "QIconCpuChip",
+          icon: defaultVendor.icon ? undefined : "PhCpu",
         },
         ...composerLLMProfiles.value.map((profile) => {
           const vendor = modelVendorMeta(profile.modelName);
@@ -304,7 +304,7 @@ const AgentChatPane = {
             subtitle: profile.modelName,
             value: profile.name,
             image: vendor.icon || undefined,
-            icon: vendor.icon ? undefined : "QIconCpuChip",
+            icon: vendor.icon ? undefined : "PhCpu",
           };
         }),
       ];
@@ -1702,7 +1702,7 @@ const AgentChatPane = {
             @click.stop="openTopicDialog"
           >
             <span class="agent-chat-pane-topic-label">{{ topicLabel }}</span>
-            <QIconChevronDown class="icon agent-chat-pane-topic-chevron" aria-hidden="true" />
+            <PhCaretDown class="icon agent-chat-pane-topic-chevron" aria-hidden="true" />
           </button>
           <span v-else class="agent-chat-pane-topic-label">{{ topicLabel }}</span>
         </div>
@@ -1714,7 +1714,7 @@ const AgentChatPane = {
             :aria-label="t('agent_desk_split_right')"
             @click.stop="splitPane('row')"
           >
-            <QIconLayoutRight class="icon" />
+            <PhSidebarSimple class="icon" />
           </QButton>
           <QButton
             class="plain xs icon agent-chat-pane-action"
@@ -1722,7 +1722,7 @@ const AgentChatPane = {
             :aria-label="t('agent_desk_split_down')"
             @click.stop="splitPane('column')"
           >
-            <QIconLayoutRight class="icon agent-chat-pane-split-down-icon" />
+            <PhSidebarSimple class="icon agent-chat-pane-split-down-icon" />
           </QButton>
           <QButton
             v-if="canClose"
@@ -1731,7 +1731,7 @@ const AgentChatPane = {
             :aria-label="t('agent_desk_close_pane')"
             @click.stop="$emit('close', paneId)"
           >
-            <QIconCloseCircle class="icon" />
+            <PhXCircle class="icon" />
           </QButton>
         </div>
       </header>
@@ -1872,7 +1872,7 @@ const AgentChatPane = {
               v-else-if="composerFilePreviewError"
               class="chat-composer-file-preview-error"
               type="danger"
-              icon="QIconCloseCircle"
+              icon="PhXCircle"
               :text="composerFilePreviewError"
             />
             <nav
@@ -1887,7 +1887,7 @@ const AgentChatPane = {
                 :aria-label="t('chat_composer_file_preview_previous')"
                 @click="navigateComposerFilePreview(-1)"
               >
-                <QIconArrowLeft class="icon" />
+                <PhArrowLeft class="icon" />
               </QButton>
               <QButton
                 class="plain sm icon chat-composer-file-preview-nav-button is-next"
@@ -1896,7 +1896,7 @@ const AgentChatPane = {
                 :aria-label="t('chat_composer_file_preview_next')"
                 @click="navigateComposerFilePreview(1)"
               >
-                <QIconArrowRight class="icon" />
+                <PhArrowRight class="icon" />
               </QButton>
             </nav>
           </div>
@@ -1942,7 +1942,7 @@ const AgentChatPane = {
                   />
                   <span>{{ item.title }}</span>
                 </span>
-                <QIconCheckCircle
+                <PhCheckCircle
                   v-if="item.value === endpoint.endpoint_ref"
                   class="icon agent-chat-topic-dialog-check"
                   aria-hidden="true"
@@ -1978,7 +1978,7 @@ const AgentChatPane = {
                 :aria-label="t('agent_desk_new_topic')"
                 @click="startNewTopic"
               >
-                <QIconPlus class="icon" />
+                <PhPlus class="icon" />
               </QButton>
             </div>
 
@@ -1994,7 +1994,7 @@ const AgentChatPane = {
                 @click="selectTopic(item)"
               >
                 <span>{{ item.title }}</span>
-                <QIconCheckCircle
+                <PhCheckCircle
                   v-if="item.value === selectedTopicID"
                   class="icon agent-chat-topic-dialog-check"
                   aria-hidden="true"

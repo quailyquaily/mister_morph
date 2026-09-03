@@ -324,7 +324,7 @@ const ChatStatusCard = {
         >
           <span class="chat-status-summary-label">{{ t("chat_plan_title") }}</span>
           <span class="chat-status-summary-value">{{ planProgressText(plan) }}</span>
-          <QIconChevronDown class="chat-status-column-icon icon" aria-hidden="true" />
+          <PhCaretDown class="chat-status-column-icon icon" aria-hidden="true" />
         </span>
 
         <span
@@ -338,7 +338,7 @@ const ChatStatusCard = {
           @keydown.space.prevent="toggle(PANEL_ACTIVITY)"
         >
           <span class="chat-status-summary-label">{{ t("chat_activity_title") }}</span>
-          <QIconChevronDown class="chat-status-column-icon icon" aria-hidden="true" />
+          <PhCaretDown class="chat-status-column-icon icon" aria-hidden="true" />
         </span>
 
         <span
@@ -352,7 +352,7 @@ const ChatStatusCard = {
           @keydown.space.prevent="toggle(PANEL_REASONING)"
         >
           <span class="chat-status-summary-label">{{ t("chat_reasoning_title") }}</span>
-          <QIconChevronDown class="chat-status-column-icon icon" aria-hidden="true" />
+          <PhCaretDown class="chat-status-column-icon icon" aria-hidden="true" />
         </span>
       </div>
 

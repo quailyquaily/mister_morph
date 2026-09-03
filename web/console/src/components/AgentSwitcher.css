@@ -102,17 +102,12 @@
   transform: rotate(180deg);
 }
 
-.agent-switcher-chevron svg,
-.agent-switcher-route-arrow svg,
-.agent-switcher-route-icon svg {
+.agent-switcher-chevron,
+.agent-switcher-route-arrow,
+.agent-switcher-route-icon {
   display: block;
   width: 14px;
   height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .agent-switcher-panel {
@@ -244,10 +239,6 @@
 .agent-switcher-route-icon,
 .agent-switcher-route-arrow {
   color: var(--text-2);
-}
-
-.agent-switcher-route-icon svg {
-  stroke-width: 1.25;
 }
 
 .agent-switcher-empty {

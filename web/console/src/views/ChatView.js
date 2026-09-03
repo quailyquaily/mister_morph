@@ -787,7 +787,7 @@ const ChatView = {
           subtitle: defaultProfile.modelName,
           value: "",
           image: defaultVendor.icon || undefined,
-          icon: defaultVendor.icon ? undefined : "QIconCpuChip",
+          icon: defaultVendor.icon ? undefined : "PhCpu",
         },
         ...composerLLMProfiles.value.map((profile) => {
           const vendor = modelVendorMeta(profile.modelName);
@@ -797,7 +797,7 @@ const ChatView = {
             subtitle: profile.modelName,
             value: profile.name,
             image: vendor.icon || undefined,
-            icon: vendor.icon ? undefined : "QIconCpuChip",
+            icon: vendor.icon ? undefined : "PhCpu",
           };
         }),
       ];
@@ -1098,12 +1098,12 @@ const ChatView = {
       {
         id: TOPIC_TAB_ID,
         title: t("chat_topic_kicker"),
-        icon: "QIconMessageChatSquare",
+        icon: "PhChats",
       },
       {
         id: WORKSPACE_TAB_ID,
         title: t("chat_workspace_label"),
-        icon: "QIconEcosystem",
+        icon: "PhCube",
       },
     ]);
     const selectedWorkspacePanelTab = computed(
@@ -4046,7 +4046,7 @@ const ChatView = {
             :aria-label="t('chat_topics_title')"
             @click="showTopicsView"
           >
-            <QIconArrowLeft class="icon" />
+            <PhArrowLeft class="icon" />
           </QButton>
           <h2 class="page-title page-bar-title workspace-section-title">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
           <QButton
@@ -4056,11 +4056,11 @@ const ChatView = {
             :aria-label="workspaceSidebarToggleLabel"
             @click="toggleWorkspaceSidebar"
           >
-            <QIconLayoutRight class="icon" />
+            <PhSidebarSimple class="icon" />
           </QButton>
         </div>
       </template>
-      <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <QFence v-if="err" type="danger" icon="PhXCircle" :text="err" />
       <input
         ref="composerFileInput"
         type="file"
@@ -4089,7 +4089,7 @@ const ChatView = {
                 :aria-label="t('chat_topic_new')"
                 @click="startNewTopic"
               >
-                <QIconPlus class="icon" />
+                <PhPlus class="icon" />
               </QButton>
             </header>
             <div :class="topicsLoading ? 'chat-topic-list workspace-sidebar-list is-busy' : 'chat-topic-list workspace-sidebar-list'">
@@ -4136,7 +4136,7 @@ const ChatView = {
                     :aria-label="workspaceSidebarToggleLabel"
                     @click="toggleWorkspaceSidebar"
                   >
-                    <QIconLayoutRight class="icon" />
+                    <PhSidebarSimple class="icon" />
                   </QButton>
                 </div>
               </div>
@@ -4316,7 +4316,7 @@ const ChatView = {
                           :disabled="workspaceAttachDisabled"
                           @click="openWorkspaceBrowser"
                         >
-                          <QIconPlus class="icon" />
+                          <PhPlus class="icon" />
                         </QButton>
                         <QButton
                           v-if="workspaceSource === 'attachment'"
@@ -4327,7 +4327,7 @@ const ChatView = {
                           :loading="workspaceSaving"
                           @click="detachWorkspace"
                         >
-                          <QIconTrash class="icon" />
+                          <PhTrash class="icon" />
                         </QButton>
                       </div>
                     </header>
@@ -4336,7 +4336,7 @@ const ChatView = {
                       v-if="workspaceError"
                       class="chat-workspace-pane-fence"
                       type="danger"
-                      icon="QIconCloseCircle"
+                      icon="PhXCircle"
                       :text="workspaceError"
                     />
 
@@ -4344,7 +4344,7 @@ const ChatView = {
                       v-if="workspaceTreeError"
                       class="chat-workspace-pane-fence"
                       type="danger"
-                      icon="QIconCloseCircle"
+                      icon="PhXCircle"
                       :text="workspaceTreeError"
                     />
 
@@ -4407,7 +4407,7 @@ const ChatView = {
                               :disabled="composerDisabled"
                               @click="addWorkspaceSelectionToComposer"
                             >
-                              <QIconPlus class="icon" />
+                              <PhPlus class="icon" />
                             </QButton>
                             <QButton
                               class="plain xs icon"
@@ -4416,7 +4416,7 @@ const ChatView = {
                               :loading="workspaceOpening"
                               @click="openWorkspaceSelection"
                             >
-                              <QIconLinkExternal class="icon" />
+                              <PhArrowSquareOut class="icon" />
                             </QButton>
                             <QButton
                               class="plain xs icon"
@@ -4426,7 +4426,7 @@ const ChatView = {
                               :loading="workspaceDownloading"
                               @click="downloadWorkspaceSelection"
                             >
-                              <QIconDownloadCloud class="icon" />
+                              <PhCloudArrowDown class="icon" />
                             </QButton>
                           </dd>
                         </div>
@@ -4439,7 +4439,7 @@ const ChatView = {
                       v-if="workspaceError"
                       class="chat-workspace-pane-fence"
                       type="danger"
-                      icon="QIconCloseCircle"
+                      icon="PhXCircle"
                       :text="workspaceError"
                     />
 
@@ -4474,7 +4474,7 @@ const ChatView = {
                       v-if="topicDeleteError"
                       class="chat-workspace-pane-fence"
                       type="danger"
-                      icon="QIconCloseCircle"
+                      icon="PhXCircle"
                       :text="topicDeleteError"
                     />
 
@@ -4512,7 +4512,7 @@ const ChatView = {
                         :disabled="topicDeleteDisabled"
                         @click="confirmDeleteTopic"
                       >
-                        <QIconTrash class="icon" />
+                        <PhTrash class="icon" />
                         <span>{{ t("chat_topic_delete_action") }}</span>
                       </QButton>
                     </footer>
@@ -4579,7 +4579,7 @@ const ChatView = {
                         :disabled="workspaceAttachDisabled"
                         @click="openWorkspaceBrowser"
                       >
-                        <QIconPlus class="icon" />
+                        <PhPlus class="icon" />
                       </QButton>
                       <QButton
                         v-if="workspaceSource === 'attachment'"
@@ -4590,7 +4590,7 @@ const ChatView = {
                         :loading="workspaceSaving"
                         @click="detachWorkspace"
                       >
-                        <QIconTrash class="icon" />
+                        <PhTrash class="icon" />
                       </QButton>
                     </div>
                   </header>
@@ -4599,7 +4599,7 @@ const ChatView = {
                     v-if="workspaceError"
                     class="chat-workspace-pane-fence"
                     type="danger"
-                    icon="QIconCloseCircle"
+                    icon="PhXCircle"
                     :text="workspaceError"
                   />
 
@@ -4607,7 +4607,7 @@ const ChatView = {
                     v-if="workspaceTreeError"
                     class="chat-workspace-pane-fence"
                     type="danger"
-                    icon="QIconCloseCircle"
+                    icon="PhXCircle"
                     :text="workspaceTreeError"
                   />
 
@@ -4670,7 +4670,7 @@ const ChatView = {
                             :disabled="composerDisabled"
                             @click="addWorkspaceSelectionToComposer"
                           >
-                            <QIconPlus class="icon" />
+                            <PhPlus class="icon" />
                           </QButton>
                           <QButton
                             class="plain xs icon"
@@ -4679,7 +4679,7 @@ const ChatView = {
                             :loading="workspaceOpening"
                             @click="openWorkspaceSelection"
                           >
-                            <QIconLinkExternal class="icon" />
+                            <PhArrowSquareOut class="icon" />
                           </QButton>
                           <QButton
                             class="plain xs icon"
@@ -4689,7 +4689,7 @@ const ChatView = {
                             :loading="workspaceDownloading"
                             @click="downloadWorkspaceSelection"
                           >
-                            <QIconDownloadCloud class="icon" />
+                            <PhCloudArrowDown class="icon" />
                           </QButton>
                         </dd>
                       </div>
@@ -4702,7 +4702,7 @@ const ChatView = {
                     v-if="workspaceError"
                     class="chat-workspace-pane-fence"
                     type="danger"
-                    icon="QIconCloseCircle"
+                    icon="PhXCircle"
                     :text="workspaceError"
                   />
 
@@ -4737,7 +4737,7 @@ const ChatView = {
                     v-if="topicDeleteError"
                     class="chat-workspace-pane-fence"
                     type="danger"
-                    icon="QIconCloseCircle"
+                    icon="PhXCircle"
                     :text="topicDeleteError"
                   />
 
@@ -4775,7 +4775,7 @@ const ChatView = {
                       :disabled="topicDeleteDisabled"
                       @click="confirmDeleteTopic"
                     >
-                      <QIconTrash class="icon" />
+                      <PhTrash class="icon" />
                       <span>{{ t("chat_topic_delete_action") }}</span>
                     </QButton>
                   </footer>
@@ -4800,7 +4800,7 @@ const ChatView = {
               v-if="workspaceBrowserError"
               class="chat-workspace-pane-fence"
               type="danger"
-              icon="QIconCloseCircle"
+              icon="PhXCircle"
               :text="workspaceBrowserError"
             />
 
@@ -4872,7 +4872,7 @@ const ChatView = {
                     :disabled="workspaceBrowserCreateDisabled || workspaceBrowserCreateOpen"
                     @click="openWorkspaceBrowserCreate"
                   >
-                    <QIconPlus class="icon" />
+                    <PhPlus class="icon" />
                     <span>{{ t("chat_workspace_dialog_new_directory") }}</span>
                   </QButton>
                 </div>
@@ -5013,7 +5013,7 @@ const ChatView = {
                 v-else-if="composerFilePreviewError"
                 class="chat-composer-file-preview-error"
                 type="danger"
-                icon="QIconCloseCircle"
+                icon="PhXCircle"
                 :text="composerFilePreviewError"
               />
               <nav
@@ -5028,7 +5028,7 @@ const ChatView = {
                   :aria-label="t('chat_composer_file_preview_previous')"
                   @click="navigateComposerFilePreview(-1)"
                 >
-                  <QIconArrowLeft class="icon" />
+                  <PhArrowLeft class="icon" />
                 </QButton>
                 <QButton
                   class="plain sm icon chat-composer-file-preview-nav-button is-next"
@@ -5037,7 +5037,7 @@ const ChatView = {
                   :aria-label="t('chat_composer_file_preview_next')"
                   @click="navigateComposerFilePreview(1)"
                 >
-                  <QIconArrowRight class="icon" />
+                  <PhArrowRight class="icon" />
                 </QButton>
               </nav>
             </div>
@@ -5051,7 +5051,7 @@ const ChatView = {
         />
         <QMessageDialog
           v-model="topicDeleteDialogOpen"
-          icon="QIconTrash"
+          icon="PhTrash"
           iconColor="red"
           :title="t('chat_topic_delete_action')"
           :text="topicDeleteDialogText"

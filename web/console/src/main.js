@@ -11,6 +11,7 @@ import { installExternalLinkHandler } from "./core/external-links";
 import { installConsolePerformanceObservers } from "./core/performance";
 import { installMacOS26Mode } from "./core/platform";
 import { installSystemNotifications } from "./core/system-notifications";
+import { phosphorIcons } from "./icons/phosphor";
 import { router } from "./router";
 import { pinia } from "./stores/pinia";
 
@@ -30,6 +31,9 @@ if (import.meta.env.DEV === true) {
 app.use(pinia);
 app.use(router);
 app.use(QuailUI);
+for (const [name, component] of Object.entries(phosphorIcons)) {
+  app.component(name, component);
+}
 applyTheme("morph", false);
 
 async function boot() {

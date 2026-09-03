@@ -323,7 +323,7 @@ const RepairView = {
         </header>
 
         <QProgress v-if="loading" :infinite="true" />
-        <QFence v-if="err" class="repair-error" type="danger" icon="QIconCloseCircle" :text="err" />
+        <QFence v-if="err" class="repair-error" type="danger" icon="PhXCircle" :text="err" />
 
         <section v-if="!loading && items.length > 0" class="repair-list">
 		  <QCard v-for="item in items" :key="issueID(item)" class="repair-item" variant="default">
@@ -402,7 +402,7 @@ const RepairView = {
 	  </AppDialogShell>
 	  <QMessageDialog
 		v-model="removeDialogOpen"
-		icon="QIconTrash"
+		icon="PhTrash"
 		iconColor="red"
 		:title="t('repair_remove_secret_title')"
 		:text="removeDialogText"

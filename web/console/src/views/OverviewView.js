@@ -142,7 +142,7 @@ const OverviewView = {
   template: `
     <AppPage :title="t('nav_overview')">
       <QProgress v-if="loading" :infinite="true" />
-      <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <QFence v-if="err" type="danger" icon="PhXCircle" :text="err" />
 
       <section class="overview-page">
         <div class="stat-groups overview-groups">

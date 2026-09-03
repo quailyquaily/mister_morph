@@ -76,7 +76,7 @@ const SetupPickerDialogContent = {
       />
 
       <QProgress v-if="loading" :infinite="true" />
-      <QFence v-if="error" type="danger" icon="QIconCloseCircle" :text="error" />
+      <QFence v-if="error" type="danger" icon="PhXCircle" :text="error" />
 
       <div v-if="!loading" class="setup-picker-list">
         <button

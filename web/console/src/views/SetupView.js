@@ -631,7 +631,7 @@ const SetupView = {
     const hasSoulSelection = computed(() => soulSelectionKind.value === "preset" || soulSelectionKind.value === "custom");
     const isCustomSoulSelected = computed(() => soulSelectionKind.value === "custom");
     const soulDocumentExists = computed(() => hasSoulDocument(loadedSoulRaw.value));
-    const customSoulCardIcon = computed(() => (soulDocumentExists.value ? "QIconCpuChip" : "QIconPlus"));
+    const customSoulCardIcon = computed(() => (soulDocumentExists.value ? "PhCpu" : "PhPlus"));
     const selectedSoulCard = computed(() => {
       if (soulSelectionKind.value === "preset") {
         return soulPresetCards.value.find((item) => item.id === soulPresetId.value) || null;
@@ -639,7 +639,7 @@ const SetupView = {
       if (isCustomSoulSelected.value) {
         return {
           id: "custom",
-          icon: soulDocumentExists.value ? "QIconCpuChip" : "QIconPlus",
+          icon: soulDocumentExists.value ? "PhCpu" : "PhPlus",
           title: soulDocumentExists.value ? t("setup_soul_existing_title") : t("setup_soul_custom_title"),
           note: "",
         };
@@ -679,21 +679,21 @@ const SetupView = {
     const doneStatusItems = computed(() => [
       {
         stage: "llm",
-        icon: "QIconSettings",
+        icon: "PhGearSix",
         key: t("settings_agent_provider_label"),
         value: t("setup_done_status_ready"),
         action: t("setup_action_edit_llm"),
       },
       {
         stage: "persona",
-        icon: "QIconUsers",
+        icon: "PhUsers",
         key: t("setup_identity_title"),
         value: t("setup_done_status_ready"),
         action: t("setup_action_edit_persona"),
       },
       {
         stage: "soul",
-        icon: "QIconEcosystem",
+        icon: "PhCube",
         key: t("setup_soul_editor_label"),
         value: t("setup_done_status_ready"),
         action: t("setup_action_edit_soul"),
@@ -1941,10 +1941,10 @@ const SetupView = {
                 :disabled="codexAuthDisabled"
                 @click.prevent="openCodexAuthDialog"
               >
-                <QIconRefresh v-if="codexAuthButtonState === 'loading'" class="icon" />
-                <QIconCheckCircle v-else-if="codexAuthButtonState === 'signed-in'" class="icon" />
+                <PhArrowClockwise v-if="codexAuthButtonState === 'loading'" class="icon" />
+                <PhCheckCircle v-else-if="codexAuthButtonState === 'signed-in'" class="icon" />
                 <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
-                <QIconCloseCircle v-else class="icon" />
+                <PhXCircle v-else class="icon" />
               </QButton>
               <QButton
                 v-if="showXAIOAuthFields"
@@ -1955,11 +1955,11 @@ const SetupView = {
                 :disabled="loading || saving"
                 @click.prevent="openXAIAuthDialog"
               >
-                <QIconRefresh v-if="xaiAuthButtonState === 'loading'" class="icon" />
-                <QIconCheckCircle v-else-if="xaiAuthButtonState === 'signed-in'" class="icon" />
-                <QIconRefresh v-else-if="xaiAuthButtonState === 'refreshable'" class="icon" />
+                <PhArrowClockwise v-if="xaiAuthButtonState === 'loading'" class="icon" />
+                <PhCheckCircle v-else-if="xaiAuthButtonState === 'signed-in'" class="icon" />
+                <PhArrowClockwise v-else-if="xaiAuthButtonState === 'refreshable'" class="icon" />
                 <template v-else-if="xaiAuthNeedsLogin">{{ t("settings_xai_auth_login") }}</template>
-                <QIconCloseCircle v-else class="icon" />
+                <PhXCircle v-else class="icon" />
               </QButton>
               <QButton
                 v-if="showProOAuthFields"
@@ -1970,11 +1970,11 @@ const SetupView = {
                 :disabled="loading || saving"
                 @click.prevent="openProAuthDialog"
               >
-                <QIconRefresh v-if="proAuthButtonState === 'loading'" class="icon" />
-                <QIconCheckCircle v-else-if="proAuthButtonState === 'signed-in'" class="icon" />
-                <QIconRefresh v-else-if="proAuthButtonState === 'refreshable'" class="icon" />
+                <PhArrowClockwise v-if="proAuthButtonState === 'loading'" class="icon" />
+                <PhCheckCircle v-else-if="proAuthButtonState === 'signed-in'" class="icon" />
+                <PhArrowClockwise v-else-if="proAuthButtonState === 'refreshable'" class="icon" />
                 <template v-else-if="proAuthNeedsLogin">{{ t("settings_pro_auth_login_pro") }}</template>
-                <QIconCloseCircle v-else class="icon" />
+                <PhXCircle v-else class="icon" />
               </QButton>
             </div>
             <div v-else-if="providerManagedField" class="setup-env-managed">
@@ -2011,7 +2011,7 @@ const SetupView = {
                 :disabled="!showOpenAICompatibleHelpers || loading || saving"
                 @click.prevent="openAPIBasePicker"
               >
-                <QIconLink class="icon" />
+                <PhLink class="icon" />
               </QButton>
             </div>
           </label>
@@ -2113,7 +2113,7 @@ const SetupView = {
                 <span>{{ credentialHelpParts?.before }}</span>
                 <span class="setup-field-link-provider">{{ credentialHelp.title }}</span>
                 <span>{{ credentialHelpParts?.after }}</span>
-                <QIconArrowUpRight class="icon setup-field-link-icon" />
+                <PhArrowUpRight class="icon setup-field-link-icon" />
               </button>
               <span v-else class="setup-field-link is-static">
                 {{ t(credentialHintPlainKey, { provider: credentialHelp.title }) }}
@@ -2141,12 +2141,12 @@ const SetupView = {
                 :disabled="modelLookupDisabled"
                 @click.prevent="openModelPicker"
               >
-                <QIconSearch class="icon" />
+                <PhMagnifyingGlass class="icon" />
               </QButton>
             </div>
           </label>
 
-          <QFence v-if="err" class="setup-error is-wide" type="danger" icon="QIconCloseCircle" :text="err" />
+          <QFence v-if="err" class="setup-error is-wide" type="danger" icon="PhXCircle" :text="err" />
 
           <div class="setup-footer is-wide">
             <div class="setup-footer-side">
@@ -2225,7 +2225,7 @@ const SetupView = {
             />
           </label>
 
-          <QFence v-if="err" class="setup-error is-wide" type="danger" icon="QIconCloseCircle" :text="err" />
+          <QFence v-if="err" class="setup-error is-wide" type="danger" icon="PhXCircle" :text="err" />
 
           <div class="setup-footer setup-footer-persona is-wide">
             <div class="setup-footer-side">
@@ -2240,7 +2240,7 @@ const SetupView = {
                 :disabled="loading || saving"
                 @click="fillRandomPersona"
               >
-                <QIconDice class="icon" />
+                <PhDiceFive class="icon" />
               </QButton>
             </div>
             <div class="setup-footer-side is-end">
@@ -2319,7 +2319,7 @@ const SetupView = {
             />
           </section>
 
-          <QFence v-if="err" class="setup-error is-wide" type="danger" icon="QIconCloseCircle" :text="err" />
+          <QFence v-if="err" class="setup-error is-wide" type="danger" icon="PhXCircle" :text="err" />
 
           <div class="setup-footer is-wide">
             <div class="setup-footer-side">
@@ -2345,7 +2345,7 @@ const SetupView = {
                 <div class="setup-done-status-actions">
                   <strong class="setup-done-status-value">{{ item.value }}</strong>
                   <QButton class="plain xs icon setup-done-edit-button" :title="item.action" :aria-label="item.action" @click="goToStage(item.stage)">
-                    <QIconEdit class="icon" />
+                    <PhPencilSimple class="icon" />
                   </QButton>
                 </div>
               </div>

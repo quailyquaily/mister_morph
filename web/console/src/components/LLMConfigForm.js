@@ -420,10 +420,10 @@ const LLMConfigForm = {
             :disabled="codexAuthDisabled"
             @click.prevent="$emit('open-codex-auth')"
           >
-            <QIconRefresh v-if="codexAuthState === 'loading'" class="icon" />
-            <QIconCheckCircle v-else-if="codexAuthState === 'signed-in'" class="icon" />
+            <PhArrowClockwise v-if="codexAuthState === 'loading'" class="icon" />
+            <PhCheckCircle v-else-if="codexAuthState === 'signed-in'" class="icon" />
             <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
-            <QIconCloseCircle v-else class="icon" />
+            <PhXCircle v-else class="icon" />
           </QButton>
           <QButton
             v-if="showXAIAuthAction && showXAIOAuthFields"
@@ -434,11 +434,11 @@ const LLMConfigForm = {
             :disabled="busy"
             @click.prevent="$emit('open-xai-auth')"
           >
-            <QIconRefresh v-if="xaiAuthState === 'loading'" class="icon" />
-            <QIconCheckCircle v-else-if="xaiAuthState === 'signed-in'" class="icon" />
-            <QIconRefresh v-else-if="xaiAuthState === 'refreshable'" class="icon" />
+            <PhArrowClockwise v-if="xaiAuthState === 'loading'" class="icon" />
+            <PhCheckCircle v-else-if="xaiAuthState === 'signed-in'" class="icon" />
+            <PhArrowClockwise v-else-if="xaiAuthState === 'refreshable'" class="icon" />
             <template v-else-if="xaiAuthNeedsLogin">{{ t("settings_xai_auth_login") }}</template>
-            <QIconCloseCircle v-else class="icon" />
+            <PhXCircle v-else class="icon" />
           </QButton>
           <QButton
             v-if="showProAuthAction && showProOAuthFields"
@@ -449,11 +449,11 @@ const LLMConfigForm = {
             :disabled="busy"
             @click.prevent="$emit('open-pro-auth')"
           >
-            <QIconRefresh v-if="proAuthState === 'loading'" class="icon" />
-            <QIconCheckCircle v-else-if="proAuthState === 'signed-in'" class="icon" />
-            <QIconRefresh v-else-if="proAuthState === 'refreshable'" class="icon" />
+            <PhArrowClockwise v-if="proAuthState === 'loading'" class="icon" />
+            <PhCheckCircle v-else-if="proAuthState === 'signed-in'" class="icon" />
+            <PhArrowClockwise v-else-if="proAuthState === 'refreshable'" class="icon" />
             <template v-else-if="proAuthNeedsLogin">{{ t("settings_pro_auth_login_pro") }}</template>
-            <QIconCloseCircle v-else class="icon" />
+            <PhXCircle v-else class="icon" />
           </QButton>
         </div>
         <div v-else-if="providerManagedField" class="settings-env-managed">
@@ -493,7 +493,7 @@ const LLMConfigForm = {
             :disabled="busy || readOnly || !showOpenAICompatibleHelpers"
             @click.prevent="$emit('open-api-base-picker')"
           >
-            <QIconLink class="icon" />
+            <PhLink class="icon" />
           </QButton>
         </div>
         <QInput
@@ -614,7 +614,7 @@ const LLMConfigForm = {
             <span>{{ credentialHelpParts?.before }}</span>
             <span class="settings-field-link-provider">{{ credentialHelp.title }}</span>
             <span>{{ credentialHelpParts?.after }}</span>
-            <QIconArrowUpRight class="icon settings-field-link-icon" />
+            <PhArrowUpRight class="icon settings-field-link-icon" />
           </button>
           <span v-else class="settings-field-link is-static">
             {{ t(credentialHintPlainKey, { provider: credentialHelp.title }) }}
@@ -644,7 +644,7 @@ const LLMConfigForm = {
             :disabled="modelLookupDisabled"
             @click.prevent="$emit('open-model-picker')"
           >
-            <QIconSearch class="icon" />
+            <PhMagnifyingGlass class="icon" />
           </QButton>
         </div>
       </div>

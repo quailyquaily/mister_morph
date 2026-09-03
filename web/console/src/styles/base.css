@@ -256,8 +256,4 @@ pre {
   min-width: 14px;
   height: 14px;
   color: var(--q-c-red) !important;
-  fill: none;
-  stroke: var(--q-c-red) !important;
-  stroke-linecap: square;
-  stroke-width: 1.8;
 }
