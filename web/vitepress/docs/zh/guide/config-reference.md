@@ -167,8 +167,6 @@ Shell 默认值按平台区分：
 |---|---|
 | `bus.max_inflight` | 进程内消息总线最大并发在途数。 |
 | `contacts.dir_name` | 联系人业务状态目录名。 |
-| `contacts.proactive.max_turns_per_session` | 主动会话最大轮次。 |
-| `contacts.proactive.session_cooldown` | 主动会话轮次耗尽后的冷却时长。 |
 | `contacts.proactive.failure_cooldown` | 主动发送失败后的冷却时长。 |
 | `tasks.dir_name` | task projection 快照目录名。 |
 | `tasks.persistence_targets` | 跨进程重启保存并恢复 task projection 的目标运行时；不影响统一 journal 记录。 |
@@ -181,7 +179,6 @@ Shell 默认值按平台区分：
 
 | 字段 | 含义 |
 |---|---|
-| `server.listen` | 已废弃；旧版共享监听地址回退项。 |
 | `server.auth_token` | 运行时 API 鉴权 token（Bearer）。 |
 | `server.max_queue` | 任务队列最大长度。 |
 | `console.listen` | Console API + 静态资源监听地址。 |

@@ -454,10 +454,6 @@ contacts:
   # Directory name under file_state_dir for contacts domain storage.
   dir_name: "contacts"
   proactive:
-    # Max turns for one proactive conversation session (contact + conversation_id).
-    max_turns_per_session: 6
-    # Cooldown after reaching max turns before auto-reply can resume.
-    session_cooldown: "10m"
     # Cooldown applied when proactive/direct send fails (e.g. peer unavailable).
     failure_cooldown: "1h"
 

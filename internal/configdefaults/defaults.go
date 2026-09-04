@@ -95,13 +95,10 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("admins", []string{})
 
 	v.SetDefault("contacts.dir_name", "contacts")
-	v.SetDefault("contacts.proactive.max_turns_per_session", 6)
-	v.SetDefault("contacts.proactive.session_cooldown", 72*time.Hour)
 	v.SetDefault("contacts.proactive.failure_cooldown", 72*time.Hour)
 
 	v.SetDefault("server.max_queue", DefaultServerMaxQueue)
 
-	v.SetDefault("console.enabled", true)
 	v.SetDefault("console.listen", "127.0.0.1:9080")
 	v.SetDefault("console.base_path", "/")
 	v.SetDefault("console.static_dir", "")
@@ -109,9 +106,6 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("console.password_hash", "")
 	v.SetDefault("console.session_ttl", 12*time.Hour)
 	v.SetDefault("console.endpoints", []map[string]any{})
-
-	v.SetDefault("submit.wait", false)
-	v.SetDefault("submit.poll_interval", 1*time.Second)
 
 	v.SetDefault("telegram.poll_timeout", DefaultTelegramPollTimeout)
 	v.SetDefault("telegram.group_trigger_mode", DefaultGroupTriggerMode)

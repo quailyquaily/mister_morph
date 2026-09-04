@@ -151,8 +151,6 @@ Shell defaults are platform-specific:
 
 - `bus.max_inflight`
 - `contacts.dir_name`
-- `contacts.proactive.max_turns_per_session`
-- `contacts.proactive.session_cooldown`
 - `contacts.proactive.failure_cooldown`
 - `tasks.dir_name`
 - `tasks.persistence_targets`
@@ -165,7 +163,6 @@ Shell defaults are platform-specific:
 
 ## Server and Console
 
-- `server.listen` (deprecated)
 - `server.auth_token`
 - `server.max_queue`
 - `console.listen`
