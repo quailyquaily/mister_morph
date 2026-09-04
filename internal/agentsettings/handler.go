@@ -9,6 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 )
@@ -112,10 +113,21 @@ type SkillsSettingsUpdate struct {
 	Load    *[]string `json:"load,omitempty"`
 }
 
+type MCPServerSettings = mcphost.ServerConfig
+
+type MCPSettingsPayload struct {
+	Servers []MCPServerSettings `json:"servers"`
+}
+
+type MCPSettingsUpdate struct {
+	Servers *[]MCPServerSettings `json:"servers,omitempty"`
+}
+
 type AgentSettingsUpdate struct {
 	LLM    LLMSettingsUpdate     `json:"llm"`
 	Skills *SkillsSettingsUpdate `json:"skills,omitempty"`
 	Tools  *ToolsSettingsUpdate  `json:"tools,omitempty"`
+	MCP    *MCPSettingsUpdate    `json:"mcp,omitempty"`
 }
 
 type AgentSettingsView struct {
@@ -125,6 +137,7 @@ type AgentSettingsView struct {
 	SecretFields   SecretFieldsPayload   `json:"secret_fields,omitempty"`
 	Skills         SkillsSettingsPayload `json:"skills"`
 	Tools          ToolsSettingsPayload  `json:"tools"`
+	MCP            MCPSettingsPayload    `json:"mcp"`
 	ConfigPath     string                `json:"config_path"`
 	ConfigExists   bool                  `json:"config_exists"`
 	ConfigValid    bool                  `json:"config_valid"`

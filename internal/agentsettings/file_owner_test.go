@@ -796,6 +796,120 @@ func TestFileOwnerLoadsCandidateWithoutChangingCurrentReader(t *testing.T) {
 	}
 }
 
+func TestFileOwnerViewPreservesRawMCPReferences(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`llm:
+  provider: openai
+  model: gpt-test
+mcp:
+  servers:
+    - name: remote
+      enable: true
+      type: http
+      url: https://mcp.example.com/mcp
+      headers:
+        Authorization: Bearer ${MCP_REMOTE_TOKEN}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+
+	view, err := owner.View(context.Background())
+	if err != nil {
+		t.Fatalf("View() error = %v", err)
+	}
+	if len(view.MCP.Servers) != 1 {
+		t.Fatalf("MCP servers = %#v, want one server", view.MCP.Servers)
+	}
+	server := view.MCP.Servers[0]
+	if server.Name != "remote" || server.Type != "http" || !server.Enable {
+		t.Fatalf("MCP server = %#v", server)
+	}
+	if got := server.Headers["Authorization"]; got != "Bearer ${MCP_REMOTE_TOKEN}" {
+		t.Fatalf("Authorization header = %q, want raw environment reference", got)
+	}
+}
+
+func TestFileOwnerUpdateWritesMCPServersAndPreservesOtherConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("custom:\n  keep: true\nllm:\n  provider: openai\n  model: gpt-test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	servers := []MCPServerSettings{
+		{
+			Name:         "local",
+			Enable:       true,
+			Type:         "stdio",
+			Command:      "node",
+			Args:         []string{"server.js", "--quiet"},
+			Env:          map[string]string{"NODE_ENV": "production"},
+			AllowedTools: []string{"search", "lookup"},
+		},
+		{
+			Name:    "remote",
+			Enable:  false,
+			Type:    "http",
+			URL:     "https://mcp.example.com/mcp",
+			Headers: map[string]string{"Authorization": "Bearer ${MCP_REMOTE_TOKEN}"},
+		},
+	}
+
+	view, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		MCP: &MCPSettingsUpdate{Servers: &servers},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(view.MCP.Servers) != 2 || view.MCP.Servers[1].Enable {
+		t.Fatalf("updated MCP view = %#v", view.MCP.Servers)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "keep: true") || !strings.Contains(string(raw), "allowed_tools:") {
+		t.Fatalf("updated config lost existing data or MCP fields:\n%s", raw)
+	}
+	parsed := viper.New()
+	parsed.SetConfigType("yaml")
+	if err := parsed.ReadConfig(strings.NewReader(string(raw))); err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.GetString("mcp.servers.0.command"); got != "node" {
+		t.Fatalf("mcp.servers.0.command = %q, want node", got)
+	}
+	if got := parsed.GetString("mcp.servers.1.headers.Authorization"); got != "Bearer ${MCP_REMOTE_TOKEN}" {
+		t.Fatalf("remote Authorization header = %q", got)
+	}
+}
+
+func TestFileOwnerUpdateRejectsInvalidMCPServer(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	original := "llm:\n  provider: openai\n  model: gpt-test\n"
+	if err := os.WriteFile(configPath, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	servers := []MCPServerSettings{{Name: "broken", Enable: true, Type: "http"}}
+
+	_, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		MCP: &MCPSettingsUpdate{Servers: &servers},
+	})
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusBadRequest {
+		t.Fatalf("Update() error = %v, want 400 status error", err)
+	}
+	raw, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != original {
+		t.Fatalf("invalid update changed config:\n%s", raw)
+	}
+}
+
 func TestFileOwnerCandidateOnlyReloadsAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	initialConfig := `
@@ -874,8 +988,8 @@ tools:
 	if got := candidate.GetString("telegram.bot_token"); got != "boot-token" {
 		t.Fatalf("candidate telegram.bot_token = %q, want boot-token", got)
 	}
-	if got := candidate.GetString("mcp.servers.0.name"); got != "boot-mcp" {
-		t.Fatalf("candidate mcp server = %q, want boot-mcp", got)
+	if got := candidate.GetString("mcp.servers.0.name"); got != "changed-mcp" {
+		t.Fatalf("candidate mcp server = %q, want changed-mcp", got)
 	}
 	if got := candidate.GetBool("guard.enabled"); got {
 		t.Fatal("candidate guard.enabled = true, want false")

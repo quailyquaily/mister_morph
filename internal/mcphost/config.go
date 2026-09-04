@@ -9,15 +9,15 @@ import (
 )
 
 type ServerConfig struct {
-	Name         string
-	Enable       bool              // set false to disable; default true
-	Type         string            // "stdio" (default) | "http"
-	Command      string            // stdio only
-	Args         []string          // stdio only
-	Env          map[string]string // stdio only
-	URL          string            // http only
-	Headers      map[string]string // http only: custom HTTP headers (auth etc.)
-	AllowedTools []string          // whitelist; empty = all
+	Name         string            `json:"name" yaml:"name"`
+	Enable       bool              `json:"enable" yaml:"enable"`                                   // set false to disable; default true
+	Type         string            `json:"type" yaml:"type"`                                       // "stdio" (default) | "http"
+	Command      string            `json:"command,omitempty" yaml:"command,omitempty"`             // stdio only
+	Args         []string          `json:"args,omitempty" yaml:"args,omitempty"`                   // stdio only
+	Env          map[string]string `json:"env,omitempty" yaml:"env,omitempty"`                     // stdio only
+	URL          string            `json:"url,omitempty" yaml:"url,omitempty"`                     // http only
+	Headers      map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`             // http only: custom HTTP headers (auth etc.)
+	AllowedTools []string          `json:"allowed_tools,omitempty" yaml:"allowed_tools,omitempty"` // whitelist; empty = all
 }
 
 func (c *ServerConfig) Validate() error {
@@ -64,7 +64,7 @@ func (c *ServerConfig) AllowedToolSet() map[string]bool {
 
 // MCPConfigFromViper reads MCP server configs from the global viper instance.
 func MCPConfigFromViper() []ServerConfig {
-	return parseMCPServers(viper.Get("mcp.servers"))
+	return ParseServers(viper.Get("mcp.servers"))
 }
 
 // MCPConfigFromReader reads MCP server configs from a local viper instance,
@@ -73,10 +73,12 @@ func MCPConfigFromReader(v *viper.Viper) []ServerConfig {
 	if v == nil {
 		return nil
 	}
-	return parseMCPServers(v.Get("mcp.servers"))
+	return ParseServers(v.Get("mcp.servers"))
 }
 
-func parseMCPServers(raw any) []ServerConfig {
+// ParseServers converts the generic map shape produced by Viper or yaml.v3
+// into MCP server configuration.
+func ParseServers(raw any) []ServerConfig {
 	if raw == nil {
 		return nil
 	}
