@@ -29,7 +29,7 @@ MisterMorph 的 API key、Bot token、OAuth token 和云平台凭据目前可能
 4. 系统密钥管理器引用使用 `${secret:<opaque-id>}`，并且必须占满整个 scalar value。
 5. 现有 `${ENV_VAR}` 和 `${aws-sm:...}` 语法保持兼容。
 6. secret 只在配置快照建立时解析一次。请求路径不重复访问 Keychain、Credential Manager、Secret Service 或 AWS。
-7. 已保存引用解析失败时明确报错，不自动尝试其他来源。Settings 保存新 secret 时若系统密钥管理器写入失败，则记录 warning，并按旧行为把本次提交值写入配置文件。
+7. 已保存引用解析失败时明确报错，不自动尝试其他来源。Settings 或交互式 `install` 保存新 secret 时若系统密钥管理器写入失败，则记录带排障提示的 warning，并按旧行为把本次提交值写入配置文件。
 8. 第一版不新增直接 AWS KMS 密文后端。AWS 环境继续使用已经实现的 AWS Secrets Manager 引用；Secrets Manager 本身使用 KMS 保护 secret。
 
 这套设计不引入通用插件系统，也不为每个 Provider 增加一层包装。现有 `internal/secref` 扩展为统一入口即可。
@@ -364,7 +364,9 @@ type OSStore interface {
 - AWS Secrets Manager；
 - 明确接受风险后的 0600 配置文件。
 
-程序不会创建独立的明文 fallback file。Settings 保存遇到这种情况时，会记录 warning，并继续使用原有的 0600 `config.yaml` 保存路径。
+程序不会创建独立的明文 fallback file。Settings 和交互式 install 保存遇到这种情况时，会记录 warning，并继续使用原有的 0600 `config.yaml` 保存路径。Linux warning 区分用户 D-Bus、Secret Service provider 和锁定的 keyring；headless server 可改用环境变量、systemd credentials 或 AWS Secrets Manager。
+
+macOS Keychain 和 Windows Credential Manager 是系统组件，不存在可额外安装的 provider。两者不可用时，warning 应分别指出 Keychain 或 Credential Manager，并提示检查登录会话、锁定状态、访问权限或系统服务，不应建议安装 Linux 依赖。
 
 ### 10.4 桌面应用身份
 
