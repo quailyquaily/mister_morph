@@ -64,3 +64,20 @@ func TestApplyDoesNotRegisterJournalDirectoryConfig(t *testing.T) {
 		t.Fatal("journal.dir_name should not be configurable")
 	}
 }
+
+func TestApplyDoesNotRegisterRemovedConfig(t *testing.T) {
+	v := viper.New()
+	Apply(v)
+	for _, key := range []string{
+		"contacts.proactive.max_turns_per_session",
+		"contacts.proactive.session_cooldown",
+		"console.enabled",
+		"server.listen",
+		"submit.wait",
+		"submit.poll_interval",
+	} {
+		if v.IsSet(key) {
+			t.Errorf("%s should not be configurable", key)
+		}
+	}
+}
