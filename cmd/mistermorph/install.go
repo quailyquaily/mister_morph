@@ -51,7 +51,7 @@ func newInstallCmd() *cobra.Command {
 					}
 					if cfgSetup != nil {
 						installSecretStore = secref.NewOSStore()
-						if err := protectInstallSetupSecrets(cmd.Context(), cfgSetup, installSecretStore); err != nil {
+						if err := protectInstallSetupSecrets(cmd.Context(), cfgSetup, installSecretStore, cmd.ErrOrStderr()); err != nil {
 							return fmt.Errorf("save setup credential in the system secret store: %w", err)
 						}
 					}

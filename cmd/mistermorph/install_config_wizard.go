@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -28,7 +30,7 @@ type installConfigSetup struct {
 	secretIDs          []string
 }
 
-func protectInstallSetupSecrets(ctx context.Context, setup *installConfigSetup, store secref.OSStore) error {
+func protectInstallSetupSecrets(ctx context.Context, setup *installConfigSetup, store secref.OSStore, stderr io.Writer) error {
 	if setup == nil || store == nil {
 		return nil
 	}
@@ -50,11 +52,36 @@ func protectInstallSetupSecrets(ctx context.Context, setup *installConfigSetup, 
 		return fmt.Errorf("create system secret reference: %w", err)
 	}
 	if err := store.Put(ctx, id, configKey, []byte(secret)); err != nil {
-		return fmt.Errorf("store install credential: %w", secref.ErrOSStoreUnavailable)
+		if stderr != nil {
+			fmt.Fprintf(stderr, "warn: %s; saving setup credential in config.yaml\n", installSecretStoreUnavailableHint(err, runtime.GOOS))
+		}
+		return nil
 	}
 	*value = secref.OSSecretRef(id)
 	setup.secretIDs = append(setup.secretIDs, id)
 	return nil
+}
+
+func installSecretStoreUnavailableHint(err error, goos string) string {
+	switch goos {
+	case "linux":
+		switch {
+		case errors.Is(err, secref.ErrOSStoreSessionUnavailable):
+			return "user D-Bus session unavailable; install or start a user session bus (Debian/Ubuntu package: dbus-user-session), or use an environment variable or AWS Secrets Manager on a headless server"
+		case errors.Is(err, secref.ErrOSStoreServiceUnavailable):
+			return "Secret Service provider unavailable; install or start gnome-keyring (Debian/Ubuntu package: gnome-keyring) or KWallet"
+		case errors.Is(err, secref.ErrOSStoreUnlockFailed):
+			return "login keyring is locked; unlock it in the current desktop session"
+		default:
+			return "Linux Secret Service unavailable; check the user D-Bus session and Secret Service provider, or use an environment variable or AWS Secrets Manager on a headless server"
+		}
+	case "darwin":
+		return "macOS Keychain unavailable; it is built into macOS, so unlock the login keychain and allow MisterMorph to access it"
+	case "windows":
+		return "Windows Credential Manager unavailable; it is built into Windows, so use an interactive user session and ensure the Credential Manager service is running"
+	default:
+		return "system secret store unavailable"
+	}
 }
 
 func discardInstallSetupSecrets(ctx context.Context, setup *installConfigSetup, store secref.OSStore) {

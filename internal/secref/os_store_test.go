@@ -131,6 +131,14 @@ func TestKeyringOSStoreHidesBackendErrors(t *testing.T) {
 	}
 }
 
+func TestKeyringOSStorePreservesSafeUnavailableReason(t *testing.T) {
+	store := newKeyringOSStore(&fakeKeyringClient{setErr: ErrOSStoreServiceUnavailable})
+	err := store.Put(context.Background(), "b_LsX7HLzAR3OShG7YjRcw", "llm.api_key", []byte("secret"))
+	if !errors.Is(err, ErrOSStoreUnavailable) || !errors.Is(err, ErrOSStoreServiceUnavailable) {
+		t.Fatalf("Put() error = %v, want service-unavailable reason", err)
+	}
+}
+
 func TestKeyringOSStoreHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -13,8 +14,11 @@ import (
 const osKeyringService = "com.mistermorph"
 
 var (
-	ErrOSStoreUnavailable = errors.New("os secret store unavailable")
-	errKeyringNotFound    = errors.New("keyring item not found")
+	ErrOSStoreUnavailable        = errors.New("os secret store unavailable")
+	ErrOSStoreSessionUnavailable = fmt.Errorf("%w: user D-Bus session unavailable", ErrOSStoreUnavailable)
+	ErrOSStoreServiceUnavailable = fmt.Errorf("%w: Secret Service provider unavailable", ErrOSStoreUnavailable)
+	ErrOSStoreUnlockFailed       = fmt.Errorf("%w: login keyring could not be unlocked", ErrOSStoreUnavailable)
+	errKeyringNotFound           = errors.New("keyring item not found")
 )
 
 type OSStore interface {
@@ -96,7 +100,7 @@ func (s *keyringOSStore) Get(ctx context.Context, id string) ([]byte, error) {
 		return nil, ErrOSSecretNotFound
 	}
 	if err != nil {
-		return nil, ErrOSStoreUnavailable
+		return nil, sanitizeOSStoreError(err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -116,7 +120,7 @@ func (s *keyringOSStore) Put(ctx context.Context, id, configKey string, value []
 		label += " · " + configKey
 	}
 	if err := s.client.Set(osKeyringService, id, label, string(value)); err != nil {
-		return ErrOSStoreUnavailable
+		return sanitizeOSStoreError(err)
 	}
 	return ctx.Err()
 }
@@ -133,9 +137,22 @@ func (s *keyringOSStore) Delete(ctx context.Context, id string) error {
 		return ErrOSSecretNotFound
 	}
 	if err != nil {
-		return ErrOSStoreUnavailable
+		return sanitizeOSStoreError(err)
 	}
 	return ctx.Err()
+}
+
+func sanitizeOSStoreError(err error) error {
+	for _, known := range []error{
+		ErrOSStoreSessionUnavailable,
+		ErrOSStoreServiceUnavailable,
+		ErrOSStoreUnlockFailed,
+	} {
+		if errors.Is(err, known) {
+			return known
+		}
+	}
+	return ErrOSStoreUnavailable
 }
 
 func validateOSSecretID(id string) error {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func TestProtectInstallSetupSecretsStoresAPIKey(t *testing.T) {
 	store := &installTestOSStore{}
 	setup := &installConfigSetup{Provider: setupProviderOpenAICompatible, APIKey: "install-secret"}
 
-	if err := protectInstallSetupSecrets(context.Background(), setup, store); err != nil {
+	if err := protectInstallSetupSecrets(context.Background(), setup, store, io.Discard); err != nil {
 		t.Fatalf("protectInstallSetupSecrets() error = %v", err)
 	}
 	ref, ok := secref.ParseSingleRef(setup.APIKey)
@@ -68,7 +69,7 @@ func TestProtectInstallSetupSecretsStoresCloudflareToken(t *testing.T) {
 	store := &installTestOSStore{}
 	setup := &installConfigSetup{Provider: setupProviderCloudflare, CloudflareAPIToken: "cloudflare-secret"}
 
-	if err := protectInstallSetupSecrets(context.Background(), setup, store); err != nil {
+	if err := protectInstallSetupSecrets(context.Background(), setup, store, io.Discard); err != nil {
 		t.Fatalf("protectInstallSetupSecrets() error = %v", err)
 	}
 	ref, ok := secref.ParseSingleRef(setup.CloudflareAPIToken)
@@ -85,7 +86,7 @@ func TestProtectInstallSetupSecretsPreservesExternalReferences(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			store := &installTestOSStore{}
 			setup := &installConfigSetup{Provider: setupProviderOpenAICompatible, APIKey: value}
-			if err := protectInstallSetupSecrets(context.Background(), setup, store); err != nil {
+			if err := protectInstallSetupSecrets(context.Background(), setup, store, io.Discard); err != nil {
 				t.Fatalf("protectInstallSetupSecrets() error = %v", err)
 			}
 			if setup.APIKey != value || len(store.values) != 0 {
@@ -95,19 +96,59 @@ func TestProtectInstallSetupSecretsPreservesExternalReferences(t *testing.T) {
 	}
 }
 
-func TestProtectInstallSetupSecretsDoesNotReplaceValueWhenStoreFails(t *testing.T) {
-	store := &installTestOSStore{putErr: errors.New("backend detail")}
-	setup := &installConfigSetup{Provider: setupProviderOpenAICompatible, APIKey: "install-secret"}
+func TestProtectInstallSetupSecretsFallsBackToConfigWhenStoreFails(t *testing.T) {
+	tests := []struct {
+		name     string
+		putErr   error
+		wantHint string
+	}{
+		{name: "missing user session", putErr: secref.ErrOSStoreSessionUnavailable, wantHint: "D-Bus"},
+		{name: "missing secret service", putErr: secref.ErrOSStoreServiceUnavailable, wantHint: "gnome-keyring"},
+		{name: "locked keyring", putErr: secref.ErrOSStoreUnlockFailed, wantHint: "unlock"},
+		{name: "unknown backend error", putErr: errors.New("backend detail"), wantHint: "Linux Secret Service unavailable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &installTestOSStore{putErr: tt.putErr}
+			setup := &installConfigSetup{Provider: setupProviderOpenAICompatible, APIKey: "install-secret"}
+			var stderr bytes.Buffer
 
-	err := protectInstallSetupSecrets(context.Background(), setup, store)
-	if err == nil {
-		t.Fatal("protectInstallSetupSecrets() error = nil")
+			if err := protectInstallSetupSecrets(context.Background(), setup, store, &stderr); err != nil {
+				t.Fatalf("protectInstallSetupSecrets() error = %v", err)
+			}
+			if setup.APIKey != "install-secret" {
+				t.Fatalf("api key changed after failed write: %q", setup.APIKey)
+			}
+			if got := stderr.String(); !strings.Contains(got, "warn:") || !strings.Contains(got, "config.yaml") || !strings.Contains(got, tt.wantHint) {
+				t.Fatalf("warning = %q, want config fallback and %q", got, tt.wantHint)
+			}
+			if strings.Contains(stderr.String(), "backend detail") {
+				t.Fatalf("warning exposed backend detail: %q", stderr.String())
+			}
+		})
 	}
-	if strings.Contains(err.Error(), "backend detail") {
-		t.Fatalf("error exposed backend detail: %v", err)
+}
+
+func TestInstallSecretStoreUnavailableHintDistinguishesPlatforms(t *testing.T) {
+	tests := []struct {
+		name     string
+		goos     string
+		err      error
+		wantHint string
+	}{
+		{name: "linux without user bus", goos: "linux", err: secref.ErrOSStoreSessionUnavailable, wantHint: "dbus-user-session"},
+		{name: "linux without provider", goos: "linux", err: secref.ErrOSStoreServiceUnavailable, wantHint: "gnome-keyring"},
+		{name: "linux server fallback", goos: "linux", err: secref.ErrOSStoreUnavailable, wantHint: "Linux Secret Service unavailable"},
+		{name: "macOS", goos: "darwin", err: secref.ErrOSStoreUnavailable, wantHint: "macOS Keychain unavailable"},
+		{name: "Windows", goos: "windows", err: secref.ErrOSStoreUnavailable, wantHint: "Windows Credential Manager unavailable"},
+		{name: "other platform", goos: "freebsd", err: secref.ErrOSStoreUnavailable, wantHint: "system secret store unavailable"},
 	}
-	if setup.APIKey != "install-secret" {
-		t.Fatalf("api key changed after failed write: %q", setup.APIKey)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := installSecretStoreUnavailableHint(tt.err, tt.goos); !strings.Contains(got, tt.wantHint) {
+				t.Fatalf("installSecretStoreUnavailableHint() = %q, want %q", got, tt.wantHint)
+			}
+		})
 	}
 }
 
