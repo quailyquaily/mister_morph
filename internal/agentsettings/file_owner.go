@@ -18,6 +18,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
@@ -30,6 +31,7 @@ const (
 	llmSettingsKey    = "llm"
 	skillsSettingsKey = "skills"
 	toolsSettingsKey  = "tools"
+	mcpSettingsKey    = "mcp"
 )
 
 var llmSecretFieldNames = []string{"api_key", "bedrock_aws_key", "bedrock_aws_secret", "cloudflare_api_token"}
@@ -37,6 +39,7 @@ var llmSecretFieldNames = []string{"api_key", "bedrock_aws_key", "bedrock_aws_se
 type FileSettings struct {
 	LLM   LLMSettingsPayload
 	Tools ToolsSettingsPayload
+	MCP   MCPSettingsPayload
 }
 
 type agentSettingsTestRequest struct {
@@ -155,7 +158,7 @@ func (o *FileOwner) LoadCandidate() (Reader, error) {
 		}
 	}
 	fileSettings := fileReader.AllSettings()
-	for _, key := range []string{llmSettingsKey, skillsSettingsKey, toolsSettingsKey} {
+	for _, key := range []string{llmSettingsKey, skillsSettingsKey, toolsSettingsKey, mcpSettingsKey} {
 		if value, ok := fileSettings[key]; ok {
 			reader.Set(key, value)
 		}
@@ -218,6 +221,7 @@ func (o *FileOwner) View(_ context.Context) (AgentSettingsView, error) {
 		SecretFields: secretFields,
 		Skills:       skills,
 		Tools:        settings.Tools,
+		MCP:          settings.MCP,
 		ConfigPath:   o.configPath,
 		ConfigExists: configExists,
 		ConfigValid:  configValid,
@@ -485,6 +489,7 @@ func (o *FileOwner) persistedView(serialized []byte) (AgentSettingsView, error) 
 		SecretFields: secretFields,
 		Skills:       skills,
 		Tools:        next.Tools,
+		MCP:          mcpSettingsFromDocument(doc),
 		ConfigPath:   o.configPath,
 		ConfigExists: true,
 		ConfigValid:  true,
@@ -672,7 +677,9 @@ func readFileSettingsWithSource(configPath string, source secref.Source) (FileSe
 	if err != nil {
 		return FileSettings{}, err
 	}
-	return normalizeAgentSettingsConfigView(settings, doc), nil
+	settings = normalizeAgentSettingsConfigView(settings, doc)
+	settings.MCP = mcpSettingsFromDocument(doc)
+	return settings, nil
 }
 
 func readExpandedAgentSettingsConfigWithSource(configPath string, source secref.Source) (*viper.Viper, error) {
@@ -881,6 +888,138 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current FileSettings, valu
 			configbootstrap.SetMappingBoolPath(toolsNode, "powershell", "enabled", *enabled)
 		}
 	}
+	if values.MCP != nil && values.MCP.Servers != nil {
+		servers, err := normalizeMCPServers(*values.MCP.Servers)
+		if err != nil {
+			return err
+		}
+		mcpNode := configbootstrap.EnsureMappingValue(root, mcpSettingsKey)
+		if err := setMCPServersNode(mcpNode, servers); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mcpSettingsFromDocument(doc *yaml.Node) MCPSettingsPayload {
+	root, err := configbootstrap.DocumentMapping(doc)
+	if err != nil {
+		return MCPSettingsPayload{}
+	}
+	mcpNode := configbootstrap.FindMappingValue(root, mcpSettingsKey)
+	serversNode := configbootstrap.FindMappingValue(mcpNode, "servers")
+	if serversNode == nil {
+		return MCPSettingsPayload{}
+	}
+	var raw any
+	if err := serversNode.Decode(&raw); err != nil {
+		return MCPSettingsPayload{}
+	}
+	return MCPSettingsPayload{Servers: mcphost.ParseServers(raw)}
+}
+
+func mcpSettingsFromReader(reader Reader) MCPSettingsPayload {
+	if reader == nil {
+		return MCPSettingsPayload{}
+	}
+	current := viper.New()
+	if err := current.MergeConfigMap(reader.AllSettings()); err != nil {
+		return MCPSettingsPayload{}
+	}
+	return MCPSettingsPayload{Servers: mcphost.MCPConfigFromReader(current)}
+}
+
+func normalizeMCPServers(values []MCPServerSettings) ([]MCPServerSettings, error) {
+	servers := make([]MCPServerSettings, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for i, value := range values {
+		value.Name = strings.TrimSpace(value.Name)
+		value.Type = strings.ToLower(strings.TrimSpace(value.Type))
+		if value.Type == "" {
+			value.Type = "stdio"
+		}
+		value.Command = strings.TrimSpace(value.Command)
+		value.URL = strings.TrimSpace(value.URL)
+		value.Args = append([]string(nil), value.Args...)
+		value.Env = cloneStringMap(value.Env)
+		value.Headers = cloneStringMap(value.Headers)
+		value.AllowedTools = normalizeMCPStringList(value.AllowedTools)
+
+		nameKey := strings.ToLower(value.Name)
+		if _, exists := seen[nameKey]; exists {
+			return nil, fmt.Errorf("mcp server name %q is duplicated", value.Name)
+		}
+		seen[nameKey] = struct{}{}
+		if err := validateMCPMapKeys("environment variable", value.Env); err != nil {
+			return nil, fmt.Errorf("mcp server %q: %w", value.Name, err)
+		}
+		if err := validateMCPMapKeys("header", value.Headers); err != nil {
+			return nil, fmt.Errorf("mcp server %q: %w", value.Name, err)
+		}
+		if value.Enable {
+			if err := value.Validate(); err != nil {
+				return nil, err
+			}
+		} else if value.Name == "" {
+			return nil, fmt.Errorf("mcp server name is required")
+		} else if value.Type != "stdio" && value.Type != "http" {
+			return nil, fmt.Errorf("mcp server %q: unsupported type %q (supported: stdio, http)", value.Name, value.Type)
+		}
+		servers[i] = value
+	}
+	return servers, nil
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[strings.TrimSpace(key)] = value
+	}
+	return cloned
+}
+
+func validateMCPMapKeys(kind string, values map[string]string) error {
+	for key := range values {
+		if strings.TrimSpace(key) == "" {
+			return fmt.Errorf("%s name is required", kind)
+		}
+	}
+	return nil
+}
+
+func normalizeMCPStringList(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func setMCPServersNode(mcpNode *yaml.Node, servers []MCPServerSettings) error {
+	var node yaml.Node
+	if err := node.Encode(servers); err != nil {
+		return err
+	}
+	if current := configbootstrap.FindMappingValue(mcpNode, "servers"); current != nil {
+		*current = node
+		return nil
+	}
+	mcpNode.Content = append(mcpNode.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "servers"},
+		&node,
+	)
 	return nil
 }
 

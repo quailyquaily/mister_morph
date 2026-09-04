@@ -119,6 +119,36 @@ func TestHandlerSettingsUsesWritableOwnerForGetAndPut(t *testing.T) {
 	}
 }
 
+func TestHandlerSettingsDecodesMCPUpdate(t *testing.T) {
+	owner := &handlerTestOwner{view: AgentSettingsView{ReadOnly: false}}
+	handler := NewHandler(HandlerOptions{Owner: owner})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/settings/agent", strings.NewReader(`{
+  "mcp": {
+    "servers": [{
+      "name": "remote",
+      "enable": true,
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {"Authorization": "Bearer ${MCP_TOKEN}"},
+      "allowed_tools": ["search"]
+    }]
+  }
+}`))
+
+	handler.Settings(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want %d (%s)", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if owner.lastUpdate.MCP == nil || owner.lastUpdate.MCP.Servers == nil || len(*owner.lastUpdate.MCP.Servers) != 1 {
+		t.Fatalf("decoded MCP update = %#v", owner.lastUpdate.MCP)
+	}
+	server := (*owner.lastUpdate.MCP.Servers)[0]
+	if server.Name != "remote" || server.Headers["Authorization"] != "Bearer ${MCP_TOKEN}" {
+		t.Fatalf("decoded MCP server = %#v", server)
+	}
+}
+
 func TestHandlerSettingsReportsOwnerReadOnlyReason(t *testing.T) {
 	owner := &handlerTestOwner{view: AgentSettingsView{
 		ReadOnly:       true,

@@ -9,6 +9,7 @@ import XAIAuthDialog from "../components/XAIAuthDialog";
 import ProAuthDialog from "../components/ProAuthDialog";
 import ImageUploadField from "../components/ImageUploadField";
 import LLMConfigForm from "../components/LLMConfigForm";
+import MCPSettingsPanel from "../components/MCPSettingsPanel";
 import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import SettingsCreditsPanel from "../components/SettingsCreditsPanel";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
@@ -105,6 +106,7 @@ const SETTINGS_DEFAULT_SECTION_ID = "persona";
 const SETTINGS_SECTION_IDS = new Set([
   "agent",
   "tools",
+  "mcp",
   "skills",
   "persona",
   "channels",
@@ -116,6 +118,7 @@ const SETTINGS_SECTION_IDS = new Set([
 ]);
 const UPDATE_RELEASES_URL = "https://github.com/quailyquaily/mistermorph/releases";
 let llmProfileKeySeed = 0;
+let mcpSettingsKeySeed = 0;
 
 function settingsRouteSection(route) {
   const value = route?.params?.section;
@@ -467,6 +470,79 @@ function buildToolsSnapshot(state) {
   });
 }
 
+function nextMCPSettingsKey(prefix) {
+  mcpSettingsKeySeed += 1;
+  return `mcp-${prefix}-${mcpSettingsKeySeed}`;
+}
+
+function buildMCPPairRows(values) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    return [];
+  }
+  return Object.entries(values).map(([key, value]) => ({
+    _key: nextMCPSettingsKey("pair"),
+    key: String(key || ""),
+    value: String(value ?? ""),
+  }));
+}
+
+function buildMCPServerState(server) {
+  const value = server && typeof server === "object" ? server : {};
+  return {
+    _key: nextMCPSettingsKey("server"),
+    name: trimText(value.name),
+    enable: value.enable !== false,
+    type: trimText(value.type).toLowerCase() === "http" ? "http" : "stdio",
+    command: typeof value.command === "string" ? value.command : "",
+    args_text: Array.isArray(value.args) ? value.args.map((item) => String(item ?? "")).join("\n") : "",
+    env_rows: buildMCPPairRows(value.env),
+    url: typeof value.url === "string" ? value.url : "",
+    header_rows: buildMCPPairRows(value.headers),
+    allowed_tools_text: Array.isArray(value.allowed_tools)
+      ? value.allowed_tools.map((item) => String(item ?? "")).join("\n")
+      : "",
+  };
+}
+
+function parseMCPLineList(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function serializeMCPPairs(rows) {
+  const values = {};
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = trimText(row?.key);
+    if (key) {
+      values[key] = String(row?.value ?? "");
+    }
+  }
+  return values;
+}
+
+function serializeMCPServer(server) {
+  return {
+    name: trimText(server?.name),
+    enable: server?.enable !== false,
+    type: server?.type === "http" ? "http" : "stdio",
+    command: trimText(server?.command),
+    args: parseMCPLineList(server?.args_text),
+    env: serializeMCPPairs(server?.env_rows),
+    url: trimText(server?.url),
+    headers: serializeMCPPairs(server?.header_rows),
+    allowed_tools: parseMCPLineList(server?.allowed_tools_text),
+  };
+}
+
+function buildMCPSnapshot(state) {
+  recordSnapshotBuild("settings.mcp");
+  return JSON.stringify({
+    servers: (Array.isArray(state.mcp.servers) ? state.mcp.servers : []).map(serializeMCPServer),
+  });
+}
+
 function buildSkillsSnapshot(state) {
   recordSnapshotBuild("settings.skills");
   return JSON.stringify({
@@ -569,6 +645,7 @@ const SettingsView = {
     ProAuthDialog,
     ImageUploadField,
     LLMConfigForm,
+    MCPSettingsPanel,
     AppMarkdownEditor,
     SettingsCreditsPanel,
     SetupConnectionTestDialog,
@@ -611,9 +688,11 @@ const SettingsView = {
     const loadedLLMSnapshot = ref("");
     const loadedSkillsSnapshot = ref("");
     const loadedToolsSnapshot = ref("");
+    const loadedMCPSnapshot = ref("");
     const llmDirty = ref(false);
     const skillsDirty = ref(false);
     const toolsDirty = ref(false);
+    const mcpDirty = ref(false);
     const agentSettingsLoaded = ref(false);
     const llmEnvManaged = ref({});
     const llmSecretFields = ref({});
@@ -730,6 +809,9 @@ const SettingsView = {
         bash: true,
         powershell: false,
       },
+      mcp: {
+        servers: [],
+      },
       managedRuntimes: {
         telegram: false,
         slack: false,
@@ -748,9 +830,11 @@ const SettingsView = {
       loadedLLMSnapshot.value = "";
       loadedSkillsSnapshot.value = "";
       loadedToolsSnapshot.value = "";
+      loadedMCPSnapshot.value = "";
       llmDirty.value = false;
       skillsDirty.value = false;
       toolsDirty.value = false;
+      mcpDirty.value = false;
       agentSettingsLoaded.value = false;
     }
 
@@ -760,6 +844,8 @@ const SettingsView = {
           return "agent";
         case "tools":
           return "tools";
+        case "mcp":
+          return "mcp";
         case "skills":
           return "skills";
         default:
@@ -781,6 +867,10 @@ const SettingsView = {
         loadedToolsSnapshot.value = buildToolsSnapshot(state);
         toolsDirty.value = false;
       }
+      if (normalizedScope === "all" || normalizedScope === "mcp") {
+        loadedMCPSnapshot.value = buildMCPSnapshot(state);
+        mcpDirty.value = false;
+      }
     }
 
     function ensureLoadedAgentSnapshotsForSection(sectionID = selectedSectionID.value) {
@@ -796,6 +886,8 @@ const SettingsView = {
         setLoadedAgentSnapshots("tools");
       } else if (scope === "skills" && !loadedSkillsSnapshot.value) {
         setLoadedAgentSnapshots("skills");
+      } else if (scope === "mcp" && !loadedMCPSnapshot.value) {
+        setLoadedAgentSnapshots("mcp");
       }
     }
 
@@ -829,6 +921,10 @@ const SettingsView = {
 
     function updateToolsDirty() {
       toolsDirty.value = buildToolsSnapshot(state) !== loadedToolsSnapshot.value;
+    }
+
+    function updateMCPDirty() {
+      mcpDirty.value = buildMCPSnapshot(state) !== loadedMCPSnapshot.value;
     }
 
     function setLoadedConsoleSnapshots() {
@@ -1017,6 +1113,12 @@ const SettingsView = {
           id: "tools",
           title: t("settings_tools_title"),
           meta: t("settings_section_tools_meta"),
+          saveKind: "agent",
+        },
+        {
+          id: "mcp",
+          title: t("settings_mcp_title"),
+          meta: t("settings_section_mcp_meta"),
           saveKind: "agent",
         },
         {
@@ -1339,6 +1441,49 @@ const SettingsView = {
     const toolsSaveDisabled = computed(
       () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !toolsDirty.value
     );
+    const mcpValidationError = computed(() => {
+      const names = new Set();
+      for (const server of state.mcp.servers) {
+        const name = trimText(server?.name);
+        if (!name) {
+          return t("settings_mcp_error_name_required");
+        }
+        const nameKey = name.toLowerCase();
+        if (names.has(nameKey)) {
+          return t("settings_mcp_error_name_duplicate", { name });
+        }
+        names.add(nameKey);
+        if (server?.enable !== false && server?.type === "http" && !trimText(server?.url)) {
+          return t("settings_mcp_error_url_required", { name });
+        }
+        if (server?.enable !== false && server?.type !== "http" && !trimText(server?.command)) {
+          return t("settings_mcp_error_command_required", { name });
+        }
+        for (const rows of [server?.env_rows, server?.header_rows]) {
+          const keys = new Set();
+          for (const row of Array.isArray(rows) ? rows : []) {
+            const key = trimText(row?.key);
+            if (!key) {
+              return t("settings_mcp_error_key_required", { name });
+            }
+            const normalized = key.toLowerCase();
+            if (keys.has(normalized)) {
+              return t("settings_mcp_error_key_duplicate", { name, key });
+            }
+            keys.add(normalized);
+          }
+        }
+      }
+      return "";
+    });
+    const mcpSaveDisabled = computed(
+      () =>
+        agentLoading.value ||
+        agentSaving.value ||
+        agentSettingsReadOnly.value ||
+        !mcpDirty.value ||
+        mcpValidationError.value !== ""
+    );
     const consoleDirty = computed(
       () =>
         consoleManagedDirty.value ||
@@ -1472,6 +1617,7 @@ const SettingsView = {
       state.tools.web_search = true;
       state.tools.bash = true;
       state.tools.powershell = false;
+      state.mcp.servers = [];
       llmEnvManaged.value = {};
       llmSecretFields.value = {};
       llmSecretDirty.clear();
@@ -1525,6 +1671,7 @@ const SettingsView = {
           : {};
       const skills = data?.skills && typeof data.skills === "object" ? data.skills : {};
       const tools = data?.tools && typeof data.tools === "object" ? data.tools : {};
+      const mcp = data?.mcp && typeof data.mcp === "object" ? data.mcp : {};
       const profiles = Array.isArray(llm.profiles) ? llm.profiles : [];
       agentSettingsReadOnly.value = data?.read_only === true;
       agentSettingsReadOnlyReason.value = agentSettingsReadOnly.value ? trimText(data?.read_only_reason) : "";
@@ -1589,6 +1736,7 @@ const SettingsView = {
       state.tools.web_search = toolEnabledValue(tools.web_search);
       state.tools.bash = toolEnabledValue(tools.bash);
       state.tools.powershell = toolEnabledValue(tools.powershell);
+      applyMCPPayload(mcp);
       llmEnvManaged.value = llmEnvManagedPayload;
       llmSecretFields.value = llmSecretFieldsPayload;
       llmSecretDirty.clear();
@@ -1605,6 +1753,19 @@ const SettingsView = {
       state.skills.loaded = normalizeSkillItems(payload.loaded);
       state.skills.available = normalizeSkillItems(payload.available);
       skillsValidationVisible.value = false;
+    }
+
+    function applyMCPPayload(mcp) {
+      const payload = mcp && typeof mcp === "object" ? mcp : {};
+      state.mcp.servers = (Array.isArray(payload.servers) ? payload.servers : []).map(buildMCPServerState);
+    }
+
+    function updateMCPServers(servers) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
+      state.mcp.servers = Array.isArray(servers) ? servers : [];
+      updateMCPDirty();
     }
 
     function llmProfileEnvManaged(profile) {
@@ -2681,10 +2842,15 @@ const SettingsView = {
       if (target === "tools") {
         return { tools };
       }
+      const mcp = { servers: state.mcp.servers.map(serializeMCPServer) };
+      if (target === "mcp") {
+        return { mcp };
+      }
       return {
         llm: buildLLMSettingsPayload(),
         skills: { enabled: !!state.skills.enabled, load: parseSkillLoadText(state.skills.load_text) },
         tools,
+        mcp,
       };
     }
 
@@ -3261,7 +3427,7 @@ const SettingsView = {
     }
 
     async function saveAgentSettings(target = "all") {
-      const normalizedTarget = ["all", "llm", "skills", "tools"].includes(String(target))
+      const normalizedTarget = ["all", "llm", "skills", "tools", "mcp"].includes(String(target))
         ? String(target)
         : "all";
       if (agentSettingsReadOnly.value) {
@@ -3274,6 +3440,9 @@ const SettingsView = {
         return;
       }
       if (normalizedTarget === "tools" && toolsSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "mcp" && mcpSaveDisabled.value) {
         return;
       }
       if (normalizedTarget === "all" && agentLoading.value) {
@@ -3330,6 +3499,10 @@ const SettingsView = {
         } else if (normalizedTarget === "tools") {
           loadedToolsSnapshot.value = buildToolsSnapshot(state);
           toolsDirty.value = false;
+        } else if (normalizedTarget === "mcp") {
+          applyMCPPayload(payload?.mcp);
+          loadedMCPSnapshot.value = buildMCPSnapshot(state);
+          mcpDirty.value = false;
         }
         const saveMessage = t("msg_save_success");
         toast.success(saveMessage);
@@ -3748,7 +3921,7 @@ const SettingsView = {
 
     function ensureSettingsSectionData(sectionID = selectedSectionID.value) {
       const normalizedSectionID = normalizeSettingsSectionID(sectionID);
-      if (["agent", "tools", "skills"].includes(normalizedSectionID)) {
+      if (["agent", "tools", "skills", "mcp"].includes(normalizedSectionID)) {
         if (!agentSettingsLoaded.value && !agentLoading.value) {
           void loadAgentSettings(settingsEndpointRef.value);
           return;
@@ -4015,6 +4188,8 @@ const SettingsView = {
       llmSaveDisabled,
       skillsSaveDisabled,
       toolsSaveDisabled,
+      mcpSaveDisabled,
+      mcpValidationError,
       consoleSaveDisabled,
       telegramSaveDisabled,
       slackSaveDisabled,
@@ -4143,6 +4318,7 @@ const SettingsView = {
       updateLineGroupTrigger,
       updateLarkGroupTrigger,
       updateGuardField,
+      updateMCPServers,
       selectSection,
       isSelectedSection,
       sectionClass,
@@ -4934,6 +5110,19 @@ const SettingsView = {
               </div>
             </QCard>
           </div>
+
+          <MCPSettingsPanel
+            v-else-if="selectedSection.id === 'mcp'"
+            :modelValue="state.mcp.servers"
+            :loading="agentLoading"
+            :saving="agentSaving && agentSavingTarget === 'mcp'"
+            :readOnly="agentSettingsReadOnly"
+            :readOnlyMessage="agentSettingsReadOnlyMessage"
+            :validationError="mcpValidationError"
+            :saveDisabled="mcpSaveDisabled"
+            @update:modelValue="updateMCPServers"
+            @save="saveAgentSettings('mcp')"
+          />
 
           <div v-else-if="selectedSection.id === 'skills'" class="settings-panel-body settings-panel-body-plain">
             <QCard variant="default">

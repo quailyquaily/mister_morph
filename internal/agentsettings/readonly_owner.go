@@ -62,6 +62,7 @@ func (o *readOnlyOwner) View(context.Context) (AgentSettingsView, error) {
 		EnvManaged:     envManaged,
 		Skills:         skills,
 		Tools:          toolsSettingsFromReader(o.reader),
+		MCP:            mcpSettingsFromReader(o.reader),
 		ConfigPath:     configPath,
 		ConfigExists:   configExists,
 		ConfigValid:    true,
