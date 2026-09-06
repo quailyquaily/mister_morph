@@ -626,6 +626,7 @@
   }
 
   .contacts-detail-card.q-card-default {
+    --q-card-padding: 16px;
     margin: 16px;
   }
 
@@ -639,18 +640,38 @@
   }
 
   .contacts-detail-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+    gap: 12px;
+  }
+
+  .contacts-mobile-actions {
+    grid-row: 1;
+    grid-column: 2;
+    width: auto;
+    justify-self: end;
+  }
+
+  .contacts-detail-identity {
+    grid-row: 1;
+    grid-column: 1;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    align-items: center;
+    gap: 10px;
   }
 
   .contacts-detail-kind {
-    width: 48px;
-    min-width: 48px;
-    height: 48px;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
   }
 
-  .contacts-detail-kind .contact-avatar {
-    --contact-avatar-size: 48px;
-    font-size: 18px;
+  .contacts-detail-kind .contact-avatar.is-detail {
+    --contact-avatar-size: 40px;
+    font-size: 15px;
   }
 
   .contacts-detail-copy {
@@ -680,7 +701,7 @@
   }
 
   .contacts-detail-card.q-card-default {
-    --q-card-padding: 14px;
+    --q-card-padding: 16px;
     margin: 12px;
   }
 
