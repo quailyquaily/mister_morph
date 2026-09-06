@@ -2,6 +2,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./TodoCalendar.css";
 
+import AppTabs from "./AppTabs";
 import { currentLocale, translate } from "../core/context";
 import { projectTodoCalendar, visibleCalendarDays } from "../core/todo-calendar";
 
@@ -55,6 +56,7 @@ function browserTimezone() {
 }
 
 const TodoCalendar = {
+  components: { AppTabs },
   props: {
     tasks: { type: Array, default: () => [] },
     tasksLoading: { type: Boolean, default: false },
@@ -265,12 +267,11 @@ const TodoCalendar = {
     <section class="todo-calendar" :aria-label="t('todo_view_calendar')">
       <header class="todo-calendar-toolbar">
         <div class="todo-calendar-toolbar-primary">
-          <QTabs
+          <AppTabs
             class="todo-view-tabs todo-calendar-view-tabs"
             :tabs="viewTabs"
             :modelValue="selectedViewTab"
-            :initialIndex="1"
-            variant="plain"
+            :ariaLabel="t('todo_nav_title')"
             @change="onViewChange"
           />
           <QButton

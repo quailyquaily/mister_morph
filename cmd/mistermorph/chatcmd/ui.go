@@ -18,10 +18,7 @@ const chatBanner = `▄▄   ▄▄  ▄▄▄  ▄▄▄▄  ▄▄▄▄  ▄�
 
 var chatBootLogoStyle = lipgloss.NewStyle().Bold(true)
 
-func printChatSessionHeader(writer io.Writer, compact bool, provider string, model string, workspaceDir string, version string) {
-	if compact {
-		return
-	}
+func printChatSessionHeader(writer io.Writer, provider string, model string, workspaceDir string, version string) {
 	logoLines := strings.Split(chatBanner, "\n")
 	logoWidth := 0
 	for _, line := range logoLines {

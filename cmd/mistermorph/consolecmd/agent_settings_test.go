@@ -79,16 +79,18 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 			FallbackProfiles: &fallbackProfiles,
 		},
 		Tools: &toolsSettingsUpdatePayload{
-			WriteFile:    toolUpdate(values.Tools.WriteFile.Enabled),
-			Spawn:        toolUpdate(values.Tools.Spawn.Enabled),
-			Coder:        toolUpdate(values.Tools.Coder.Enabled),
-			ContactsSend: toolUpdate(values.Tools.ContactsSend.Enabled),
-			TodoUpdate:   toolUpdate(values.Tools.TodoUpdate.Enabled),
-			PlanCreate:   toolUpdate(values.Tools.PlanCreate.Enabled),
-			URLFetch:     toolUpdate(values.Tools.URLFetch.Enabled),
-			WebSearch:    toolUpdate(values.Tools.WebSearch.Enabled),
-			Bash:         toolUpdate(values.Tools.Bash.Enabled),
-			PowerShell:   toolUpdate(values.Tools.PowerShell.Enabled),
+			WriteFile:     toolUpdate(values.Tools.WriteFile.Enabled),
+			Spawn:         toolUpdate(values.Tools.Spawn.Enabled),
+			Coder:         toolUpdate(values.Tools.Coder.Enabled),
+			ContactsSend:  toolUpdate(values.Tools.ContactsSend.Enabled),
+			TodoUpdate:    toolUpdate(values.Tools.TodoUpdate.Enabled),
+			PlanCreate:    toolUpdate(values.Tools.PlanCreate.Enabled),
+			URLFetch:      toolUpdate(values.Tools.URLFetch.Enabled),
+			WebSearch:     toolUpdate(values.Tools.WebSearch.Enabled),
+			Bash:          toolUpdate(values.Tools.Bash.Enabled),
+			PowerShell:    toolUpdate(values.Tools.PowerShell.Enabled),
+			ImageGenerate: toolUpdate(values.Tools.ImageGenerate.Enabled),
+			ImageEdit:     toolUpdate(values.Tools.ImageEdit.Enabled),
 		},
 	})
 }
@@ -140,7 +142,7 @@ func TestReadAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
 		"llm:\n  provider: cloudflare\n  model: gpt-5.2\n  reasoning_effort: high\n  api_key: legacy-cf-token\n  cloudflare:\n    account_id: acc-123\n  profiles:\n    cheap:\n      model: gpt-4.1-mini\n    burst:\n      provider: openai\n      api_key: sk-profile\n      model: gpt-4.1\n  routes:\n    main_loop:\n      fallback_profiles:\n        - cheap\n        - burst\n"+
-			"tools:\n  bash:\n    enabled: false\n  powershell:\n    enabled: true\n",
+			"tools:\n  bash:\n    enabled: false\n  powershell:\n    enabled: true\n  image_generate:\n    enabled: false\n  image_edit:\n    enabled: true\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -183,6 +185,12 @@ func TestReadAgentSettings(t *testing.T) {
 	if !got.Tools.PowerShell.Enabled {
 		t.Fatalf("got.Tools.PowerShell.Enabled = false, want true")
 	}
+	if got.Tools.ImageGenerate.Enabled {
+		t.Fatalf("got.Tools.ImageGenerate.Enabled = true, want false")
+	}
+	if !got.Tools.ImageEdit.Enabled {
+		t.Fatalf("got.Tools.ImageEdit.Enabled = false, want true")
+	}
 }
 
 func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
@@ -205,15 +213,17 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 			},
 		},
 		Tools: toolsSettingsPayload{
-			WriteFile:    toolEnabledPayload{Enabled: true},
-			Spawn:        toolEnabledPayload{Enabled: true},
-			Coder:        toolEnabledPayload{Enabled: true},
-			ContactsSend: toolEnabledPayload{Enabled: true},
-			TodoUpdate:   toolEnabledPayload{Enabled: true},
-			PlanCreate:   toolEnabledPayload{Enabled: false},
-			URLFetch:     toolEnabledPayload{Enabled: true},
-			WebSearch:    toolEnabledPayload{Enabled: false},
-			Bash:         toolEnabledPayload{Enabled: true},
+			WriteFile:     toolEnabledPayload{Enabled: true},
+			Spawn:         toolEnabledPayload{Enabled: true},
+			Coder:         toolEnabledPayload{Enabled: true},
+			ContactsSend:  toolEnabledPayload{Enabled: true},
+			TodoUpdate:    toolEnabledPayload{Enabled: true},
+			PlanCreate:    toolEnabledPayload{Enabled: false},
+			URLFetch:      toolEnabledPayload{Enabled: true},
+			WebSearch:     toolEnabledPayload{Enabled: false},
+			Bash:          toolEnabledPayload{Enabled: true},
+			ImageGenerate: toolEnabledPayload{Enabled: false},
+			ImageEdit:     toolEnabledPayload{Enabled: true},
 		},
 	})
 	if err != nil {
@@ -234,6 +244,9 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 	}
 	if !strings.Contains(out, "coder:") {
 		t.Fatalf("serialized config missing coder tool config: %s", out)
+	}
+	if !strings.Contains(out, "image_generate:") || !strings.Contains(out, "image_edit:") {
+		t.Fatalf("serialized config missing image tool config: %s", out)
 	}
 }
 
@@ -1543,8 +1556,15 @@ func TestHandleAgentSettingsGetUsesDefaultsForLLMWhenConfigMissing(t *testing.T)
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `"llm":{"inference_provider":"openai","provider":"openai_resp","endpoint":"","model":"","context_window_tokens":"","api_key":"","bedrock_aws_key":"","bedrock_aws_secret":"","bedrock_region":"","bedrock_model_arn":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":"off"}`) {
-		t.Fatalf("llm payload should expose defaults only: %s", body)
+	var payload struct {
+		LLM agentsettings.LLMSettingsPayload `json:"llm"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.LLM.Provider != "openai_resp" || payload.LLM.Model != "" || payload.LLM.CacheTTL != "short" ||
+		payload.LLM.RequestTimeout != "1m30s" || payload.LLM.APIKey != "" {
+		t.Fatalf("llm payload should expose defaults only: %#v", payload.LLM)
 	}
 	if !strings.Contains(body, `"env_managed":{"llm":`) || !strings.Contains(body, `"env_name":"MISTER_MORPH_LLM_PROVIDER","value":"cloudflare"`) {
 		t.Fatalf("env_managed payload should expose env overrides separately: %s", body)

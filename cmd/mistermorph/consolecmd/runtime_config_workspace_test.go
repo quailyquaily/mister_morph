@@ -48,3 +48,14 @@ func TestLoadConsoleRuntimeConfigUsesWorkspaceDirEnv(t *testing.T) {
 		t.Fatalf("workspace_dir = %q, want %q", got, workspaceDir)
 	}
 }
+
+func TestCaptureConsoleRuntimeOverridesIncludesChangedServeFlags(t *testing.T) {
+	cmd := newServeCmd()
+	if err := cmd.Flags().Set("console-listen", "127.0.0.1:19080"); err != nil {
+		t.Fatal(err)
+	}
+	overrides := captureConsoleRuntimeOverrides(cmd)
+	if overrides["console.listen"] != "127.0.0.1:19080" {
+		t.Fatalf("console.listen override = %#v", overrides["console.listen"])
+	}
+}

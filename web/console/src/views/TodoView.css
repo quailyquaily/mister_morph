@@ -675,12 +675,12 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   min-width: 0;
 }
 
-.todo-repeat-kind-tabs .q-tab-button {
+.todo-repeat-kind-tabs .q-button.app-tabs-option {
   flex: 1 1 0;
   min-width: 0;
 }
 
-.todo-repeat-kind-tabs .q-tab-button-label {
+.todo-repeat-kind-tabs .app-tabs-option-label {
   min-width: 0;
   white-space: nowrap;
 }
@@ -690,7 +690,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   opacity: 0.58;
 }
 
-.todo-repeat-kind-tabs.is-disabled .q-tab-button {
+.todo-repeat-kind-tabs.is-disabled .app-tabs-option {
   cursor: not-allowed;
 }
 

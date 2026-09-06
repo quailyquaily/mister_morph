@@ -36,6 +36,18 @@ Interactive setup and Console settings save new local credentials in macOS Keych
 
 YAML expansion is done on parsed config values before they are passed to Viper. This may normalize the in-memory YAML formatting, but it does not write back to the config file.
 
+## Web Settings
+
+Console Settings can read and edit every supported public field in the example config. Settings are grouped by Agent, Tools, MCP, ACP, Skills, Channels, Automation, Security, and System rather than by raw YAML nesting.
+
+The browser submits only changed fields and the revision of the file it loaded. A stale revision returns `409 Conflict`; it does not overwrite a newer external edit. Saving preserves unrelated YAML fields and comments.
+
+Secret values are never returned to the browser. The UI reports only whether a secret is configured and lets the user replace or clear it. New secrets use the system secret store when available, with the documented 0600-file fallback.
+
+Each field shows its source and apply mode. Environment- and command-line-managed values are read-only. A save response distinguishes immediate changes, changes used by new tasks, runtime restarts, and process restarts. Console does not restart a runtime or process automatically.
+
+When one Console manages another Console through an endpoint, Settings requests are sent to the selected endpoint. Paths and system-secret references therefore belong to the target machine.
+
 ## Runtime Model
 
 There are two different config lifecycles:
@@ -266,7 +278,6 @@ Global flags:
 - `--model`
 - `--api-key`
 - `--llm-request-timeout`
-- `--compact-mode`
 - `--verbose`
 - `--skills-dir` (repeatable)
 - `--skill` (repeatable)
@@ -365,10 +376,6 @@ Console:
 - `console.base_path`
 - `console.static_dir`
 - `console.session_ttl`
-
-Chat:
-
-- `chat.compact_mode` — compact display mode: omit user/assistant name prefixes in prompts and output.
 
 Auth profiles and secrets:
 

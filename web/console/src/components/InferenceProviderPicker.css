@@ -217,12 +217,12 @@
   min-width: 0;
 }
 
-.inference-provider-tabs .q-tab-button {
+.inference-provider-tabs .q-button.app-tabs-option {
   flex: 1 1 0;
   min-width: 0;
 }
 
-.inference-provider-tabs .q-tab-button-label {
+.inference-provider-tabs .app-tabs-option-label {
   min-width: 0;
   white-space: nowrap;
 }

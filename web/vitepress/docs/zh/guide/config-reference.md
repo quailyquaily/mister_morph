@@ -9,6 +9,10 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 
 所有字段都可用 `MISTER_MORPH_...` 环境变量覆盖，映射规则见[环境变量](/zh/guide/env-vars-reference)。
 
+## Web Settings
+
+Console Settings 覆盖本页所有仍受支持的公开字段。浏览器只提交发生变化的字段；文件 revision 已变化时返回冲突，不覆盖外部编辑。Secret 明文不会返回浏览器，只能替换或清除。环境变量和命令行参数管理的字段只读。每个字段会说明它是立即生效、对新任务生效、需要重启 runtime，还是需要重启进程。编辑远程 endpoint 时，配置写入由选中的 Morph 执行。
+
 ## 全局
 
 | 字段 | 含义 |
@@ -25,14 +29,19 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.endpoint` | API Base；只有 `*_compatible` 这类推理供应商必须显式填写。 |
 | `llm.api_key` | 提供方 API Key。建议写成 `${ENV_VAR}`。 |
 | `llm.headers.<name>` | 可选的自定义 LLM 请求头。 |
+| `llm.cache_ttl` | Provider cache 提示或 duration。 |
+| `llm.cache_key_prefix` | Prompt cache key 前缀。 |
 | `llm.request_timeout` | 单次 LLM 请求超时时间。 |
 | `llm.temperature` | 可选的默认采样温度；未设置时不强制传给提供方。 |
 | `llm.reasoning_effort` | 可选推理强度（`none/minimal/low/medium/high/max/xhigh`）。 |
 | `llm.reasoning_budget_tokens` | 可选推理预算 token；`openai_resp` 下会忽略并记录 warning。 |
+| `llm.pricing_file` | 可选的本地价格表路径。 |
 | `llm.tools_emulation_mode` | 工具调用仿真策略（`off/fallback/force`）。 |
 | `llm.azure.deployment` | Azure OpenAI 的 deployment 名称。 |
 | `llm.bedrock.aws_key` | Bedrock 的 AWS Access Key。 |
 | `llm.bedrock.aws_secret` | Bedrock 的 AWS Secret Key。 |
+| `llm.bedrock.aws_session_token` | Bedrock 临时凭证的 session token。 |
+| `llm.bedrock.aws_profile` | Bedrock 使用的 AWS profile。 |
 | `llm.bedrock.region` | Bedrock 区域。 |
 | `llm.bedrock.model_arn` | Bedrock 模型 ARN。 |
 | `llm.cloudflare.account_id` | Cloudflare Workers AI 账号 ID。 |
@@ -46,6 +55,7 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.image.options.gemini` | Gemini 图像模型的额外 provider options。 |
 | `llm.image.options.cloudflare` | Cloudflare 图像模型的额外 provider options。 |
 | `llm.profiles.<profile>.*` | 命名 LLM 配置档；可覆盖 `inference_provider`、model、key 等，用于路由不同任务。 |
+| `llm.profiles.<profile>.supports_image_parts` | 命名 profile 是否支持图片消息部分的显式覆盖。 |
 | `llm.profiles.<profile>.headers.<name>` | profile 级自定义请求头；同名 header 会覆盖顶层 `llm.headers`。 |
 | `llm.routes.<purpose>` | route 定义；`purpose` 支持 `main_loop/addressing/awareness/heartbeat/think/plan_create`。 |
 | `llm.routes.<purpose>.profile` | 固定把该 route 绑定到一个 profile。 |
@@ -60,6 +70,8 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `logging.level` | 日志级别（`debug/info/warn/error`）。 |
 | `logging.format` | 日志格式（`text/json`）。 |
 | `logging.add_source` | 是否在日志中附带源码位置（文件:行）。 |
+| `logging.file.dir` | JSONL 日志目录。 |
+| `logging.file.max_age` | 日志文件保留时间。 |
 | `logging.include_thoughts` | 是否输出模型 thoughts（可能包含敏感信息）。 |
 | `logging.include_tool_params` | 是否记录工具调用参数（会脱敏/截断）。 |
 | `logging.include_skill_contents` | 是否记录已加载 `SKILL.md` 内容（截断后）。 |
@@ -74,6 +86,8 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | 字段 | 含义 |
 |---|---|
 | `secrets.allow_profiles` | 允许运行时使用的认证 profile 白名单。 |
+| `secrets.aws_secrets_manager.region` | AWS Secrets Manager 区域。 |
+| `secrets.aws_secrets_manager.profile` | AWS Secrets Manager 使用的 AWS profile。 |
 | `auth_profiles.<id>.credential.kind` | 凭证类型（如 api key/bearer）。 |
 | `auth_profiles.<id>.credential.secret` | 实际密钥内容，建议 `${ENV_VAR}`。 |
 | `auth_profiles.<id>.allow.url_prefixes` | 允许访问的 URL 前缀白名单。 |
@@ -160,6 +174,19 @@ Shell 默认值按平台区分：
 | `mcp.servers[].url` | `http` 模式 MCP Endpoint。 |
 | `mcp.servers[].headers` | `http` 模式自定义请求头（支持 `${ENV_VAR}`）。 |
 | `mcp.servers[].allowed_tools` | 该服务器允许暴露的工具白名单；空表示全部。 |
+
+## ACP
+
+| 字段 | 含义 |
+|---|---|
+| `acp.agents[].name` | ACP agent 名称。 |
+| `acp.agents[].command` | 启动命令。 |
+| `acp.agents[].args` | 命令参数。 |
+| `acp.agents[].env` | 子进程环境变量。 |
+| `acp.agents[].cwd` | 默认工作目录。 |
+| `acp.agents[].read_roots` | 允许读取的根目录。 |
+| `acp.agents[].write_roots` | 允许写入的根目录。 |
+| `acp.agents[].session_options` | 传给 ACP session 的额外配置。 |
 
 ## Bus / Contacts / Tasks / Skills
 

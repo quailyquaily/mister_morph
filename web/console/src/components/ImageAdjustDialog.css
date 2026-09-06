@@ -61,8 +61,7 @@
   flex-wrap: wrap;
 }
 
-.image-adjust-zoom-actions,
-.image-adjust-actions {
+.image-adjust-zoom-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -90,7 +89,4 @@
     align-items: stretch;
   }
 
-  .image-adjust-actions {
-    margin-left: auto;
-  }
 }

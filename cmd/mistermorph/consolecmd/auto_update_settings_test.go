@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -124,13 +125,15 @@ func TestHandleAutoUpdateSettingsPut(t *testing.T) {
 		t.Fatalf("auto update enabled = false, want true")
 	}
 	var payload struct {
-		OK         bool              `json:"ok"`
-		AutoUpdate autoUpdatePayload `json:"auto_update"`
+		OK          bool              `json:"ok"`
+		AutoUpdate  autoUpdatePayload `json:"auto_update"`
+		ApplyMode   string            `json:"apply_mode"`
+		ApplyStatus string            `json:"apply_status"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if !payload.OK || !payload.AutoUpdate.Enabled {
+	if !payload.OK || !payload.AutoUpdate.Enabled || payload.ApplyMode != "immediate" || payload.ApplyStatus != "applied" {
 		t.Fatalf("payload = %#v, want ok auto_update.enabled", payload)
 	}
 }
@@ -169,6 +172,53 @@ func TestHandleAutoUpdateSettingsGetIncludesCurrentVersion(t *testing.T) {
 	}
 	if payload.CurrentVersion != "0.2.41" {
 		t.Fatalf("current_version = %q, want 0.2.41", payload.CurrentVersion)
+	}
+}
+
+func TestHandleAutoUpdateSettingsRejectsStaleConfigRevision(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	initial := "auto_update:\n  enabled: false\n"
+	if err := os.WriteFile(configPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	getRec := httptest.NewRecorder()
+	(&server{}).handleAutoUpdateSettings(getRec, httptest.NewRequest(http.MethodGet, "/api/settings/auto-update", nil))
+	var getPayload struct {
+		ConfigRevision string `json:"config_revision"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &getPayload); err != nil {
+		t.Fatal(err)
+	}
+	if getPayload.ConfigRevision == "" {
+		t.Fatal("config revision is empty")
+	}
+
+	external := initial + "user_agent: external-edit\n"
+	if err := os.WriteFile(configPath, []byte(external), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"config_revision":` + fmt.Sprintf("%q", getPayload.ConfigRevision) + `,"auto_update":{"enabled":true}}`
+	putRec := httptest.NewRecorder()
+	(&server{}).handleAutoUpdateSettings(putRec, httptest.NewRequest(http.MethodPut, "/api/settings/auto-update", strings.NewReader(body)))
+	if putRec.Code != http.StatusConflict {
+		t.Fatalf("PUT status = %d, want 409: %s", putRec.Code, putRec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != external {
+		t.Fatalf("stale update changed config:\n%s", raw)
 	}
 }
 

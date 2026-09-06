@@ -212,7 +212,7 @@
   background: color-mix(in srgb, var(--bg-2, #fff) 96%, var(--accent-1) 4%);
   color: var(--text-1);
   font-family: var(--font-mono);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-meta);
   line-height: 1.55;
   max-height: 120px;
   white-space: pre-wrap;

@@ -390,7 +390,6 @@ func consoleAgentLimitsFromReader(r interface {
 		ContextCompaction: agent.NewContextCompactionConfig(
 			r.GetBool("context_compaction.enabled"),
 			r.GetFloat64("context_compaction.trigger_ratio"),
-			r.GetInt("context_compaction.output_reserve_tokens"),
 		),
 	}
 }

@@ -60,7 +60,6 @@ This command accepts an optional `profile-name` positional argument. Without one
 ## `chat`
 
 - `--api-key`: API key override.
-- `--compact-mode`: Compact display mode for interactive chat output.
 - `--endpoint`: Provider base URL override.
 - `--llm-request-timeout`: Per-LLM HTTP request timeout.
 - `--max-steps`: Max tool-call steps.

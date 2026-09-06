@@ -24,6 +24,10 @@ type agentSettingsConnectionTestOptions struct {
 }
 
 func (s *server) handleAgentSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		s.settingsWriteMu.Lock()
+		defer s.settingsWriteMu.Unlock()
+	}
 	configPath, err := resolveConsoleConfigPath()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

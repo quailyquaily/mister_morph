@@ -179,9 +179,6 @@ func (e *Engine) manualContextCompactionDecision(st *engineLoopState) contextCom
 		decision.EstimatedInput = estimateMainRequestTokens(st.messages, st.tools)
 	}
 	if decision.OutputReserve <= 0 {
-		decision.OutputReserve = st.contextCompaction.OutputReserveTokens
-	}
-	if decision.OutputReserve <= 0 {
 		decision.OutputReserve = 4096
 	}
 	return decision

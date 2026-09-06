@@ -9,6 +9,10 @@ description: config.yaml の完全フィールドリファレンス。
 
 すべてのキーは env で上書きできます（`MISTER_MORPH_...`）。詳細は[環境変数](/ja/guide/env-vars-reference)。
 
+## Web Settings
+
+Console Settings は、このページにあるサポート中の公開フィールドをすべて編集できます。ブラウザは変更したフィールドだけを送信し、古い file revision からの保存は外部編集を上書きせず conflict になります。Secret の平文はブラウザへ返さず、置換または削除だけが可能です。環境変数とコマンドライン引数で管理されるフィールドは読み取り専用です。各フィールドは、即時反映、新しいタスクから反映、runtime 再起動、process 再起動のいずれかを表示します。remote endpoint の設定は選択中の Morph が保存します。
+
 ## グローバル
 
 - `user_agent`
@@ -21,14 +25,19 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.endpoint`（API Base。明示指定が必須なのは `*_compatible` 系の inference provider だけです）
 - `llm.api_key`
 - `llm.headers.<name>`（任意のカスタム HTTP ヘッダー）
+- `llm.cache_ttl`
+- `llm.cache_key_prefix`
 - `llm.request_timeout`
 - `llm.temperature`（任意）
 - `llm.reasoning_effort`
 - `llm.reasoning_budget_tokens`（任意。`openai_resp` では warning を出して無視）
+- `llm.pricing_file`
 - `llm.tools_emulation_mode`（`off|fallback|force`）
 - `llm.azure.deployment`
 - `llm.bedrock.aws_key`
 - `llm.bedrock.aws_secret`
+- `llm.bedrock.aws_session_token`
+- `llm.bedrock.aws_profile`
 - `llm.bedrock.region`
 - `llm.bedrock.model_arn`
 - `llm.cloudflare.account_id`
@@ -42,6 +51,7 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.image.options.gemini`
 - `llm.image.options.cloudflare`
 - `llm.profiles.<profile>.*`（`inference_provider` を含む命名 profile の上書き）
+- `llm.profiles.<profile>.supports_image_parts`
 - `llm.profiles.<profile>.headers.<name>`（profile 単位のカスタムヘッダー）
 - `llm.routes.<purpose>`（`main_loop|addressing|awareness|heartbeat|think|plan_create`）
 - `llm.routes.<purpose>.profile`
@@ -54,6 +64,8 @@ description: config.yaml の完全フィールドリファレンス。
 - `logging.level`
 - `logging.format`
 - `logging.add_source`
+- `logging.file.dir`
+- `logging.file.max_age`
 - `logging.include_thoughts`
 - `logging.include_tool_params`
 - `logging.include_skill_contents`
@@ -66,6 +78,8 @@ description: config.yaml の完全フィールドリファレンス。
 ## Secrets / Auth Profiles
 
 - `secrets.allow_profiles`
+- `secrets.aws_secrets_manager.region`
+- `secrets.aws_secrets_manager.profile`
 - `auth_profiles.<id>.credential.kind`
 - `auth_profiles.<id>.credential.secret`
 - `auth_profiles.<id>.allow.url_prefixes`
@@ -146,6 +160,17 @@ Shell のデフォルト値はプラットフォームごとに分かれます�
 - `mcp.servers[].url`
 - `mcp.servers[].headers`
 - `mcp.servers[].allowed_tools`
+
+## ACP
+
+- `acp.agents[].name`
+- `acp.agents[].command`
+- `acp.agents[].args`
+- `acp.agents[].env`
+- `acp.agents[].cwd`
+- `acp.agents[].read_roots`
+- `acp.agents[].write_roots`
+- `acp.agents[].session_options`
 
 ## Bus / Contacts / Tasks / Skills
 

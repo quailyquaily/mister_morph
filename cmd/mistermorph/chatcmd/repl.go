@@ -193,7 +193,7 @@ func runREPL(sess *chatSession) error {
 	}
 	p := tea.NewProgram(model, tea.WithInput(sess.cmd.InOrStdin()), tea.WithOutput(sess.cmd.OutOrStdout()), tea.WithContext(rootCtx))
 
-	printChatSessionHeader(sess.cmd.OutOrStdout(), sess.compactMode, strings.TrimSpace(sess.mainCfg.Provider), strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.version)
+	printChatSessionHeader(sess.cmd.OutOrStdout(), strings.TrimSpace(sess.mainCfg.Provider), strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.version)
 
 	sess.sendMsg = func(msg any) { safeSend(p, msg) }
 	sess.setWriter(&programWriter{p: p})

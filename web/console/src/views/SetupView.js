@@ -256,6 +256,7 @@ const SetupView = {
 
     const loadedPayload = ref(buildDefaultPayload());
     const loadedConfigSource = ref("defaults");
+    const configRevision = ref("");
     const llmEnvManaged = ref({});
     const llmSecretFields = ref({});
     const loadedIdentityRaw = ref("");
@@ -765,6 +766,9 @@ const SetupView = {
         envManagedPayload?.llm && typeof envManagedPayload.llm === "object" ? envManagedPayload.llm : {};
       const secretFieldsPayload = data?.secret_fields && typeof data.secret_fields === "object" ? data.secret_fields : {};
       loadedPayload.value = normalized;
+      if (typeof data?.config_revision === "string") {
+        configRevision.value = data.config_revision;
+      }
       loadedConfigSource.value = String(data?.config_source || "defaults").trim() || "defaults";
       llmEnvManaged.value = llmEnvManagedPayload;
       llmSecretFields.value =
@@ -1145,6 +1149,7 @@ const SetupView = {
         const payload = await endpointApiFetch(setupEndpointRef.value, "/settings/agent", {
           method: "PUT",
           body: {
+            config_revision: configRevision.value,
             llm,
             tools: loadedPayload.value.tools,
           },

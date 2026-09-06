@@ -4,7 +4,11 @@ import { useToast } from "quail-ui";
 import "./SettingsView.css";
 
 import AppPage from "../components/AppPage";
+import AuthProfilesPanel from "../components/AuthProfilesPanel";
 import CodexAuthDialog from "../components/CodexAuthDialog";
+import ConfigSettingsPanel from "../components/ConfigSettingsPanel";
+import ConsolePasswordPanel from "../components/ConsolePasswordPanel";
+import ConsoleEndpointsPanel from "../components/ConsoleEndpointsPanel";
 import XAIAuthDialog from "../components/XAIAuthDialog";
 import ProAuthDialog from "../components/ProAuthDialog";
 import ImageUploadField from "../components/ImageUploadField";
@@ -12,6 +16,7 @@ import LLMConfigForm from "../components/LLMConfigForm";
 import MCPSettingsPanel from "../components/MCPSettingsPanel";
 import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import SettingsCreditsPanel from "../components/SettingsCreditsPanel";
+import SettingDialog from "../components/SettingDialog";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
 import RuntimePanel from "./RuntimeView";
@@ -65,6 +70,20 @@ import { invalidateConsoleSetupReadiness } from "../core/setup";
 import { endpointRoutePath } from "../core/endpoint-routes";
 import { openReentrantDialog } from "../core/reentrant-dialog";
 import {
+  AUTOMATION_CONFIG_GROUPS,
+  CHANNEL_CONFIG_GROUPS,
+  CONSOLE_DEPLOYMENT_CONFIG_GROUPS,
+  DEFAULT_MODEL_ADVANCED_CONFIG_GROUPS,
+  LLM_CONTEXT_CONFIG_GROUPS,
+  LLM_SYSTEM_CONFIG_GROUPS,
+  REMOTE_CONTROL_CONFIG_GROUPS,
+  SECURITY_CONFIG_GROUPS,
+  SYSTEM_ADVANCED_CONFIG_GROUPS,
+  SYSTEM_CONFIG_GROUPS,
+  SYSTEM_UPDATE_CONFIG_GROUPS,
+  TOOL_ADVANCED_CONFIG_GROUPS,
+} from "../core/config-field-groups";
+import {
   buildEmptyPersonaIdentityState,
   buildIdentityYAML,
   buildPersonaIdentitySnapshot,
@@ -81,6 +100,7 @@ import {
 } from "../core/persona-profile";
 
 const TOOL_ITEMS = [
+  { id: "read_file", titleKey: "settings_tool_read_file", noteKey: "settings_tool_note_read_file", toggle: false },
   { id: "write_file", titleKey: "settings_tool_write_file", noteKey: "settings_tool_note_write_file" },
   { id: "spawn", titleKey: "settings_tool_spawn", noteKey: "settings_tool_note_spawn" },
   { id: "coder", titleKey: "settings_tool_coder", noteKey: "settings_tool_note_coder" },
@@ -91,6 +111,8 @@ const TOOL_ITEMS = [
   { id: "web_search", titleKey: "settings_tool_web_search", noteKey: "settings_tool_note_web_search" },
   { id: "bash", titleKey: "settings_tool_bash", noteKey: "settings_tool_note_bash" },
   { id: "powershell", titleKey: "settings_tool_powershell", noteKey: "settings_tool_note_powershell" },
+  { id: "image_generate", titleKey: "settings_tool_image_generate", noteKey: "settings_tool_note_image_generate" },
+  { id: "image_edit", titleKey: "settings_tool_image_edit", noteKey: "settings_tool_note_image_edit" },
 ];
 
 const MANAGED_RUNTIME_ITEMS = [
@@ -110,8 +132,10 @@ const SETTINGS_SECTION_IDS = new Set([
   "skills",
   "persona",
   "channels",
+  "automation",
+  "system",
   "runtimes",
-  "guard",
+  "security",
   "console",
   "runtime",
   "credits",
@@ -145,9 +169,19 @@ function buildEmptyLLMForm() {
     endpoint: "",
     model: "",
     context_window_tokens: "",
+    supports_image_parts: "",
+    headers_text: "{}",
+    cache_ttl: "",
+    cache_key_prefix: "",
+    request_timeout: "",
+    temperature: "",
+    reasoning_budget_tokens: "",
     api_key: "",
+    azure_deployment: "",
     bedrock_aws_key: "",
     bedrock_aws_secret: "",
+    bedrock_aws_session_token: "",
+    bedrock_aws_profile: "",
     bedrock_region: "",
     bedrock_model_arn: "",
     cloudflare_api_token: "",
@@ -229,9 +263,19 @@ function buildLLMProfileState(data = {}) {
     ...buildEmptyLLMForm(),
     ...(data && typeof data === "object" ? data : {}),
   };
+  profile.headers_text = JSON.stringify(data?.headers && typeof data.headers === "object" ? data.headers : {}, null, 2);
   profile._savedName = trimText(profile.name);
   profile._savedSnapshot = JSON.stringify(serializeLLMProfile(profile));
   return profile;
+}
+
+function cloneLLMProfileState(profile) {
+  return {
+    ...profile,
+    _envManaged: { ...profile?._envManaged },
+    _secretFields: { ...profile?._secretFields },
+    _secretDirty: new Set(profile?._secretDirty || []),
+  };
 }
 
 function trimText(value) {
@@ -417,9 +461,19 @@ function serializeLLMProfile(profile) {
     endpoint: trimText(profile?.endpoint),
     model: trimText(profile?.model),
     context_window_tokens: trimText(profile?.context_window_tokens),
+    supports_image_parts: trimText(profile?.supports_image_parts),
+    headers_text: normalizeText(profile?.headers_text || "{}"),
+    cache_ttl: trimText(profile?.cache_ttl),
+    cache_key_prefix: trimText(profile?.cache_key_prefix),
+    request_timeout: trimText(profile?.request_timeout),
+    temperature: trimText(profile?.temperature),
+    reasoning_budget_tokens: trimText(profile?.reasoning_budget_tokens),
     api_key: trimText(profile?.api_key),
+    azure_deployment: trimText(profile?.azure_deployment),
     bedrock_aws_key: trimText(profile?.bedrock_aws_key),
     bedrock_aws_secret: trimText(profile?.bedrock_aws_secret),
+    bedrock_aws_session_token: trimText(profile?.bedrock_aws_session_token),
+    bedrock_aws_profile: trimText(profile?.bedrock_aws_profile),
     bedrock_region: trimText(profile?.bedrock_region),
     bedrock_model_arn: trimText(profile?.bedrock_model_arn),
     cloudflare_api_token: trimText(profile?.cloudflare_api_token),
@@ -437,7 +491,6 @@ function buildLLMSnapshot(state) {
       provider: trimText(state.llm.provider),
       endpoint: trimText(state.llm.endpoint),
       model: trimText(state.llm.model),
-      context_window_tokens: trimText(state.llm.context_window_tokens),
       api_key: trimText(state.llm.api_key),
       bedrock_aws_key: trimText(state.llm.bedrock_aws_key),
       bedrock_aws_secret: trimText(state.llm.bedrock_aws_secret),
@@ -445,8 +498,6 @@ function buildLLMSnapshot(state) {
       bedrock_model_arn: trimText(state.llm.bedrock_model_arn),
       cloudflare_api_token: trimText(state.llm.cloudflare_api_token),
       cloudflare_account_id: trimText(state.llm.cloudflare_account_id),
-      reasoning_effort: trimText(state.llm.reasoning_effort),
-      tools_emulation_mode: trimText(state.llm.tools_emulation_mode),
       fallback_profiles: normalizeNamedList(state.llm.fallback_profiles),
     },
   });
@@ -466,6 +517,8 @@ function buildToolsSnapshot(state) {
       web_search: !!state.tools.web_search,
       bash: !!state.tools.bash,
       powershell: !!state.tools.powershell,
+      image_generate: !!state.tools.image_generate,
+      image_edit: !!state.tools.image_edit,
     },
   });
 }
@@ -640,7 +693,11 @@ function buildConsoleGuardSnapshot(state) {
 const SettingsView = {
   components: {
     AppPage,
+    AuthProfilesPanel,
     CodexAuthDialog,
+    ConfigSettingsPanel,
+    ConsolePasswordPanel,
+    ConsoleEndpointsPanel,
     XAIAuthDialog,
     ProAuthDialog,
     ImageUploadField,
@@ -648,6 +705,7 @@ const SettingsView = {
     MCPSettingsPanel,
     AppMarkdownEditor,
     SettingsCreditsPanel,
+    SettingDialog,
     SetupConnectionTestDialog,
     SetupPickerDialog,
     RuntimePanel,
@@ -684,7 +742,17 @@ const SettingsView = {
     const skillsValidationVisible = ref(false);
     const deleteProfileDialogOpen = ref(false);
     const deleteProfileTargetKey = ref("");
+    const advancedSettingsOpen = ref(false);
+    const advancedSettingsTitle = ref("");
+    const advancedSettingsScope = ref("agent");
+    const advancedSettingsGroups = ref([]);
+    const advancedSettingsProfile = ref(null);
+    const advancedSettingsDirty = ref(false);
+    const advancedConfigPanel = ref(null);
     const llmConfigPath = ref("");
+    const settingsConfigRevision = ref("");
+    const agentConfigValues = ref({});
+    const agentFieldStates = ref({});
     const loadedLLMSnapshot = ref("");
     const loadedSkillsSnapshot = ref("");
     const loadedToolsSnapshot = ref("");
@@ -701,6 +769,10 @@ const SettingsView = {
     const consoleSaving = ref(false);
     const consoleSavingTarget = ref("");
     const consoleConfigPath = ref("");
+    const consoleConfigValues = ref({});
+    const consoleFieldStates = ref({});
+    const consoleEndpoints = ref([]);
+    const authProfiles = ref([]);
     const loadedConsoleManagedSnapshot = ref("");
     const loadedConsoleTelegramSnapshot = ref("");
     const loadedConsoleSlackSnapshot = ref("");
@@ -740,6 +812,11 @@ const SettingsView = {
     const desktopSettingsLoaded = ref(false);
     const desktopChecksumCopied = ref(false);
     const desktopChangelogField = ref(null);
+    const systemLoading = ref(false);
+    const systemSaving = ref(false);
+    const systemSettingsLoaded = ref(false);
+    const systemConfigValues = ref({});
+    const systemFieldStates = ref({});
     const selectedSectionID = ref(normalizeSettingsSectionID(settingsRouteSection(route)));
     const isMobile = ref(false);
     const mobilePanelVisible = ref(false);
@@ -808,6 +885,8 @@ const SettingsView = {
         web_search: true,
         bash: true,
         powershell: false,
+        image_generate: true,
+        image_edit: true,
       },
       mcp: {
         servers: [],
@@ -825,6 +904,19 @@ const SettingsView = {
       mixin: buildEmptyMixinConsoleState(),
       guard: buildEmptyGuardConsoleState(),
     });
+
+    function settingsSavedMessage(payload) {
+      switch (trimText(payload?.apply_mode)) {
+        case "process_restart":
+          return t("msg_save_process_restart");
+        case "runtime_restart":
+          return t("msg_save_runtime_restart");
+        case "next_generation":
+          return t("msg_save_next_generation");
+        default:
+          return t("msg_save_success");
+      }
+    }
 
     function clearLoadedAgentSnapshots() {
       loadedLLMSnapshot.value = "";
@@ -1024,6 +1116,25 @@ const SettingsView = {
       { title: t("settings_llm_tools_emulation_force"), value: "force" },
     ]);
     const toolItems = computed(() => TOOL_ITEMS);
+    const advancedSettingsValues = computed(() =>
+      advancedSettingsScope.value === "console" ? consoleConfigValues.value : agentConfigValues.value
+    );
+    const advancedSettingsFieldStates = computed(() =>
+      advancedSettingsScope.value === "console" ? consoleFieldStates.value : agentFieldStates.value
+    );
+    const advancedSettingsLoading = computed(() =>
+      advancedSettingsScope.value === "console" ? consoleLoading.value : agentLoading.value
+    );
+    const advancedSettingsSaving = computed(() =>
+      advancedSettingsScope.value === "console"
+        ? consoleSaving.value && consoleSavingTarget.value === "config"
+        : agentSaving.value && agentSavingTarget.value === "config"
+    );
+    const advancedSettingsSaveDisabled = computed(() =>
+      advancedSettingsProfile.value
+        ? profileSaveDisabled(advancedSettingsProfile.value)
+        : advancedSettingsLoading.value || advancedSettingsSaving.value || !advancedSettingsDirty.value
+    );
     const managedRuntimeItems = computed(() => MANAGED_RUNTIME_ITEMS);
     const groupTriggerItems = computed(() => [
       { title: t("settings_console_group_trigger_smart"), value: "smart" },
@@ -1099,30 +1210,35 @@ const SettingsView = {
       const items = [
         {
           id: "persona",
+          icon: "PhUserCircle",
           title: t("settings_persona_title"),
           meta: t("settings_section_persona_meta"),
           saveKind: "persona",
         },
         {
           id: "agent",
+          icon: "PhRobot",
           title: t("settings_agent_block_title"),
           meta: t("settings_section_agent_meta"),
           saveKind: "agent",
         },
         {
           id: "tools",
+          icon: "PhToolbox",
           title: t("settings_tools_title"),
           meta: t("settings_section_tools_meta"),
           saveKind: "agent",
         },
         {
           id: "mcp",
+          icon: "PhPlugsConnected",
           title: t("settings_mcp_title"),
           meta: t("settings_section_mcp_meta"),
           saveKind: "agent",
         },
         {
           id: "skills",
+          icon: "PhMagicWand",
           title: t("settings_skills_title"),
           meta: t("settings_section_skills_meta"),
           saveKind: "agent",
@@ -1131,35 +1247,55 @@ const SettingsView = {
       if (selectedEndpointIsConsole.value) {
         items.push({
           id: "channels",
+          icon: "PhChats",
           title: t("settings_console_channels_title"),
           saveKind: "console",
         });
         items.push({
           id: "runtimes",
+          icon: "PhBroadcast",
           title: t("settings_console_runtime_title"),
           meta: t("settings_section_runtimes_meta"),
           saveKind: "console",
         });
         items.push({
-          id: "guard",
+          id: "security",
+          icon: "PhShieldCheck",
           title: t("settings_console_guard_title"),
           meta: t("settings_section_guard_meta"),
           saveKind: "console",
         });
+        items.push({
+          id: "automation",
+          icon: "PhCalendarCheck",
+          title: t("settings_automation_title"),
+          meta: t("settings_section_automation_meta"),
+          saveKind: "console-config",
+        });
+        items.push({
+          id: "system",
+          icon: "PhGearSix",
+          title: t("settings_system_title"),
+          meta: t("settings_section_system_meta"),
+          saveKind: "system-config",
+        });
+        items.push({
+          id: "console",
+          icon: "PhNetwork",
+          title: t("settings_console_title"),
+          meta: t("settings_section_console_meta"),
+          saveKind: "",
+        });
       }
       items.push({
-        id: "console",
-        title: t("settings_console_title"),
-        meta: t("settings_section_console_meta"),
-        saveKind: "",
-      });
-      items.push({
         id: "runtime",
+        icon: "PhPulse",
         title: t("runtime_title"),
         saveKind: "",
       });
       items.push({
         id: "credits",
+        icon: "PhInfo",
         title: t("settings_credits_title"),
         saveKind: "",
       });
@@ -1168,6 +1304,11 @@ const SettingsView = {
 
     const selectedSection = computed(
       () => settingsSections.value.find((item) => item.id === selectedSectionID.value) || settingsSections.value[0] || null
+    );
+    const consolePasswordConfigured = computed(
+      () =>
+        consoleFieldStates.value?.["console.password_hash"]?.configured === true ||
+        consoleFieldStates.value?.["console.password"]?.configured === true,
     );
     const activeSaveKind = computed(() => String(selectedSection.value?.saveKind || ""));
     const showIndexPane = computed(() => !isMobile.value || !mobilePanelVisible.value);
@@ -1281,6 +1422,14 @@ const SettingsView = {
       }
       if (profileProviderChoice(profile) === "") {
         return t("settings_agent_profile_provider_required");
+      }
+      try {
+        const headers = JSON.parse(profile.headers_text || "{}");
+        if (!headers || Array.isArray(headers) || typeof headers !== "object") {
+          return "HTTP headers must be a JSON object.";
+        }
+      } catch {
+        return "HTTP headers must be valid JSON.";
       }
       return "";
     }
@@ -1617,6 +1766,8 @@ const SettingsView = {
       state.tools.web_search = true;
       state.tools.bash = true;
       state.tools.powershell = false;
+      state.tools.image_generate = true;
+      state.tools.image_edit = true;
       state.mcp.servers = [];
       llmEnvManaged.value = {};
       llmSecretFields.value = {};
@@ -1624,6 +1775,9 @@ const SettingsView = {
       agentSettingsReadOnly.value = false;
       agentSettingsReadOnlyReason.value = "";
       llmConfigPath.value = "";
+      settingsConfigRevision.value = "";
+      agentConfigValues.value = {};
+      agentFieldStates.value = {};
       agentValidationVisible.value = false;
       skillsValidationVisible.value = false;
       clearLoadedAgentSnapshots();
@@ -1675,15 +1829,30 @@ const SettingsView = {
       const profiles = Array.isArray(llm.profiles) ? llm.profiles : [];
       agentSettingsReadOnly.value = data?.read_only === true;
       agentSettingsReadOnlyReason.value = agentSettingsReadOnly.value ? trimText(data?.read_only_reason) : "";
+      if (typeof data?.config_revision === "string") {
+        settingsConfigRevision.value = data.config_revision;
+      }
+      agentConfigValues.value = data?.config_values && typeof data.config_values === "object" ? data.config_values : {};
+      agentFieldStates.value = data?.field_states && typeof data.field_states === "object" ? data.field_states : {};
 
       state.llm.inference_provider = normalizeSetupProviderChoice(llm.inference_provider || llm.provider, { allowEmpty: true });
       state.llm.provider = typeof llm.provider === "string" ? llm.provider : "";
       state.llm.endpoint = typeof llm.endpoint === "string" ? llm.endpoint : "";
       state.llm.model = typeof llm.model === "string" ? llm.model : "";
       state.llm.context_window_tokens = typeof llm.context_window_tokens === "string" ? llm.context_window_tokens : "";
+      state.llm.supports_image_parts = typeof llm.supports_image_parts === "string" ? llm.supports_image_parts : "";
+      state.llm.headers_text = JSON.stringify(llm.headers && typeof llm.headers === "object" ? llm.headers : {}, null, 2);
+      state.llm.cache_ttl = typeof llm.cache_ttl === "string" ? llm.cache_ttl : "";
+      state.llm.cache_key_prefix = typeof llm.cache_key_prefix === "string" ? llm.cache_key_prefix : "";
+      state.llm.request_timeout = typeof llm.request_timeout === "string" ? llm.request_timeout : "";
+      state.llm.temperature = typeof llm.temperature === "string" ? llm.temperature : "";
+      state.llm.reasoning_budget_tokens = typeof llm.reasoning_budget_tokens === "string" ? llm.reasoning_budget_tokens : "";
       state.llm.api_key = typeof llm.api_key === "string" ? llm.api_key : "";
+      state.llm.azure_deployment = typeof llm.azure_deployment === "string" ? llm.azure_deployment : "";
       state.llm.bedrock_aws_key = typeof llm.bedrock_aws_key === "string" ? llm.bedrock_aws_key : "";
       state.llm.bedrock_aws_secret = typeof llm.bedrock_aws_secret === "string" ? llm.bedrock_aws_secret : "";
+      state.llm.bedrock_aws_session_token = typeof llm.bedrock_aws_session_token === "string" ? llm.bedrock_aws_session_token : "";
+      state.llm.bedrock_aws_profile = typeof llm.bedrock_aws_profile === "string" ? llm.bedrock_aws_profile : "";
       state.llm.bedrock_region = typeof llm.bedrock_region === "string" ? llm.bedrock_region : "";
       state.llm.bedrock_model_arn = typeof llm.bedrock_model_arn === "string" ? llm.bedrock_model_arn : "";
       state.llm.cloudflare_api_token = typeof llm.cloudflare_api_token === "string" ? llm.cloudflare_api_token : "";
@@ -1710,9 +1879,23 @@ const SettingsView = {
           model: typeof profile?.model === "string" ? profile.model : "",
           context_window_tokens:
             typeof profile?.context_window_tokens === "string" ? profile.context_window_tokens : "",
+          supports_image_parts:
+            typeof profile?.supports_image_parts === "string" ? profile.supports_image_parts : "",
+          headers: profile?.headers && typeof profile.headers === "object" ? profile.headers : {},
+          cache_ttl: typeof profile?.cache_ttl === "string" ? profile.cache_ttl : "",
+          cache_key_prefix: typeof profile?.cache_key_prefix === "string" ? profile.cache_key_prefix : "",
+          request_timeout: typeof profile?.request_timeout === "string" ? profile.request_timeout : "",
+          temperature: typeof profile?.temperature === "string" ? profile.temperature : "",
+          reasoning_budget_tokens:
+            typeof profile?.reasoning_budget_tokens === "string" ? profile.reasoning_budget_tokens : "",
           api_key: typeof profile?.api_key === "string" ? profile.api_key : "",
+          azure_deployment: typeof profile?.azure_deployment === "string" ? profile.azure_deployment : "",
           bedrock_aws_key: typeof profile?.bedrock_aws_key === "string" ? profile.bedrock_aws_key : "",
           bedrock_aws_secret: typeof profile?.bedrock_aws_secret === "string" ? profile.bedrock_aws_secret : "",
+          bedrock_aws_session_token:
+            typeof profile?.bedrock_aws_session_token === "string" ? profile.bedrock_aws_session_token : "",
+          bedrock_aws_profile:
+            typeof profile?.bedrock_aws_profile === "string" ? profile.bedrock_aws_profile : "",
           bedrock_region: typeof profile?.bedrock_region === "string" ? profile.bedrock_region : "",
           bedrock_model_arn: typeof profile?.bedrock_model_arn === "string" ? profile.bedrock_model_arn : "",
           cloudflare_api_token:
@@ -1736,6 +1919,8 @@ const SettingsView = {
       state.tools.web_search = toolEnabledValue(tools.web_search);
       state.tools.bash = toolEnabledValue(tools.bash);
       state.tools.powershell = toolEnabledValue(tools.powershell);
+      state.tools.image_generate = toolEnabledValue(tools.image_generate);
+      state.tools.image_edit = toolEnabledValue(tools.image_edit);
       applyMCPPayload(mcp);
       llmEnvManaged.value = llmEnvManagedPayload;
       llmSecretFields.value = llmSecretFieldsPayload;
@@ -1760,12 +1945,13 @@ const SettingsView = {
       state.mcp.servers = (Array.isArray(payload.servers) ? payload.servers : []).map(buildMCPServerState);
     }
 
-    function updateMCPServers(servers) {
+    async function saveMCPServers(servers) {
       if (agentSettingsReadOnly.value) {
         return;
       }
       state.mcp.servers = Array.isArray(servers) ? servers : [];
       updateMCPDirty();
+      await saveAgentSettings("mcp");
     }
 
     function llmProfileEnvManaged(profile) {
@@ -1887,12 +2073,13 @@ const SettingsView = {
       try {
         const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
-          body: { llm: { delete_profile: savedName } },
+          body: { config_revision: settingsConfigRevision.value, llm: { delete_profile: savedName } },
         });
         if (targetEndpointRef !== settingsEndpointRef.value) {
-          return;
+          return false;
         }
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
+        settingsConfigRevision.value = trimText(payload?.config_revision) || settingsConfigRevision.value;
         removeLLMProfile(profileKey);
         updateLoadedFallbackProfile(savedName, "");
         if (targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF) {
@@ -1976,6 +2163,14 @@ const SettingsView = {
         model: llmFieldEnvRawValue(envManaged, "model") || trimText(profile.model),
         context_window_tokens:
           llmFieldEnvRawValue(envManaged, "context_window_tokens") || trimText(profile.context_window_tokens),
+        supports_image_parts: trimText(profile.supports_image_parts),
+        headers: JSON.parse(profile.headers_text || "{}"),
+        cache_ttl: trimText(profile.cache_ttl),
+        cache_key_prefix: trimText(profile.cache_key_prefix),
+        request_timeout: trimText(profile.request_timeout),
+        temperature: trimText(profile.temperature),
+        reasoning_budget_tokens: trimText(profile.reasoning_budget_tokens),
+        azure_deployment: trimText(profile.azure_deployment),
         reasoning_effort:
           llmFieldEnvRawValue(envManaged, "reasoning_effort") || trimText(profile.reasoning_effort),
         tools_emulation_mode:
@@ -1994,11 +2189,14 @@ const SettingsView = {
         payload.api_key = "";
         payload.bedrock_aws_key = "";
         payload.bedrock_aws_secret = "";
+        payload.bedrock_aws_session_token = "";
+        payload.bedrock_aws_profile = "";
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
       } else if (provider === SETUP_PROVIDER_BEDROCK) {
         const rawAWSKey = llmFieldEnvRawValue(envManaged, "bedrock_aws_key");
         const rawAWSSecret = llmFieldEnvRawValue(envManaged, "bedrock_aws_secret");
+        const rawAWSSessionToken = llmFieldEnvRawValue(envManaged, "bedrock_aws_session_token");
         payload.bedrock_aws_key = rawAWSKey || includeSecretValue(
           profile.bedrock_aws_key,
           llmProfileSecretFields(profile),
@@ -2011,6 +2209,13 @@ const SettingsView = {
           profile._secretDirty,
           "bedrock_aws_secret",
         );
+        payload.bedrock_aws_session_token = rawAWSSessionToken || includeSecretValue(
+          profile.bedrock_aws_session_token,
+          llmProfileSecretFields(profile),
+          profile._secretDirty,
+          "bedrock_aws_session_token",
+        );
+        payload.bedrock_aws_profile = trimText(profile.bedrock_aws_profile);
         payload.bedrock_region =
           llmFieldEnvRawValue(envManaged, "bedrock_region") || trimText(profile.bedrock_region);
         payload.bedrock_model_arn =
@@ -2030,6 +2235,8 @@ const SettingsView = {
         payload.cloudflare_account_id = "";
         payload.bedrock_aws_key = "";
         payload.bedrock_aws_secret = "";
+        payload.bedrock_aws_session_token = "";
+        payload.bedrock_aws_profile = "";
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
       } else if (
@@ -2041,6 +2248,8 @@ const SettingsView = {
         payload.cloudflare_account_id = "";
         payload.bedrock_aws_key = "";
         payload.bedrock_aws_secret = "";
+        payload.bedrock_aws_session_token = "";
+        payload.bedrock_aws_profile = "";
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
       } else {
@@ -2053,6 +2262,8 @@ const SettingsView = {
         );
         payload.bedrock_aws_key = "";
         payload.bedrock_aws_secret = "";
+        payload.bedrock_aws_session_token = "";
+        payload.bedrock_aws_profile = "";
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
         payload.cloudflare_api_token = "";
@@ -2500,6 +2711,13 @@ const SettingsView = {
       consoleEnvManaged.value = data?.env_managed && typeof data.env_managed === "object" ? data.env_managed : {};
       consoleSecretFields.value = data?.secret_fields && typeof data.secret_fields === "object" ? data.secret_fields : {};
       consoleSecretDirty.clear();
+      if (typeof data?.config_revision === "string") {
+        settingsConfigRevision.value = data.config_revision;
+      }
+      consoleConfigValues.value = data?.config_values && typeof data.config_values === "object" ? data.config_values : {};
+      consoleFieldStates.value = data?.field_states && typeof data.field_states === "object" ? data.field_states : {};
+      consoleEndpoints.value = Array.isArray(data?.endpoints) ? data.endpoints : [];
+      authProfiles.value = Array.isArray(data?.auth_profiles) ? data.auth_profiles : [];
       for (const item of MANAGED_RUNTIME_ITEMS) {
         state.managedRuntimes[item.id] = values.includes(item.id);
       }
@@ -2554,6 +2772,10 @@ const SettingsView = {
       consoleSecretFields.value = {};
       consoleSecretDirty.clear();
       consoleConfigPath.value = "";
+      consoleConfigValues.value = {};
+      consoleFieldStates.value = {};
+      consoleEndpoints.value = [];
+      authProfiles.value = [];
       clearLoadedConsoleSnapshots();
     }
 
@@ -2564,6 +2786,14 @@ const SettingsView = {
       desktopSettingsLoaded.value = false;
       desktopCurrentVersion.value = "";
       desktopUpdateResult.value = null;
+    }
+
+    function resetSystemSettingsState() {
+      systemLoading.value = false;
+      systemSaving.value = false;
+      systemSettingsLoaded.value = false;
+      systemConfigValues.value = {};
+      systemFieldStates.value = {};
     }
 
     async function loadConsoleSettings() {
@@ -2610,6 +2840,29 @@ const SettingsView = {
       } finally {
         if (isCurrentDesktopSettingsRequest(requestSeq, targetEndpointRef)) {
           desktopLoading.value = false;
+        }
+      }
+    }
+
+    async function loadSystemSettings() {
+      const targetEndpointRef = settingsEndpointRef.value;
+      systemLoading.value = true;
+      try {
+        const data = await endpointApiFetch(targetEndpointRef, "/settings/system");
+        if (targetEndpointRef !== settingsEndpointRef.value) {
+          return;
+        }
+        settingsConfigRevision.value = trimText(data?.config_revision) || settingsConfigRevision.value;
+        systemConfigValues.value = data?.config_values && typeof data.config_values === "object" ? data.config_values : {};
+        systemFieldStates.value = data?.field_states && typeof data.field_states === "object" ? data.field_states : {};
+        systemSettingsLoaded.value = true;
+      } catch (e) {
+        if (targetEndpointRef === settingsEndpointRef.value) {
+          toast.error(e?.message || t("msg_load_failed"));
+        }
+      } finally {
+        if (targetEndpointRef === settingsEndpointRef.value) {
+          systemLoading.value = false;
         }
       }
     }
@@ -2832,6 +3085,8 @@ const SettingsView = {
         web_search: { enabled: state.tools.web_search },
         bash: { enabled: state.tools.bash },
         powershell: { enabled: state.tools.powershell },
+        image_generate: { enabled: state.tools.image_generate },
+        image_edit: { enabled: state.tools.image_edit },
       };
       if (target === "llm") {
         return { llm: buildLLMSettingsPayload() };
@@ -2874,9 +3129,6 @@ const SettingsView = {
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
         payload.model = trimText(state.llm.model);
-      }
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "context_window_tokens")) {
-        payload.context_window_tokens = trimText(state.llm.context_window_tokens);
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_aws_key")) {
@@ -2936,12 +3188,6 @@ const SettingsView = {
         payload.bedrock_model_arn = "";
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
         payload.api_key = includeSecretValue(state.llm.api_key, llmSecretFields.value, llmSecretDirty, "api_key");
-      }
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "reasoning_effort")) {
-        payload.reasoning_effort = trimText(state.llm.reasoning_effort);
-      }
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "tools_emulation_mode")) {
-        payload.tools_emulation_mode = trimText(state.llm.tools_emulation_mode);
       }
       payload.fallback_profiles = normalizeNamedList(state.llm.fallback_profiles);
       return payload;
@@ -3057,8 +3303,109 @@ const SettingsView = {
         !hasLLMFieldOrSecretValue(profile, envManaged, llmProfileSecretFields(profile), "api_key");
     }
 
+    function advancedSettingsDialogTitle(name) {
+      return `${name} · ${t("settings_advanced_action")}`;
+    }
+
+    function openConfigAdvancedSettings(name, scope, groups) {
+      advancedSettingsTitle.value = advancedSettingsDialogTitle(name);
+      advancedSettingsScope.value = scope;
+      advancedSettingsGroups.value = groups;
+      advancedSettingsProfile.value = null;
+      advancedSettingsDirty.value = false;
+      advancedSettingsOpen.value = true;
+    }
+
+    function openDefaultLLMAdvancedSettings() {
+      openConfigAdvancedSettings(
+        t("settings_agent_default_profile_label"),
+        "agent",
+        DEFAULT_MODEL_ADVANCED_CONFIG_GROUPS,
+      );
+    }
+
+    function openProfileAdvancedSettings(profile) {
+      const name = trimText(profile?.name) || t("settings_agent_profile_placeholder");
+      advancedSettingsTitle.value = advancedSettingsDialogTitle(name);
+      advancedSettingsScope.value = "agent";
+      advancedSettingsGroups.value = [];
+      advancedSettingsProfile.value = profile ? cloneLLMProfileState(profile) : null;
+      advancedSettingsDirty.value = false;
+      advancedSettingsOpen.value = true;
+    }
+
+    function openToolAdvancedSettings(item) {
+      const groups = TOOL_ADVANCED_CONFIG_GROUPS[item?.id];
+      if (!groups) return;
+      openConfigAdvancedSettings(t(item.titleKey), "agent", groups);
+    }
+
+    function openChannelAdvancedSettings(channel) {
+      const group = CHANNEL_CONFIG_GROUPS.find((item) => item.id === channel);
+      if (!group) return;
+      openConfigAdvancedSettings(group.title.replace(/ behavior$/, ""), "console", [group]);
+    }
+
+    function channelActionMenuItems(channel) {
+      return [{
+        id: "advanced",
+        title: t("settings_advanced_action"),
+        disabled: consoleLoading.value || consoleSaving.value,
+        action: () => openChannelAdvancedSettings(channel),
+      }];
+    }
+
+    function closeAdvancedSettings() {
+      advancedSettingsProfile.value = null;
+      advancedSettingsGroups.value = [];
+      advancedSettingsDirty.value = false;
+    }
+
+    function updateAdvancedProfileField({ field, value }) {
+      const profile = advancedSettingsProfile.value;
+      const key = String(field || "").trim();
+      if (!profile || !key || !Object.prototype.hasOwnProperty.call(profile, key)) return;
+      const nextValue = String(value || "");
+      if (profile[key] === nextValue) return;
+      profile[key] = nextValue;
+      if (Object.prototype.hasOwnProperty.call(llmProfileSecretFields(profile), key)) {
+        profile._secretDirty.add(key);
+      }
+    }
+
+    async function saveAdvancedConfigSettings(update) {
+      if (await saveConfigSettings(advancedSettingsScope.value, update)) {
+        advancedSettingsOpen.value = false;
+        closeAdvancedSettings();
+      }
+    }
+
+    async function saveAdvancedSettings() {
+      const profile = advancedSettingsProfile.value;
+      if (!profile) {
+        advancedConfigPanel.value?.save();
+        return;
+      }
+      if (await saveLLMProfile(profile._key, profile)) {
+        advancedSettingsOpen.value = false;
+        closeAdvancedSettings();
+      }
+    }
+
     function llmActionMenuItems(profile = null) {
       const items = [
+        {
+          id: "advanced",
+          title: t("settings_advanced_action"),
+          disabled: agentLoading.value || agentSaving.value,
+          action: () => profile ? openProfileAdvancedSettings(profile) : openDefaultLLMAdvancedSettings(),
+        },
+        ...(!profile ? [{
+          id: "context",
+          title: "Context compaction",
+          disabled: agentLoading.value || agentSaving.value,
+          action: () => openConfigAdvancedSettings("Context compaction", "agent", LLM_CONTEXT_CONFIG_GROUPS),
+        }] : []),
         {
           id: "benchmark",
           title: t("setup_llm_test_button"),
@@ -3359,18 +3706,19 @@ const SettingsView = {
       updateConsoleGuardDirty();
     }
 
-    async function saveLLMProfile(profileKey) {
-      const profile = state.llm.profiles.find((item) => item._key === profileKey) || null;
-      if (!profile || agentLoading.value || agentSaving.value || agentSettingsReadOnly.value) {
-        return;
+    async function saveLLMProfile(profileKey, draft = null) {
+      const storedProfile = state.llm.profiles.find((item) => item._key === profileKey) || null;
+      const profile = draft || storedProfile;
+      if (!storedProfile || !profile || agentLoading.value || agentSaving.value || agentSettingsReadOnly.value) {
+        return false;
       }
       const validationError = profileValidationError(profile);
       if (validationError) {
         toast.error(validationError);
-        return;
+        return false;
       }
       if (profileSaveDisabled(profile)) {
-        return;
+        return false;
       }
 
       const originalName = trimText(profile._savedName);
@@ -3382,6 +3730,7 @@ const SettingsView = {
         const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
           body: {
+            config_revision: settingsConfigRevision.value,
             llm: {
               profile: {
                 original_name: originalName,
@@ -3391,22 +3740,28 @@ const SettingsView = {
           },
         });
         if (targetEndpointRef !== settingsEndpointRef.value) {
-          return;
+          return false;
+        }
+        if (profile !== storedProfile) {
+          Object.assign(storedProfile, profile);
+          storedProfile._secretDirty = new Set(profile._secretDirty || []);
         }
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
+        settingsConfigRevision.value = trimText(payload?.config_revision) || settingsConfigRevision.value;
         const profileEnvManaged = payload?.env_managed?.llm_profiles?.[nextName];
-        profile._envManaged =
+        storedProfile._envManaged =
           profileEnvManaged && typeof profileEnvManaged === "object" ? profileEnvManaged : {};
         const profileSecretFields = payload?.secret_fields?.llm_profiles?.[nextName];
-        profile._secretFields =
+        storedProfile._secretFields =
           profileSecretFields && typeof profileSecretFields === "object" ? profileSecretFields : {};
-        profile.api_key = "";
-        profile.bedrock_aws_key = "";
-        profile.bedrock_aws_secret = "";
-        profile.cloudflare_api_token = "";
-        profile._secretDirty.clear();
-        profile._savedName = nextName;
-        profile._savedSnapshot = JSON.stringify(serializeLLMProfile(profile));
+        storedProfile.api_key = "";
+        storedProfile.bedrock_aws_key = "";
+        storedProfile.bedrock_aws_secret = "";
+        storedProfile.bedrock_aws_session_token = "";
+        storedProfile.cloudflare_api_token = "";
+        storedProfile._secretDirty.clear();
+        storedProfile._savedName = nextName;
+        storedProfile._savedSnapshot = JSON.stringify(serializeLLMProfile(storedProfile));
         if (originalName && originalName !== nextName) {
           state.llm.fallback_profiles = state.llm.fallback_profiles.map((item) =>
             trimText(item).toLowerCase() === originalName.toLowerCase() ? nextName : item,
@@ -3417,9 +3772,11 @@ const SettingsView = {
           invalidateConsoleSetupReadiness();
         }
         await loadEndpoints();
-        toast.success(t("msg_save_success"));
+        toast.success(settingsSavedMessage(payload));
+        return true;
       } catch (e) {
         toast.error(agentSettingsErrorMessage(e, targetEndpointRef, "msg_save_failed"));
+        return false;
       } finally {
         agentSaving.value = false;
         agentSavingTarget.value = "";
@@ -3464,12 +3821,13 @@ const SettingsView = {
       try {
         const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
-          body: buildSavePayload(normalizedTarget),
+          body: { config_revision: settingsConfigRevision.value, ...buildSavePayload(normalizedTarget) },
         });
         if (targetEndpointRef !== settingsEndpointRef.value) {
           return;
         }
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
+        settingsConfigRevision.value = trimText(payload?.config_revision) || settingsConfigRevision.value;
         if (normalizedTarget === "llm" || normalizedTarget === "all") {
           if (targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF) {
             invalidateConsoleSetupReadiness();
@@ -3536,9 +3894,9 @@ const SettingsView = {
       if (normalizedTarget === "lark" && larkSaveDisabled.value) {
         return;
       }
-	  if (normalizedTarget === "mixin" && mixinSaveDisabled.value) {
-		return;
-	  }
+      if (normalizedTarget === "mixin" && mixinSaveDisabled.value) {
+        return;
+      }
       if (normalizedTarget === "guard" && guardSaveDisabled.value) {
         return;
       }
@@ -3552,7 +3910,7 @@ const SettingsView = {
       try {
         const payload = await endpointApiFetch(targetEndpointRef, "/settings/console", {
           method: "PUT",
-          body: buildConsoleSavePayload(normalizedTarget),
+          body: { config_revision: settingsConfigRevision.value, ...buildConsoleSavePayload(normalizedTarget) },
         });
         if (!isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
           return;
@@ -3560,7 +3918,7 @@ const SettingsView = {
         consoleConfigPath.value =
           typeof payload.config_path === "string" ? payload.config_path : consoleConfigPath.value;
         applyConsolePayload(payload);
-        toast.success(t("msg_save_success"));
+        toast.success(settingsSavedMessage(payload));
       } catch (e) {
         if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
           toast.error(e.message || t("msg_save_failed"));
@@ -3570,6 +3928,109 @@ const SettingsView = {
           consoleSaving.value = false;
           consoleSavingTarget.value = "";
         }
+      }
+    }
+
+    function syncDefaultLLMAdvancedState(values) {
+      const text = (path) => values[path] === undefined || values[path] === null ? "" : String(values[path]);
+      state.llm.context_window_tokens = text("llm.context_window_tokens");
+      state.llm.supports_image_parts = text("llm.supports_image_parts");
+      state.llm.cache_ttl = text("llm.cache_ttl");
+      state.llm.cache_key_prefix = text("llm.cache_key_prefix");
+      state.llm.request_timeout = text("llm.request_timeout");
+      state.llm.temperature = text("llm.temperature");
+      state.llm.reasoning_effort = text("llm.reasoning_effort");
+      state.llm.reasoning_budget_tokens = text("llm.reasoning_budget_tokens");
+      state.llm.tools_emulation_mode = text("llm.tools_emulation_mode") || "off";
+      state.llm.headers_text = JSON.stringify(
+        values["llm.headers"] && typeof values["llm.headers"] === "object" ? values["llm.headers"] : {},
+        null,
+        2,
+      );
+    }
+
+    async function saveConfigSettings(scope, update) {
+      const endpoint = scope === "agent" ? "/settings/agent" : scope === "console" ? "/settings/console" : "/settings/system";
+      const targetEndpointRef = settingsEndpointRef.value;
+      if (scope === "agent") {
+        agentSaving.value = true;
+        agentSavingTarget.value = "config";
+      } else if (scope === "console") {
+        consoleSaving.value = true;
+        consoleSavingTarget.value = "config";
+      } else {
+        systemSaving.value = true;
+      }
+      try {
+        const payload = await endpointApiFetch(targetEndpointRef, endpoint, {
+          method: "PUT",
+          body: { config_revision: settingsConfigRevision.value, ...update },
+        });
+        if (targetEndpointRef !== settingsEndpointRef.value) {
+          return false;
+        }
+        settingsConfigRevision.value = trimText(payload?.config_revision) || settingsConfigRevision.value;
+        const values = payload?.config_values && typeof payload.config_values === "object" ? payload.config_values : {};
+        const fieldStates = payload?.field_states && typeof payload.field_states === "object" ? payload.field_states : {};
+        if (scope === "agent") {
+          agentConfigValues.value = values;
+          agentFieldStates.value = fieldStates;
+          syncDefaultLLMAdvancedState(values);
+        } else if (scope === "console") {
+          consoleConfigValues.value = values;
+          consoleFieldStates.value = fieldStates;
+        } else {
+          systemConfigValues.value = values;
+          systemFieldStates.value = fieldStates;
+        }
+        toast.success(settingsSavedMessage(payload));
+        return true;
+      } catch (e) {
+        if (e?.status === 409 && targetEndpointRef === settingsEndpointRef.value) {
+          if (scope === "agent") {
+            await loadAgentSettings(targetEndpointRef);
+          } else if (scope === "console") {
+            await loadConsoleSettings();
+          } else {
+            await loadSystemSettings();
+          }
+        }
+        toast.error(e?.message || t("msg_save_failed"));
+        return false;
+      } finally {
+        if (scope === "agent") {
+          agentSaving.value = false;
+          agentSavingTarget.value = "";
+        } else if (scope === "console") {
+          consoleSaving.value = false;
+          consoleSavingTarget.value = "";
+        } else {
+          systemSaving.value = false;
+        }
+      }
+    }
+
+    async function saveConsoleCollection(target, values) {
+      const targetEndpointRef = settingsEndpointRef.value;
+      consoleSaving.value = true;
+      consoleSavingTarget.value = target;
+      try {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/console", {
+          method: "PUT",
+          body: { config_revision: settingsConfigRevision.value, [target]: values },
+        });
+        if (targetEndpointRef !== settingsEndpointRef.value) return;
+        applyConsolePayload(payload);
+        if (target === "endpoints") await loadEndpoints();
+        toast.success(settingsSavedMessage(payload));
+      } catch (e) {
+        if (e?.status === 409 && targetEndpointRef === settingsEndpointRef.value) {
+          await loadConsoleSettings();
+        }
+        toast.error(e?.message || t("msg_save_failed"));
+      } finally {
+        consoleSaving.value = false;
+        consoleSavingTarget.value = "";
       }
     }
 
@@ -3935,15 +4396,24 @@ const SettingsView = {
         }
         return;
       }
-      if (["channels", "runtimes", "guard"].includes(normalizedSectionID)) {
+      if (["channels", "runtimes", "security", "automation"].includes(normalizedSectionID)) {
         if (selectedEndpointIsConsole.value && !consoleSettingsLoaded.value && !consoleLoading.value) {
           void loadConsoleSettings();
         }
         return;
       }
-      if (normalizedSectionID === "console") {
+      if (normalizedSectionID === "system") {
+        if (selectedEndpointIsConsole.value && !systemSettingsLoaded.value && !systemLoading.value) {
+          void loadSystemSettings();
+        }
         if (!desktopSettingsLoaded.value && !desktopLoading.value) {
           void loadDesktopSettings();
+        }
+        return;
+      }
+      if (normalizedSectionID === "console") {
+        if (selectedEndpointIsConsole.value && !consoleSettingsLoaded.value && !consoleLoading.value) {
+          void loadConsoleSettings();
         }
       }
     }
@@ -3960,6 +4430,7 @@ const SettingsView = {
       personaOk.value = "";
 
       resetConsoleSettingsState();
+      resetSystemSettingsState();
 
       apiBasePickerOpen.value = false;
       modelPickerOpen.value = false;
@@ -4049,8 +4520,8 @@ const SettingsView = {
 
     watch(consoleEndpointRef, () => {
       resetDesktopSettingsState();
-      if (selectedSectionID.value === "console") {
-        ensureSettingsSectionData("console");
+      if (selectedSectionID.value === "system") {
+        ensureSettingsSectionData("system");
       }
     });
 
@@ -4061,7 +4532,7 @@ const SettingsView = {
           ensureSettingsSectionData(selectedSectionID.value);
           return;
         }
-        if (["runtimes", "channels", "guard"].includes(selectedSectionID.value)) {
+        if (["runtimes", "channels", "security", "automation", "system"].includes(selectedSectionID.value)) {
           selectedSectionID.value = "console";
           ensureSettingsSectionData("console");
         }
@@ -4138,6 +4609,8 @@ const SettingsView = {
       consoleLoading,
       consoleSaving,
       consoleSavingTarget,
+      systemLoading,
+      systemSaving,
       personaLoading,
       personaSaving,
       personaSavingTarget,
@@ -4157,6 +4630,24 @@ const SettingsView = {
       desktopChangelogField,
       llmConfigPath,
       consoleConfigPath,
+      agentConfigValues,
+      agentFieldStates,
+      consoleConfigValues,
+      consoleFieldStates,
+      consoleEndpoints,
+      authProfiles,
+      consolePasswordConfigured,
+      systemConfigValues,
+      systemFieldStates,
+      TOOL_ADVANCED_CONFIG_GROUPS,
+      LLM_SYSTEM_CONFIG_GROUPS,
+      CONSOLE_DEPLOYMENT_CONFIG_GROUPS,
+      REMOTE_CONTROL_CONFIG_GROUPS,
+      AUTOMATION_CONFIG_GROUPS,
+      SECURITY_CONFIG_GROUPS,
+      SYSTEM_ADVANCED_CONFIG_GROUPS,
+      SYSTEM_CONFIG_GROUPS,
+      SYSTEM_UPDATE_CONFIG_GROUPS,
       desktopUpdateResult,
       state,
       llmEnvManaged,
@@ -4209,6 +4700,23 @@ const SettingsView = {
       testConnectionDisabled,
       profileIsInUse,
       llmActionMenuItems,
+      advancedSettingsOpen,
+      advancedSettingsTitle,
+      advancedSettingsGroups,
+      advancedSettingsProfile,
+      advancedSettingsValues,
+      advancedSettingsFieldStates,
+      advancedSettingsLoading,
+      advancedSettingsSaving,
+      advancedSettingsSaveDisabled,
+      advancedSettingsDirty,
+      advancedConfigPanel,
+      openToolAdvancedSettings,
+      channelActionMenuItems,
+      closeAdvancedSettings,
+      updateAdvancedProfileField,
+      saveAdvancedConfigSettings,
+      saveAdvancedSettings,
       showCodexAuthCard,
       defaultCodexAuthDisabled,
       showXAIAuthCard,
@@ -4266,7 +4774,10 @@ const SettingsView = {
       openProAuthDialog,
       logout,
       saveAgentSettings,
+      saveMCPServers,
       saveConsoleSettings,
+      saveConfigSettings,
+      saveConsoleCollection,
       savePersona,
       savePersonaAvatar,
       deletePersonaAvatar,
@@ -4318,7 +4829,6 @@ const SettingsView = {
       updateLineGroupTrigger,
       updateLarkGroupTrigger,
       updateGuardField,
-      updateMCPServers,
       selectSection,
       isSelectedSection,
       sectionClass,
@@ -4364,7 +4874,8 @@ const SettingsView = {
               :aria-current="isSelectedSection(item) ? 'page' : undefined"
               @click="selectSection(item.id)"
             >
-              <span class="workspace-sidebar-item-copy">
+              <span class="workspace-sidebar-item-copy settings-index-item-copy">
+                <component :is="item.icon" class="settings-index-item-icon icon" aria-hidden="true" />
                 <span class="workspace-sidebar-item-title">{{ item.title }}</span>
               </span>
               <span class="workspace-sidebar-item-marker">
@@ -4625,25 +5136,45 @@ const SettingsView = {
               </div>
             </QCard>
 
+            <ConfigSettingsPanel
+              v-for="group in LLM_SYSTEM_CONFIG_GROUPS"
+              :key="group.id"
+              :groups="[group]"
+              :values="agentConfigValues"
+              :fieldStates="agentFieldStates"
+              :loading="agentLoading"
+              :saving="agentSaving && agentSavingTarget === 'config'"
+              @save="saveConfigSettings('agent', $event)"
+            />
           </div>
 
           <div v-else-if="selectedSection.id === 'channels'" class="settings-panel-body settings-panel-body-plain">
             <QCard variant="default">
               <div class="settings-panel-shell">
-                <header class="settings-panel-head">
+                <header class="settings-panel-head settings-channel-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_telegram_title") }}</h3>
                     <p class="settings-panel-meta">{{ t("settings_console_telegram_token_note") }}</p>
                   </div>
-                  <div class="settings-panel-actions">
+                  <div class="settings-profile-actions settings-default-llm-actions">
                     <QButton
-                      class="primary"
+                      class="primary settings-profile-save"
                       :loading="consoleSaving && consoleSavingTarget === 'telegram'"
                       :disabled="telegramSaveDisabled"
                       @click="saveConsoleSettings('telegram')"
                     >
                       {{ t("action_save") }}
                     </QButton>
+                    <QDropdownMenu
+                      class="settings-llm-actions-menu"
+                      :items="channelActionMenuItems('telegram')"
+                      hideSelected
+                      hideActionLabel
+                      :disabled="consoleLoading || consoleSaving"
+                    >
+                      <PhDotsThree class="settings-llm-actions-menu-icon" />
+                      <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                    </QDropdownMenu>
                   </div>
                 </header>
 
@@ -4694,20 +5225,30 @@ const SettingsView = {
 
             <QCard variant="default">
               <div class="settings-panel-shell">
-                <header class="settings-panel-head">
+                <header class="settings-panel-head settings-channel-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_slack_title") }}</h3>
                     <p class="settings-panel-meta">{{ t("settings_console_slack_token_note") }}</p>
                   </div>
-                  <div class="settings-panel-actions">
+                  <div class="settings-profile-actions settings-default-llm-actions">
                     <QButton
-                      class="primary"
+                      class="primary settings-profile-save"
                       :loading="consoleSaving && consoleSavingTarget === 'slack'"
                       :disabled="slackSaveDisabled"
                       @click="saveConsoleSettings('slack')"
                     >
                       {{ t("action_save") }}
                     </QButton>
+                    <QDropdownMenu
+                      class="settings-llm-actions-menu"
+                      :items="channelActionMenuItems('slack')"
+                      hideSelected
+                      hideActionLabel
+                      :disabled="consoleLoading || consoleSaving"
+                    >
+                      <PhDotsThree class="settings-llm-actions-menu-icon" />
+                      <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                    </QDropdownMenu>
                   </div>
                 </header>
 
@@ -4786,20 +5327,30 @@ const SettingsView = {
 
             <QCard variant="default">
               <div class="settings-panel-shell">
-                <header class="settings-panel-head">
+                <header class="settings-panel-head settings-channel-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_line_title") }}</h3>
                     <p class="settings-panel-meta">{{ t("settings_console_line_token_note") }}</p>
                   </div>
-                  <div class="settings-panel-actions">
+                  <div class="settings-profile-actions settings-default-llm-actions">
                     <QButton
-                      class="primary"
+                      class="primary settings-profile-save"
                       :loading="consoleSaving && consoleSavingTarget === 'line'"
                       :disabled="lineSaveDisabled"
                       @click="saveConsoleSettings('line')"
                     >
                       {{ t("action_save") }}
                     </QButton>
+                    <QDropdownMenu
+                      class="settings-llm-actions-menu"
+                      :items="channelActionMenuItems('line')"
+                      hideSelected
+                      hideActionLabel
+                      :disabled="consoleLoading || consoleSaving"
+                    >
+                      <PhDotsThree class="settings-llm-actions-menu-icon" />
+                      <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                    </QDropdownMenu>
                   </div>
                 </header>
 
@@ -4866,20 +5417,30 @@ const SettingsView = {
 
             <QCard variant="default">
               <div class="settings-panel-shell">
-                <header class="settings-panel-head">
+                <header class="settings-panel-head settings-channel-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_lark_title") }}</h3>
                     <p class="settings-panel-meta">{{ t("settings_console_lark_token_note") }}</p>
                   </div>
-                  <div class="settings-panel-actions">
+                  <div class="settings-profile-actions settings-default-llm-actions">
                     <QButton
-                      class="primary"
+                      class="primary settings-profile-save"
                       :loading="consoleSaving && consoleSavingTarget === 'lark'"
                       :disabled="larkSaveDisabled"
                       @click="saveConsoleSettings('lark')"
                     >
                       {{ t("action_save") }}
                     </QButton>
+                    <QDropdownMenu
+                      class="settings-llm-actions-menu"
+                      :items="channelActionMenuItems('lark')"
+                      hideSelected
+                      hideActionLabel
+                      :disabled="consoleLoading || consoleSaving"
+                    >
+                      <PhDotsThree class="settings-llm-actions-menu-icon" />
+                      <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                    </QDropdownMenu>
                   </div>
                 </header>
 
@@ -4945,20 +5506,30 @@ const SettingsView = {
 
             <QCard variant="default">
               <div class="settings-panel-shell">
-                <header class="settings-panel-head">
+                <header class="settings-panel-head settings-channel-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_mixin_title") }}</h3>
                     <p class="settings-panel-meta">{{ t("settings_console_mixin_note") }}</p>
                   </div>
-                  <div class="settings-panel-actions">
+                  <div class="settings-profile-actions settings-default-llm-actions">
                     <QButton
-                      class="primary"
+                      class="primary settings-profile-save"
                       :loading="consoleSaving && consoleSavingTarget === 'mixin'"
                       :disabled="mixinSaveDisabled"
                       @click="saveConsoleSettings('mixin')"
                     >
                       {{ t("action_save") }}
                     </QButton>
+                    <QDropdownMenu
+                      class="settings-llm-actions-menu"
+                      :items="channelActionMenuItems('mixin')"
+                      hideSelected
+                      hideActionLabel
+                      :disabled="consoleLoading || consoleSaving"
+                    >
+                      <PhDotsThree class="settings-llm-actions-menu-icon" />
+                      <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                    </QDropdownMenu>
                   </div>
                 </header>
 
@@ -4996,9 +5567,10 @@ const SettingsView = {
                 </div>
               </div>
             </QCard>
+
           </div>
 
-          <div v-else-if="selectedSection.id === 'guard'" class="settings-panel-body settings-panel-body-plain">
+          <div v-else-if="selectedSection.id === 'security'" class="settings-panel-body settings-panel-body-plain">
             <QCard variant="default">
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
@@ -5109,6 +5681,21 @@ const SettingsView = {
                 </div>
               </div>
             </QCard>
+
+            <ConfigSettingsPanel
+              :groups="SECURITY_CONFIG_GROUPS"
+              :values="consoleConfigValues"
+              :fieldStates="consoleFieldStates"
+              :loading="consoleLoading"
+              :saving="consoleSaving && consoleSavingTarget === 'config'"
+              @save="saveConfigSettings('console', $event)"
+            />
+            <AuthProfilesPanel
+              :profiles="authProfiles"
+              :loading="consoleLoading"
+              :saving="consoleSaving && consoleSavingTarget === 'auth_profiles'"
+              @save="saveConsoleCollection('auth_profiles', $event)"
+            />
           </div>
 
           <MCPSettingsPanel
@@ -5119,9 +5706,7 @@ const SettingsView = {
             :readOnly="agentSettingsReadOnly"
             :readOnlyMessage="agentSettingsReadOnlyMessage"
             :validationError="mcpValidationError"
-            :saveDisabled="mcpSaveDisabled"
-            @update:modelValue="updateMCPServers"
-            @save="saveAgentSettings('mcp')"
+            @save="saveMCPServers"
           />
 
           <div v-else-if="selectedSection.id === 'skills'" class="settings-panel-body settings-panel-body-plain">
@@ -5229,6 +5814,48 @@ const SettingsView = {
                 </div>
               </div>
             </QCard>
+
+          </div>
+
+          <div v-else-if="selectedSection.id === 'automation'" class="settings-panel-body settings-panel-body-plain">
+            <ConfigSettingsPanel
+              :groups="AUTOMATION_CONFIG_GROUPS"
+              :values="consoleConfigValues"
+              :fieldStates="consoleFieldStates"
+              :loading="consoleLoading"
+              :saving="consoleSaving && consoleSavingTarget === 'config'"
+              @save="saveConfigSettings('console', $event)"
+            />
+          </div>
+
+          <div v-else-if="selectedSection.id === 'console'" class="settings-panel-body settings-panel-body-plain">
+            <ConfigSettingsPanel
+              :groups="REMOTE_CONTROL_CONFIG_GROUPS"
+              :values="consoleConfigValues"
+              :fieldStates="consoleFieldStates"
+              :loading="consoleLoading"
+              :saving="consoleSaving && consoleSavingTarget === 'config'"
+              @save="saveConfigSettings('console', $event)"
+            />
+            <ConsoleEndpointsPanel
+              :endpoints="consoleEndpoints"
+              :loading="consoleLoading"
+              :saving="consoleSaving && consoleSavingTarget === 'endpoints'"
+              @save="saveConsoleCollection('endpoints', $event)"
+            />
+            <ConfigSettingsPanel
+              :groups="CONSOLE_DEPLOYMENT_CONFIG_GROUPS"
+              :values="consoleConfigValues"
+              :fieldStates="consoleFieldStates"
+              :loading="consoleLoading"
+              :saving="consoleSaving && consoleSavingTarget === 'config'"
+              @save="saveConfigSettings('console', $event)"
+            />
+            <ConsolePasswordPanel
+              :configured="consolePasswordConfigured"
+              :saving="consoleSaving && consoleSavingTarget === 'config'"
+              @save="saveConfigSettings('console', $event)"
+            />
           </div>
 
           <div v-else-if="selectedSection.id === 'persona'" class="settings-panel-body settings-panel-body-plain">
@@ -5338,7 +5965,7 @@ const SettingsView = {
 
           <SettingsCreditsPanel v-else-if="selectedSection.id === 'credits'" />
 
-          <div v-else-if="selectedSection.id === 'console'" class="settings-panel-body settings-panel-body-plain">
+          <div v-else-if="selectedSection.id === 'system'" class="settings-panel-body settings-panel-body-plain">
             <QCard variant="default">
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
@@ -5391,6 +6018,18 @@ const SettingsView = {
                 </header>
 
                 <div class="settings-panel-body">
+                  <ConfigSettingsPanel
+                    :groups="SYSTEM_UPDATE_CONFIG_GROUPS"
+                    :values="systemConfigValues"
+                    :fieldStates="systemFieldStates"
+                    :loading="systemLoading"
+                    :saving="systemSaving"
+                    :embedded="true"
+                    :hideSingleGroupHeading="true"
+                    savePlacement="footer"
+                    @save="saveConfigSettings('system', $event)"
+                  />
+
                   <div class="settings-console-list">
                     <div class="settings-console-row settings-console-row--desktop-update">
                       <div class="settings-card-copy">
@@ -5463,10 +6102,41 @@ const SettingsView = {
                 </div>
               </div>
             </QCard>
+
+            <ConfigSettingsPanel
+              v-for="group in SYSTEM_CONFIG_GROUPS"
+              :key="group.id"
+              :groups="[group]"
+              :values="systemConfigValues"
+              :fieldStates="systemFieldStates"
+              :loading="systemLoading"
+              :saving="systemSaving"
+              @save="saveConfigSettings('system', $event)"
+            />
+
+            <details class="settings-system-advanced">
+              <summary>
+                <span>{{ t("settings_advanced_action") }}</span>
+                <PhCaretDown class="icon" />
+              </summary>
+              <div class="settings-system-advanced-content">
+                <ConfigSettingsPanel
+                  v-for="group in SYSTEM_ADVANCED_CONFIG_GROUPS"
+                  :key="group.id"
+                  :groups="[group]"
+                  :values="systemConfigValues"
+                  :fieldStates="systemFieldStates"
+                  :loading="systemLoading"
+                  :saving="systemSaving"
+                  @save="saveConfigSettings('system', $event)"
+                />
+              </div>
+            </details>
           </div>
 
-          <QCard v-else class="settings-panel-card" variant="default">
-            <div class="settings-panel-shell">
+          <div v-else class="settings-panel-body settings-panel-body-plain">
+            <QCard variant="default">
+              <div class="settings-panel-shell">
               <header class="settings-panel-head">
                 <div class="settings-panel-copy">
                   <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
@@ -5514,11 +6184,24 @@ const SettingsView = {
                       <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
                       <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
                     </div>
-                    <QSwitch
-                      :modelValue="state.tools[item.id]"
-                      :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
-                      @update:modelValue="setToolEnabled(item.id, $event)"
-                    />
+                    <div class="settings-toggle-actions">
+                      <QButton
+                        v-if="TOOL_ADVANCED_CONFIG_GROUPS[item.id]"
+                        type="button"
+                        class="plain xs icon"
+                        :title="t('settings_advanced_action')"
+                        :aria-label="t('settings_advanced_action')"
+                        :disabled="agentLoading || agentSaving"
+                        @click="openToolAdvancedSettings(item)"
+                      >
+                        <PhGearSix class="icon" />
+                      </QButton>
+                      <QSwitch
+                        :modelValue="item.toggle === false ? true : state.tools[item.id]"
+                        :disabled="item.toggle === false || agentLoading || agentSaving || agentSettingsReadOnly"
+                        @update:modelValue="setToolEnabled(item.id, $event)"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -5536,10 +6219,51 @@ const SettingsView = {
                   </div>
                 </div>
               </div>
-            </div>
-          </QCard>
+              </div>
+            </QCard>
+          </div>
         </div>
       </div>
+
+      <SettingDialog
+        v-model="advancedSettingsOpen"
+        :title="advancedSettingsTitle"
+        width="760px"
+        :saving="advancedSettingsSaving || (advancedSettingsProfile && agentSaving)"
+        :saveDisabled="advancedSettingsSaveDisabled"
+        @cancel="closeAdvancedSettings"
+        @save="saveAdvancedSettings"
+      >
+        <LLMConfigForm
+          v-if="advancedSettingsProfile"
+          :config="advancedSettingsProfile"
+          :busy="agentLoading || agentSaving"
+          :disabledReason="agentFormDisabledReason"
+          :readOnly="agentSettingsReadOnly"
+          :envManaged="llmProfileEnvManaged(advancedSettingsProfile)"
+          :secretFields="llmProfileSecretFields(advancedSettingsProfile)"
+          :providerItems="providerItems"
+          :reasoningEffortItems="reasoningEffortItems"
+          :toolsEmulationItems="toolsEmulationItems"
+          :showAdvanced="true"
+          :advancedOnly="true"
+          @update-field="updateAdvancedProfileField"
+        />
+        <ConfigSettingsPanel
+          v-else
+          ref="advancedConfigPanel"
+          :groups="advancedSettingsGroups"
+          :values="advancedSettingsValues"
+          :fieldStates="advancedSettingsFieldStates"
+          :loading="advancedSettingsLoading"
+          :saving="advancedSettingsSaving"
+          :embedded="true"
+          :hideSingleGroupHeading="true"
+          savePlacement="none"
+          @update:dirty="advancedSettingsDirty = $event"
+          @save="saveAdvancedConfigSettings"
+        />
+      </SettingDialog>
 
       <SetupPickerDialog
         v-model="apiBasePickerOpen"

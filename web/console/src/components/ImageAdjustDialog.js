@@ -2,7 +2,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { useToast } from "quail-ui";
 import "./ImageAdjustDialog.css";
 
-import AppDialogShell from "./AppDialogShell";
+import SettingDialog from "./SettingDialog";
 import { translate } from "../core/context";
 
 const PREVIEW_MAX_SIZE = 360;
@@ -22,7 +22,7 @@ function numericProp(value, fallback) {
 
 const ImageAdjustDialog = {
   components: {
-    AppDialogShell,
+    SettingDialog,
   },
   props: {
     modelValue: Boolean,
@@ -340,7 +340,6 @@ const ImageAdjustDialog = {
     return {
       beginDrag,
       canvas,
-      closeDialog,
       dragImage,
       dragging,
       finishDrag,
@@ -357,12 +356,14 @@ const ImageAdjustDialog = {
     };
   },
   template: `
-    <AppDialogShell
+    <SettingDialog
       :modelValue="modelValue"
       :title="resolvedTitle"
       width="560px"
-      :closeDisabled="busy"
+      :saving="busy"
+      :saveDisabled="busy || !imageReady"
       @update:modelValue="updateOpen"
+      @save="saveImage"
     >
       <div class="image-adjust-dialog">
         <div
@@ -409,23 +410,9 @@ const ImageAdjustDialog = {
             </QButton>
           </div>
 
-          <div class="image-adjust-actions">
-            <QButton type="button" class="outlined" :disabled="busy" @click="closeDialog">
-              {{ t("action_cancel") }}
-            </QButton>
-            <QButton
-              type="button"
-              class="primary"
-              :loading="busy"
-              :disabled="busy || !imageReady"
-              @click="saveImage"
-            >
-              {{ t("action_save") }}
-            </QButton>
-          </div>
         </div>
       </div>
-    </AppDialogShell>
+    </SettingDialog>
   `,
 };
 

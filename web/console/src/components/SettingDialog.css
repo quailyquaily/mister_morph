@@ -1,0 +1,82 @@
+.q-dialog .q-dialog-header:has(> .setting-dialog-header) {
+  display: block;
+  min-height: 44px;
+  max-height: none;
+  padding: 0;
+}
+
+.setting-dialog-header {
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+}
+
+.setting-dialog-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-0);
+  font-family: var(--q-card-title-font-family);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-dialog .q-dialog-body:has(> .setting-dialog) {
+  height: auto;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.setting-dialog {
+  width: 100%;
+  min-height: 0;
+  max-height: min(76vh, 760px);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.setting-dialog-scroll {
+  min-height: 0;
+  padding: 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.setting-dialog-actions {
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--q-bg-paper);
+}
+
+@media (max-width: 720px) {
+  .setting-dialog-header {
+    padding-inline: 16px;
+  }
+
+  .setting-dialog {
+    max-height: min(80vh, 760px);
+    max-height: min(80dvh, 760px);
+  }
+
+  .setting-dialog-scroll {
+    padding: 16px;
+  }
+
+  .setting-dialog-actions {
+    padding-right: 16px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding-left: 16px;
+  }
+}

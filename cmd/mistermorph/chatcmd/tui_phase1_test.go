@@ -180,7 +180,7 @@ func TestChatModelEmptyCtrlDExits(t *testing.T) {
 
 func TestPrintChatSessionHeaderKeepsBannerAndSessionMetadata(t *testing.T) {
 	var out bytes.Buffer
-	printChatSessionHeader(&out, false, "openai", "gpt-5.2", "/work/mistermorph", "v1.2.3")
+	printChatSessionHeader(&out, "openai", "gpt-5.2", "/work/mistermorph", "v1.2.3")
 
 	got := out.String()
 	if !strings.Contains(got, "▄▄") {

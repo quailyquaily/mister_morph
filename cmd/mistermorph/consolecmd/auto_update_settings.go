@@ -13,6 +13,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
+	"github.com/quailyquaily/mistermorph/internal/configrevision"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/updatecheck"
 	"github.com/spf13/viper"
@@ -38,10 +39,15 @@ type autoUpdateUpdatePayload struct {
 }
 
 type autoUpdateSettingsUpdatePayload struct {
-	AutoUpdate *autoUpdateUpdatePayload `json:"auto_update,omitempty"`
+	ConfigRevision string                   `json:"config_revision,omitempty"`
+	AutoUpdate     *autoUpdateUpdatePayload `json:"auto_update,omitempty"`
 }
 
 func (s *server) handleAutoUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		s.settingsWriteMu.Lock()
+		defer s.settingsWriteMu.Unlock()
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.handleAutoUpdateSettingsGet(w, r)
@@ -93,10 +99,16 @@ func (s *server) handleAutoUpdateSettingsGet(w http.ResponseWriter, _ *http.Requ
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	snapshot, err := configrevision.Read(configPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"auto_update":     settings.AutoUpdate,
 		"config_path":     configPath,
 		"current_version": s.autoUpdateCurrentVersion(),
+		"config_revision": snapshot.Revision,
 	})
 }
 
@@ -109,6 +121,15 @@ func (s *server) handleAutoUpdateSettingsPut(w http.ResponseWriter, r *http.Requ
 	configPath, err := resolveConsoleConfigPath()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	snapshot, err := configrevision.Read(configPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if expected := strings.TrimSpace(req.ConfigRevision); expected != "" && expected != snapshot.Revision {
+		writeError(w, http.StatusConflict, "config changed; reload settings and try again")
 		return
 	}
 	current, err := readAutoUpdateSettings(configPath)
@@ -131,9 +152,12 @@ func (s *server) handleAutoUpdateSettingsPut(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"auto_update": next.AutoUpdate,
-		"config_path": configPath,
+		"ok":              true,
+		"auto_update":     next.AutoUpdate,
+		"config_path":     configPath,
+		"config_revision": configrevision.Hash(serialized),
+		"apply_mode":      "immediate",
+		"apply_status":    "applied",
 	})
 }
 

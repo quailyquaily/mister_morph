@@ -61,6 +61,8 @@ const LLMConfigForm = {
     },
     enableAPIBasePicker: Boolean,
     enableModelPicker: Boolean,
+    showAdvanced: Boolean,
+    advancedOnly: Boolean,
     modelLookupCredentialsReady: {
       default: null,
       validator: (value) => value === null || typeof value === "boolean",
@@ -160,6 +162,7 @@ const LLMConfigForm = {
     const showXAIOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const showProOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showBedrockFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_BEDROCK);
+    const showAzureFields = computed(() => effectiveProviderChoice.value === "azure");
     const showEndpointField = computed(() => setupProviderSupportsCustomAPIBase(effectiveProviderChoice.value));
     const showCredentialFields = computed(
       () =>
@@ -327,6 +330,8 @@ const LLMConfigForm = {
         updateField("cloudflare_account_id", "");
         updateField("bedrock_aws_key", "");
         updateField("bedrock_aws_secret", "");
+        updateField("bedrock_aws_session_token", "");
+        updateField("bedrock_aws_profile", "");
         updateField("bedrock_region", "");
         updateField("bedrock_model_arn", "");
       }
@@ -359,6 +364,7 @@ const LLMConfigForm = {
       showXAIOAuthFields,
       showProOAuthFields,
       showBedrockFields,
+      showAzureFields,
       showEndpointField,
       showCredentialFields,
       providerHasAuthAction,
@@ -394,6 +400,7 @@ const LLMConfigForm = {
   },
   template: `
     <div class="settings-form-grid">
+      <template v-if="!advancedOnly">
       <div class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_provider_label") }}</span>
         <div v-if="providerHasAuthAction" class="settings-field-control">
@@ -648,8 +655,9 @@ const LLMConfigForm = {
           </QButton>
         </div>
       </div>
+      </template>
 
-      <div class="settings-field-row is-wide is-three">
+      <div v-if="showAdvanced" class="settings-field-row is-wide is-three">
         <div class="settings-field">
           <span class="settings-field-label">{{ t("settings_llm_reasoning_label") }}</span>
           <div v-if="isFieldEnvManaged('reasoning_effort')" class="settings-env-managed">
@@ -702,6 +710,100 @@ const LLMConfigForm = {
           />
         </div>
       </div>
+
+      <template v-if="showAdvanced">
+        <div v-if="showBedrockFields" class="settings-field is-wide">
+          <span class="settings-field-label">AWS session token</span>
+          <QInput
+            :modelValue="config.bedrock_aws_session_token"
+            inputType="password"
+            :placeholder="isSecretConfigured('bedrock_aws_session_token') ? t('settings_secret_configured_placeholder') : ''"
+            :disabled="busy || readOnly || !isSecretEditable('bedrock_aws_session_token')"
+            @update:modelValue="updateField('bedrock_aws_session_token', $event)"
+          />
+        </div>
+        <div v-if="showBedrockFields" class="settings-field">
+          <span class="settings-field-label">AWS profile</span>
+          <QInput
+            :modelValue="config.bedrock_aws_profile"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('bedrock_aws_profile', $event)"
+          />
+        </div>
+        <div v-if="showAzureFields" class="settings-field is-wide">
+          <span class="settings-field-label">Azure deployment</span>
+          <QInput
+            :modelValue="config.azure_deployment"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('azure_deployment', $event)"
+          />
+        </div>
+        <div class="settings-field">
+          <span class="settings-field-label">Supports image parts</span>
+          <QInput
+            :modelValue="config.supports_image_parts"
+            placeholder="auto, true, or false"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('supports_image_parts', $event)"
+          />
+        </div>
+        <div class="settings-field">
+          <span class="settings-field-label">Cache TTL</span>
+          <QInput
+            :modelValue="config.cache_ttl"
+            placeholder="off, short, long, or 5m"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('cache_ttl', $event)"
+          />
+        </div>
+        <div class="settings-field">
+          <span class="settings-field-label">Cache key prefix</span>
+          <QInput
+            :modelValue="config.cache_key_prefix"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('cache_key_prefix', $event)"
+          />
+        </div>
+        <div class="settings-field">
+          <span class="settings-field-label">Request timeout</span>
+          <QInput
+            :modelValue="config.request_timeout"
+            placeholder="90s"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('request_timeout', $event)"
+          />
+        </div>
+        <div class="settings-field">
+          <span class="settings-field-label">Temperature</span>
+          <QInput
+            :modelValue="config.temperature"
+            inputType="number"
+            step="0.1"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('temperature', $event)"
+          />
+        </div>
+        <div class="settings-field">
+          <span class="settings-field-label">Reasoning budget tokens</span>
+          <QInput
+            :modelValue="config.reasoning_budget_tokens"
+            inputType="number"
+            min="0"
+            step="1"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('reasoning_budget_tokens', $event)"
+          />
+        </div>
+        <div class="settings-field is-wide">
+          <span class="settings-field-label">HTTP headers</span>
+          <QTextarea
+            :modelValue="config.headers_text"
+            placeholder="{}"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('headers_text', $event)"
+          />
+        </div>
+      </template>
     </div>
   `,
 };

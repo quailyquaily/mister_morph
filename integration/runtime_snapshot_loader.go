@@ -65,7 +65,6 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ContextCompaction: agent.NewContextCompactionConfig(
 				v.GetBool("context_compaction.enabled"),
 				v.GetFloat64("context_compaction.trigger_ratio"),
-				v.GetInt("context_compaction.output_reserve_tokens"),
 			),
 		},
 		SkillsConfig:   cloneSkillsConfig(skillsutil.SkillsConfigFromReader(v)),

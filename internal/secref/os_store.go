@@ -88,6 +88,15 @@ func OSSecretRef(id string) string {
 	return "${secret:" + id + "}"
 }
 
+func DeleteOSSecrets(ctx context.Context, store OSStore, ids []string) {
+	if store == nil {
+		return
+	}
+	for _, id := range ids {
+		_ = store.Delete(ctx, id)
+	}
+}
+
 func (s *keyringOSStore) Get(ctx context.Context, id string) ([]byte, error) {
 	if err := validateOSSecretID(id); err != nil {
 		return nil, err

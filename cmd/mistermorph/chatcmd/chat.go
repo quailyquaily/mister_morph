@@ -45,7 +45,6 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().Int("max-token-budget", configdefaults.DefaultMaxTokenBudget, "Max cumulative token budget (0 disables).")
 	cmd.Flags().Int("tool-repeat-limit", configdefaults.DefaultToolRepeatLimit, "Force final when the same successful tool call repeats this many times.")
 	cmd.Flags().Duration("timeout", configdefaults.DefaultTaskTimeout, "Overall timeout.")
-	cmd.Flags().Bool("compact-mode", false, "Compact display mode: omit user/assistant name prefixes in prompts and output.")
 	cmd.Flags().Bool("verbose", false, "Show info-level logs (default: only errors).")
 	cmd.Flags().String("workspace", "", "Attach a workspace directory for this chat session.")
 	cmd.Flags().Bool("no-workspace", false, "Start chat without a workspace attachment.")

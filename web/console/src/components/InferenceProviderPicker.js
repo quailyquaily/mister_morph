@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { translate } from "../core/context";
 import { inferenceProviderLogo } from "../core/inference-provider-logos";
 import AppDialogShell from "./AppDialogShell";
+import AppTabs from "./AppTabs";
 import "./InferenceProviderPicker.css";
 
 function normalizeText(value) {
@@ -45,6 +46,7 @@ const PROVIDER_GROUPS = [
 const InferenceProviderPicker = {
   components: {
     AppDialogShell,
+    AppTabs,
   },
   props: {
     modelValue: {
@@ -232,13 +234,12 @@ const InferenceProviderPicker = {
             :placeholder="t('settings_inference_provider_filter_placeholder')"
             @update:modelValue="updateFilter"
           />
-          <QTabs
+          <AppTabs
             v-if="!isFiltering"
             class="inference-provider-tabs"
             :tabs="groupTabs"
             :modelValue="selectedGroupTab"
-            variant="plain"
-            :aria-label="t('settings_inference_provider_group_label')"
+            :ariaLabel="t('settings_inference_provider_group_label')"
             @change="changeGroup"
           />
           <div class="inference-provider-grid" role="listbox" :aria-label="t('settings_inference_provider_dialog_title')">

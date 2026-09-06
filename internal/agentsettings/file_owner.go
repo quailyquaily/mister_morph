@@ -12,8 +12,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
+	"github.com/quailyquaily/mistermorph/internal/configrevision"
+	"github.com/quailyquaily/mistermorph/internal/configsettings"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
@@ -34,7 +37,7 @@ const (
 	mcpSettingsKey    = "mcp"
 )
 
-var llmSecretFieldNames = []string{"api_key", "bedrock_aws_key", "bedrock_aws_secret", "cloudflare_api_token"}
+var llmSecretFieldNames = []string{"api_key", "bedrock_aws_key", "bedrock_aws_secret", "bedrock_aws_session_token", "cloudflare_api_token"}
 
 type FileSettings struct {
 	LLM   LLMSettingsPayload
@@ -56,6 +59,7 @@ type FileOwnerOptions struct {
 
 type FileOwner struct {
 	mu           sync.RWMutex
+	updateMu     sync.Mutex
 	configPath   string
 	base         *ReaderSnapshot
 	reader       *ReaderSnapshot
@@ -182,6 +186,10 @@ func (o *FileOwner) View(_ context.Context) (AgentSettingsView, error) {
 	if o == nil {
 		return AgentSettingsView{}, fmt.Errorf("agent settings owner is nil")
 	}
+	snapshot, err := configrevision.Read(o.configPath)
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
 	configExists, configSource, err := inspectAgentSettingsConfigSource(o.configPath)
 	if err != nil {
 		return AgentSettingsView{}, err
@@ -211,28 +219,50 @@ func (o *FileOwner) View(_ context.Context) (AgentSettingsView, error) {
 		return AgentSettingsView{}, err
 	}
 	settings, envManaged, secretFields := buildAgentSettingsResponseView(settings, doc, runtimeLLM)
+	configView, err := configsettings.View(snapshot.Data, configsettings.AgentFields())
+	if err != nil {
+		if configValid {
+			return AgentSettingsView{}, err
+		}
+		configView, err = configsettings.View(nil, configsettings.AgentFields())
+		if err != nil {
+			return AgentSettingsView{}, err
+		}
+	}
 	skills, err := buildAgentSkillsSettingsResponse(o.configPath, configValid, o.secretSource)
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
 	return AgentSettingsView{
-		LLM:          settings.LLM,
-		EnvManaged:   envManaged,
-		SecretFields: secretFields,
-		Skills:       skills,
-		Tools:        settings.Tools,
-		MCP:          settings.MCP,
-		ConfigPath:   o.configPath,
-		ConfigExists: configExists,
-		ConfigValid:  configValid,
-		ConfigSource: configSource,
-		ReadOnly:     false,
+		LLM:            settings.LLM,
+		EnvManaged:     envManaged,
+		SecretFields:   secretFields,
+		Skills:         skills,
+		Tools:          settings.Tools,
+		MCP:            settings.MCP,
+		ConfigPath:     o.configPath,
+		ConfigExists:   configExists,
+		ConfigValid:    configValid,
+		ConfigSource:   configSource,
+		ReadOnly:       false,
+		ConfigRevision: snapshot.Revision,
+		ConfigValues:   configView.Values,
+		FieldStates:    configView.FieldStates,
 	}, nil
 }
 
 func (o *FileOwner) Update(ctx context.Context, update AgentSettingsUpdate) (AgentSettingsView, error) {
 	if o == nil {
 		return AgentSettingsView{}, fmt.Errorf("agent settings owner is nil")
+	}
+	o.updateMu.Lock()
+	defer o.updateMu.Unlock()
+	snapshot, err := configrevision.Read(o.configPath)
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
+	if expected := strings.TrimSpace(update.ConfigRevision); expected != "" && expected != snapshot.Revision {
+		return AgentSettingsView{}, &StatusError{Status: http.StatusConflict, Message: "config changed; reload settings and try again"}
 	}
 	previousDoc, err := loadYAMLDocument(o.configPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -246,15 +276,28 @@ func (o *FileOwner) Update(ctx context.Context, update AgentSettingsUpdate) (Age
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
+	configUpdate := configsettings.Update{Changes: update.ConfigChanges, Reset: update.Reset}
+	protectedIDs, protectErr := configsettings.ProtectSecrets(ctx, &configUpdate, configsettings.AgentFields(), o.osStore)
+	if protectErr != nil {
+		slog.Warn("os_secret_store_write_failed", "scope", "agent_settings", "error", protectErr)
+	} else {
+		newSecretIDs = append(newSecretIDs, protectedIDs...)
+	}
 	committed := false
 	defer func() {
 		if !committed {
-			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
+			secref.DeleteOSSecrets(ctx, o.osStore, newSecretIDs)
 		}
 	}()
 	serialized, err := marshalFileSettingsUpdateWithSource(o.configPath, update, o.secretSource)
 	if err != nil {
 		return AgentSettingsView{}, &StatusError{Status: http.StatusBadRequest, Message: err.Error()}
+	}
+	if len(configUpdate.Changes) > 0 || len(configUpdate.Reset) > 0 {
+		serialized, err = configsettings.Apply(serialized, configUpdate, configsettings.AgentFields())
+		if err != nil {
+			return AgentSettingsView{}, &StatusError{Status: http.StatusBadRequest, Message: err.Error()}
+		}
 	}
 	effectiveLLM, err := resolveAgentSettingsLLMFromReader(o.CurrentReader(), update.LLM)
 	if err != nil {
@@ -274,6 +317,19 @@ func (o *FileOwner) Update(ctx context.Context, update AgentSettingsUpdate) (Age
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
+	additionalModes := []configsettings.ApplyMode(nil)
+	if hasStructuredAgentSettingsUpdate(update) {
+		additionalModes = append(additionalModes, configsettings.ApplyNextGeneration)
+	}
+	applyResult := configsettings.ResultForUpdate(
+		configUpdate,
+		configsettings.AgentFields(),
+		[]string{"agent"},
+		additionalModes...,
+	)
+	view.ApplyMode = applyResult.ApplyMode
+	view.ApplyStatus = applyResult.ApplyStatus
+	view.RestartTargets = applyResult.RestartTargets
 	doc, err := configbootstrap.LoadDocumentBytes(serialized)
 	if err != nil {
 		return AgentSettingsView{}, err
@@ -289,13 +345,19 @@ func (o *FileOwner) Update(ctx context.Context, update AgentSettingsUpdate) (Age
 	return view, nil
 }
 
-func deleteOSSecretIDs(ctx context.Context, store secref.OSStore, ids []string) {
-	if store == nil {
-		return
-	}
-	for _, id := range ids {
-		_ = store.Delete(ctx, id)
-	}
+func hasStructuredAgentSettingsUpdate(update AgentSettingsUpdate) bool {
+	llm := update.LLM
+	fields := llm.LLMConfigFieldsUpdate
+	return fields.InferenceProvider != nil || fields.Provider != nil || fields.Endpoint != nil ||
+		fields.Model != nil || fields.ContextWindowTokens != nil || fields.SupportsImageParts != nil ||
+		fields.Headers != nil || fields.CacheTTL != nil || fields.CacheKeyPrefix != nil ||
+		fields.RequestTimeout != nil || fields.Temperature != nil || fields.ReasoningBudgetTokens != nil ||
+		fields.APIKey != nil || fields.AzureDeployment != nil || fields.BedrockAWSKey != nil ||
+		fields.BedrockAWSSecret != nil || fields.BedrockAWSSessionToken != nil || fields.BedrockAWSProfile != nil ||
+		fields.BedrockRegion != nil || fields.BedrockModelARN != nil || fields.CloudflareAPIToken != nil ||
+		fields.CloudflareAccountID != nil || fields.ReasoningEffort != nil || fields.ToolsEmulationMode != nil ||
+		llm.Profiles != nil || llm.FallbackProfiles != nil || llm.Profile != nil || llm.DeleteProfile != nil ||
+		update.Skills != nil || update.Tools != nil || update.MCP != nil
 }
 
 func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSettingsUpdate) ([]string, error) {
@@ -318,6 +380,7 @@ func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSe
 		{name: "api_key", value: &update.LLM.APIKey},
 		{name: "bedrock_aws_key", value: &update.LLM.BedrockAWSKey},
 		{name: "bedrock_aws_secret", value: &update.LLM.BedrockAWSSecret},
+		{name: "bedrock_aws_session_token", value: &update.LLM.BedrockAWSSessionToken},
 		{name: "cloudflare_api_token", value: &update.LLM.CloudflareAPIToken},
 	}
 	updates := make([]llmSecretUpdate, 0, len(fields))
@@ -346,6 +409,7 @@ func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSe
 			llmSecretUpdate{node: profileNode, provider: provider, name: "api_key", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "api_key"), value: &profile.APIKey, preserveExisting: !profile.secretFieldProvided("api_key", profile.APIKey)},
 			llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_key", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_key"), value: &profile.BedrockAWSKey, preserveExisting: !profile.secretFieldProvided("bedrock_aws_key", profile.BedrockAWSKey)},
 			llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_secret", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_secret"), value: &profile.BedrockAWSSecret, preserveExisting: !profile.secretFieldProvided("bedrock_aws_secret", profile.BedrockAWSSecret)},
+			llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_session_token", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_session_token"), value: &profile.BedrockAWSSessionToken, preserveExisting: !profile.secretFieldProvided("bedrock_aws_session_token", profile.BedrockAWSSessionToken)},
 			llmSecretUpdate{node: profileNode, provider: provider, name: "cloudflare_api_token", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "cloudflare_api_token"), value: &profile.CloudflareAPIToken, preserveExisting: !profile.secretFieldProvided("cloudflare_api_token", profile.CloudflareAPIToken)},
 		)
 	}
@@ -365,6 +429,7 @@ func (o *FileOwner) prepareLLMSecretUpdates(ctx context.Context, update *AgentSe
 				llmSecretUpdate{node: profileNode, provider: provider, name: "api_key", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "api_key"), value: &profile.APIKey, preserveExisting: true},
 				llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_key", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_key"), value: &profile.BedrockAWSKey, preserveExisting: true},
 				llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_secret", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_secret"), value: &profile.BedrockAWSSecret, preserveExisting: true},
+				llmSecretUpdate{node: profileNode, provider: provider, name: "bedrock_aws_session_token", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "bedrock_aws_session_token"), value: &profile.BedrockAWSSessionToken, preserveExisting: true},
 				llmSecretUpdate{node: profileNode, provider: provider, name: "cloudflare_api_token", configKey: llmSecretConfigKey("llm.profiles."+strings.TrimSpace(profile.Name), "cloudflare_api_token"), value: &profile.CloudflareAPIToken, preserveExisting: true},
 			)
 		}
@@ -412,11 +477,11 @@ func (o *FileOwner) storeLLMSecretUpdates(
 		}
 		id, err := secref.NewOSSecretID()
 		if err != nil {
-			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
+			secref.DeleteOSSecrets(ctx, o.osStore, newSecretIDs)
 			return nil, fmt.Errorf("%s: %w", update.name, err)
 		}
 		if err := o.osStore.Put(ctx, id, update.configKey, []byte(value)); err != nil {
-			deleteOSSecretIDs(ctx, o.osStore, newSecretIDs)
+			secref.DeleteOSSecrets(ctx, o.osStore, newSecretIDs)
 			return nil, fmt.Errorf("%s: %w", update.name, err)
 		}
 		newSecretIDs = append(newSecretIDs, id)
@@ -440,6 +505,8 @@ func llmSecretConfigKey(prefix, field string) string {
 		suffix = "bedrock.aws_key"
 	case "bedrock_aws_secret":
 		suffix = "bedrock.aws_secret"
+	case "bedrock_aws_session_token":
+		suffix = "bedrock.aws_session_token"
 	case "cloudflare_api_token":
 		suffix = "cloudflare.api_token"
 	}
@@ -479,22 +546,29 @@ func (o *FileOwner) persistedView(serialized []byte) (AgentSettingsView, error) 
 		return AgentSettingsView{}, err
 	}
 	next, envManaged, secretFields := buildAgentSettingsResponseView(next, doc, current)
+	configView, err := configsettings.View(serialized, configsettings.AgentFields())
+	if err != nil {
+		return AgentSettingsView{}, err
+	}
 	skills, err := buildAgentSkillsSettingsPayloadFromReader(expanded)
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
 	return AgentSettingsView{
-		LLM:          next.LLM,
-		EnvManaged:   envManaged,
-		SecretFields: secretFields,
-		Skills:       skills,
-		Tools:        next.Tools,
-		MCP:          mcpSettingsFromDocument(doc),
-		ConfigPath:   o.configPath,
-		ConfigExists: true,
-		ConfigValid:  true,
-		ConfigSource: "config",
-		ReadOnly:     false,
+		LLM:            next.LLM,
+		EnvManaged:     envManaged,
+		SecretFields:   secretFields,
+		Skills:         skills,
+		Tools:          next.Tools,
+		MCP:            mcpSettingsFromDocument(doc),
+		ConfigPath:     o.configPath,
+		ConfigExists:   true,
+		ConfigValid:    true,
+		ConfigSource:   "config",
+		ReadOnly:       false,
+		ConfigRevision: configrevision.Hash(serialized),
+		ConfigValues:   configView.Values,
+		FieldStates:    configView.FieldStates,
 	}, nil
 }
 
@@ -887,6 +961,12 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current FileSettings, valu
 		if enabled := toolEnabledUpdateValue(values.Tools.PowerShell); enabled != nil {
 			configbootstrap.SetMappingBoolPath(toolsNode, "powershell", "enabled", *enabled)
 		}
+		if enabled := toolEnabledUpdateValue(values.Tools.ImageGenerate); enabled != nil {
+			configbootstrap.SetMappingBoolPath(toolsNode, "image_generate", "enabled", *enabled)
+		}
+		if enabled := toolEnabledUpdateValue(values.Tools.ImageEdit); enabled != nil {
+			configbootstrap.SetMappingBoolPath(toolsNode, "image_edit", "enabled", *enabled)
+		}
 	}
 	if values.MCP != nil && values.MCP.Servers != nil {
 		servers, err := normalizeMCPServers(*values.MCP.Servers)
@@ -1065,6 +1145,17 @@ func validateAgentConfigDocument(data []byte, effectiveLLM LLMSettingsPayload) (
 	if err := validateAgentSkillsLoad(tmp); err != nil {
 		return nil, err
 	}
+	acpNames := map[string]bool{}
+	for _, agentConfig := range acpclient.AgentsFromReader(tmp) {
+		if err := agentConfig.Validate(); err != nil {
+			return nil, err
+		}
+		name := strings.ToLower(strings.TrimSpace(agentConfig.Name))
+		if acpNames[name] {
+			return nil, fmt.Errorf("duplicate acp agent %q", agentConfig.Name)
+		}
+		acpNames[name] = true
+	}
 	return tmp, nil
 }
 
@@ -1140,14 +1231,44 @@ func applyLLMSettingsUpdate(current LLMSettingsPayload, incoming LLMSettingsUpda
 	if incoming.ContextWindowTokens != nil {
 		merged.ContextWindowTokens = strings.TrimSpace(*incoming.ContextWindowTokens)
 	}
+	if incoming.SupportsImageParts != nil {
+		merged.SupportsImageParts = strings.TrimSpace(*incoming.SupportsImageParts)
+	}
+	if incoming.Headers != nil {
+		merged.Headers = *incoming.Headers
+	}
+	if incoming.CacheTTL != nil {
+		merged.CacheTTL = strings.TrimSpace(*incoming.CacheTTL)
+	}
+	if incoming.CacheKeyPrefix != nil {
+		merged.CacheKeyPrefix = strings.TrimSpace(*incoming.CacheKeyPrefix)
+	}
+	if incoming.RequestTimeout != nil {
+		merged.RequestTimeout = strings.TrimSpace(*incoming.RequestTimeout)
+	}
+	if incoming.Temperature != nil {
+		merged.Temperature = strings.TrimSpace(*incoming.Temperature)
+	}
+	if incoming.ReasoningBudgetTokens != nil {
+		merged.ReasoningBudgetTokens = strings.TrimSpace(*incoming.ReasoningBudgetTokens)
+	}
 	if incoming.APIKey != nil {
 		merged.APIKey = strings.TrimSpace(*incoming.APIKey)
+	}
+	if incoming.AzureDeployment != nil {
+		merged.AzureDeployment = strings.TrimSpace(*incoming.AzureDeployment)
 	}
 	if incoming.BedrockAWSKey != nil {
 		merged.BedrockAWSKey = strings.TrimSpace(*incoming.BedrockAWSKey)
 	}
 	if incoming.BedrockAWSSecret != nil {
 		merged.BedrockAWSSecret = strings.TrimSpace(*incoming.BedrockAWSSecret)
+	}
+	if incoming.BedrockAWSSessionToken != nil {
+		merged.BedrockAWSSessionToken = strings.TrimSpace(*incoming.BedrockAWSSessionToken)
+	}
+	if incoming.BedrockAWSProfile != nil {
+		merged.BedrockAWSProfile = strings.TrimSpace(*incoming.BedrockAWSProfile)
 	}
 	if incoming.BedrockRegion != nil {
 		merged.BedrockRegion = strings.TrimSpace(*incoming.BedrockRegion)
@@ -1198,14 +1319,45 @@ func LLMSettingsPayloadAsNonEmptyUpdate(values LLMSettingsPayload) LLMSettingsUp
 	if value := strings.TrimSpace(values.ContextWindowTokens); value != "" {
 		update.ContextWindowTokens = stringPointer(value)
 	}
+	if value := strings.TrimSpace(values.SupportsImageParts); value != "" {
+		update.SupportsImageParts = stringPointer(value)
+	}
+	if values.Headers != nil {
+		headers := values.Headers
+		update.Headers = &headers
+	}
+	if value := strings.TrimSpace(values.CacheTTL); value != "" {
+		update.CacheTTL = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.CacheKeyPrefix); value != "" {
+		update.CacheKeyPrefix = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.RequestTimeout); value != "" {
+		update.RequestTimeout = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.Temperature); value != "" {
+		update.Temperature = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.ReasoningBudgetTokens); value != "" {
+		update.ReasoningBudgetTokens = stringPointer(value)
+	}
 	if value := strings.TrimSpace(values.APIKey); value != "" {
 		update.APIKey = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.AzureDeployment); value != "" {
+		update.AzureDeployment = stringPointer(value)
 	}
 	if value := strings.TrimSpace(values.BedrockAWSKey); value != "" {
 		update.BedrockAWSKey = stringPointer(value)
 	}
 	if value := strings.TrimSpace(values.BedrockAWSSecret); value != "" {
 		update.BedrockAWSSecret = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.BedrockAWSSessionToken); value != "" {
+		update.BedrockAWSSessionToken = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.BedrockAWSProfile); value != "" {
+		update.BedrockAWSProfile = stringPointer(value)
 	}
 	if value := strings.TrimSpace(values.BedrockRegion); value != "" {
 		update.BedrockRegion = stringPointer(value)
@@ -1271,21 +1423,36 @@ func normalizeLLMProfileSettings(profiles []LLMProfileSettingsPayload) ([]LLMPro
 		normalized := LLMProfileSettingsPayload{
 			Name: name,
 			LLMConfigFieldsPayload: LLMConfigFieldsPayload{
-				InferenceProvider:   strings.TrimSpace(profile.InferenceProvider),
-				Provider:            strings.TrimSpace(profile.Provider),
-				Endpoint:            strings.TrimSpace(profile.Endpoint),
-				Model:               strings.TrimSpace(profile.Model),
-				ContextWindowTokens: strings.TrimSpace(profile.ContextWindowTokens),
-				APIKey:              strings.TrimSpace(profile.APIKey),
-				BedrockAWSKey:       strings.TrimSpace(profile.BedrockAWSKey),
-				BedrockAWSSecret:    strings.TrimSpace(profile.BedrockAWSSecret),
-				BedrockRegion:       strings.TrimSpace(profile.BedrockRegion),
-				BedrockModelARN:     strings.TrimSpace(profile.BedrockModelARN),
-				CloudflareAPIToken:  strings.TrimSpace(profile.CloudflareAPIToken),
-				CloudflareAccountID: strings.TrimSpace(profile.CloudflareAccountID),
-				ReasoningEffort:     strings.TrimSpace(profile.ReasoningEffort),
-				ToolsEmulationMode:  strings.TrimSpace(profile.ToolsEmulationMode),
+				InferenceProvider:      strings.TrimSpace(profile.InferenceProvider),
+				Provider:               strings.TrimSpace(profile.Provider),
+				Endpoint:               strings.TrimSpace(profile.Endpoint),
+				Model:                  strings.TrimSpace(profile.Model),
+				ContextWindowTokens:    strings.TrimSpace(profile.ContextWindowTokens),
+				SupportsImageParts:     strings.TrimSpace(profile.SupportsImageParts),
+				Headers:                profile.Headers,
+				CacheTTL:               strings.TrimSpace(profile.CacheTTL),
+				CacheKeyPrefix:         strings.TrimSpace(profile.CacheKeyPrefix),
+				RequestTimeout:         strings.TrimSpace(profile.RequestTimeout),
+				Temperature:            strings.TrimSpace(profile.Temperature),
+				ReasoningBudgetTokens:  strings.TrimSpace(profile.ReasoningBudgetTokens),
+				APIKey:                 strings.TrimSpace(profile.APIKey),
+				AzureDeployment:        strings.TrimSpace(profile.AzureDeployment),
+				BedrockAWSKey:          strings.TrimSpace(profile.BedrockAWSKey),
+				BedrockAWSSecret:       strings.TrimSpace(profile.BedrockAWSSecret),
+				BedrockAWSSessionToken: strings.TrimSpace(profile.BedrockAWSSessionToken),
+				BedrockAWSProfile:      strings.TrimSpace(profile.BedrockAWSProfile),
+				BedrockRegion:          strings.TrimSpace(profile.BedrockRegion),
+				BedrockModelARN:        strings.TrimSpace(profile.BedrockModelARN),
+				CloudflareAPIToken:     strings.TrimSpace(profile.CloudflareAPIToken),
+				CloudflareAccountID:    strings.TrimSpace(profile.CloudflareAccountID),
+				ReasoningEffort:        strings.TrimSpace(profile.ReasoningEffort),
+				ToolsEmulationMode:     strings.TrimSpace(profile.ToolsEmulationMode),
 			},
+		}
+		switch normalized.SupportsImageParts {
+		case "", "true", "false":
+		default:
+			return nil, fmt.Errorf("profile %q supports_image_parts must be true, false, or empty", name)
 		}
 		normalized.LLMConfigFieldsPayload = ResolveInferenceProviderSettingsFields(normalized.LLMConfigFieldsPayload)
 		if strings.EqualFold(normalized.Provider, "cloudflare") {
@@ -1355,6 +1522,9 @@ func setSingleLLMProfileNode(llmNode *yaml.Node, update *LLMProfileUpdate) error
 	if !update.secretFieldProvided("bedrock_aws_secret", update.BedrockAWSSecret) {
 		fields.BedrockAWSSecret = nil
 	}
+	if !update.secretFieldProvided("bedrock_aws_session_token", update.BedrockAWSSessionToken) {
+		fields.BedrockAWSSessionToken = nil
+	}
 	if !update.secretFieldProvided("cloudflare_api_token", update.CloudflareAPIToken) {
 		fields.CloudflareAPIToken = nil
 	}
@@ -1385,20 +1555,30 @@ func deleteSingleLLMProfileNode(llmNode *yaml.Node, name string) error {
 
 func llmProfileSettingsAsUpdate(profile LLMProfileSettingsPayload) LLMConfigFieldsUpdate {
 	return LLMConfigFieldsUpdate{
-		InferenceProvider:   stringPointer(profile.InferenceProvider),
-		Provider:            stringPointer(profile.Provider),
-		Endpoint:            stringPointer(profile.Endpoint),
-		Model:               stringPointer(profile.Model),
-		ContextWindowTokens: stringPointer(profile.ContextWindowTokens),
-		APIKey:              stringPointer(profile.APIKey),
-		BedrockAWSKey:       stringPointer(profile.BedrockAWSKey),
-		BedrockAWSSecret:    stringPointer(profile.BedrockAWSSecret),
-		BedrockRegion:       stringPointer(profile.BedrockRegion),
-		BedrockModelARN:     stringPointer(profile.BedrockModelARN),
-		CloudflareAPIToken:  stringPointer(profile.CloudflareAPIToken),
-		CloudflareAccountID: stringPointer(profile.CloudflareAccountID),
-		ReasoningEffort:     stringPointer(profile.ReasoningEffort),
-		ToolsEmulationMode:  stringPointer(profile.ToolsEmulationMode),
+		InferenceProvider:      stringPointer(profile.InferenceProvider),
+		Provider:               stringPointer(profile.Provider),
+		Endpoint:               stringPointer(profile.Endpoint),
+		Model:                  stringPointer(profile.Model),
+		ContextWindowTokens:    stringPointer(profile.ContextWindowTokens),
+		SupportsImageParts:     stringPointer(profile.SupportsImageParts),
+		Headers:                &profile.Headers,
+		CacheTTL:               stringPointer(profile.CacheTTL),
+		CacheKeyPrefix:         stringPointer(profile.CacheKeyPrefix),
+		RequestTimeout:         stringPointer(profile.RequestTimeout),
+		Temperature:            stringPointer(profile.Temperature),
+		ReasoningBudgetTokens:  stringPointer(profile.ReasoningBudgetTokens),
+		APIKey:                 stringPointer(profile.APIKey),
+		AzureDeployment:        stringPointer(profile.AzureDeployment),
+		BedrockAWSKey:          stringPointer(profile.BedrockAWSKey),
+		BedrockAWSSecret:       stringPointer(profile.BedrockAWSSecret),
+		BedrockAWSSessionToken: stringPointer(profile.BedrockAWSSessionToken),
+		BedrockAWSProfile:      stringPointer(profile.BedrockAWSProfile),
+		BedrockRegion:          stringPointer(profile.BedrockRegion),
+		BedrockModelARN:        stringPointer(profile.BedrockModelARN),
+		CloudflareAPIToken:     stringPointer(profile.CloudflareAPIToken),
+		CloudflareAccountID:    stringPointer(profile.CloudflareAccountID),
+		ReasoningEffort:        stringPointer(profile.ReasoningEffort),
+		ToolsEmulationMode:     stringPointer(profile.ToolsEmulationMode),
 	}
 }
 
@@ -1429,11 +1609,60 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective LLMConfigFieldsPayloa
 	if update.ContextWindowTokens != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "context_window_tokens", *update.ContextWindowTokens)
 	}
+	if update.SupportsImageParts != nil {
+		switch strings.ToLower(strings.TrimSpace(*update.SupportsImageParts)) {
+		case "":
+			configbootstrap.DeleteMappingKey(node, "supports_image_parts")
+		case "true":
+			configbootstrap.SetMappingBoolValue(node, "supports_image_parts", true)
+		case "false":
+			configbootstrap.SetMappingBoolValue(node, "supports_image_parts", false)
+		}
+	}
+	if update.Headers != nil {
+		if len(*update.Headers) == 0 {
+			configbootstrap.DeleteMappingKey(node, "headers")
+		} else {
+			headersNode := configbootstrap.EnsureMappingValue(node, "headers")
+			headersNode.Content = nil
+			keys := make([]string, 0, len(*update.Headers))
+			for key := range *update.Headers {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				configbootstrap.SetOrDeleteMappingScalar(headersNode, key, (*update.Headers)[key])
+			}
+		}
+	}
+	if update.CacheTTL != nil {
+		configbootstrap.SetOrDeleteMappingScalar(node, "cache_ttl", *update.CacheTTL)
+	}
+	if update.CacheKeyPrefix != nil {
+		configbootstrap.SetOrDeleteMappingScalar(node, "cache_key_prefix", *update.CacheKeyPrefix)
+	}
+	if update.RequestTimeout != nil {
+		configbootstrap.SetOrDeleteMappingScalar(node, "request_timeout", *update.RequestTimeout)
+	}
+	if update.Temperature != nil {
+		configbootstrap.SetOrDeleteMappingScalar(node, "temperature", *update.Temperature)
+	}
+	if update.ReasoningBudgetTokens != nil {
+		configbootstrap.SetOrDeleteMappingScalar(node, "reasoning_budget_tokens", *update.ReasoningBudgetTokens)
+	}
 	if update.ReasoningEffort != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "reasoning_effort", *update.ReasoningEffort)
 	}
 	if update.ToolsEmulationMode != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "tools_emulation_mode", *update.ToolsEmulationMode)
+	}
+	if update.AzureDeployment != nil {
+		if strings.TrimSpace(*update.AzureDeployment) == "" {
+			configbootstrap.DeleteMappingKey(node, "azure")
+		} else {
+			azureNode := configbootstrap.EnsureMappingValue(node, "azure")
+			configbootstrap.SetOrDeleteMappingScalar(azureNode, "deployment", *update.AzureDeployment)
+		}
 	}
 	if strings.EqualFold(strings.TrimSpace(effective.InferenceProvider), llmutil.InferenceProviderMisterMorphPro) {
 		configbootstrap.SetOrDeleteMappingScalar(node, "provider", "")
@@ -1488,7 +1717,7 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective LLMConfigFieldsPayloa
 		if bedrockNode != nil && bedrockNode.Kind != yaml.MappingNode {
 			bedrockNode = configbootstrap.EnsureMappingValue(node, "bedrock")
 		}
-		if update.BedrockAWSKey != nil || update.BedrockAWSSecret != nil || update.BedrockRegion != nil || update.BedrockModelARN != nil {
+		if update.BedrockAWSKey != nil || update.BedrockAWSSecret != nil || update.BedrockAWSSessionToken != nil || update.BedrockAWSProfile != nil || update.BedrockRegion != nil || update.BedrockModelARN != nil {
 			if bedrockNode == nil {
 				bedrockNode = configbootstrap.EnsureMappingValue(node, "bedrock")
 			}
@@ -1497,6 +1726,12 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective LLMConfigFieldsPayloa
 			}
 			if update.BedrockAWSSecret != nil {
 				configbootstrap.SetOrDeleteMappingScalar(bedrockNode, "aws_secret", *update.BedrockAWSSecret)
+			}
+			if update.BedrockAWSSessionToken != nil {
+				configbootstrap.SetOrDeleteMappingScalar(bedrockNode, "aws_session_token", *update.BedrockAWSSessionToken)
+			}
+			if update.BedrockAWSProfile != nil {
+				configbootstrap.SetOrDeleteMappingScalar(bedrockNode, "aws_profile", *update.BedrockAWSProfile)
 			}
 			if update.BedrockRegion != nil {
 				configbootstrap.SetOrDeleteMappingScalar(bedrockNode, "region", *update.BedrockRegion)
@@ -1939,6 +2174,8 @@ func agentSettingsYAMLFieldNodes(node *yaml.Node, provider, field string) []*yam
 		fieldPathSets = [][]string{{"bedrock", "aws_key"}}
 	case "bedrock_aws_secret":
 		fieldPathSets = [][]string{{"bedrock", "aws_secret"}}
+	case "bedrock_aws_session_token":
+		fieldPathSets = [][]string{{"bedrock", "aws_session_token"}}
 	case "bedrock_region":
 		fieldPathSets = [][]string{{"bedrock", "region"}}
 	case "bedrock_model_arn":
@@ -1999,7 +2236,7 @@ func YAMLPlaceholderField(
 	}
 	out.EnvName = ref.EnvName
 	switch strings.TrimSpace(field) {
-	case "api_key", "bedrock_aws_key", "bedrock_aws_secret", "cloudflare_api_token":
+	case "api_key", "bedrock_aws_key", "bedrock_aws_secret", "bedrock_aws_session_token", "cloudflare_api_token":
 	default:
 		if resolved, ok := os.LookupEnv(ref.EnvName); ok {
 			out.Value = strings.TrimSpace(resolved)
@@ -2097,6 +2334,7 @@ func redactLLMConfigFields(fields *LLMConfigFieldsPayload) {
 	fields.APIKey = ""
 	fields.BedrockAWSKey = ""
 	fields.BedrockAWSSecret = ""
+	fields.BedrockAWSSessionToken = ""
 	fields.CloudflareAPIToken = ""
 }
 
@@ -2188,16 +2426,18 @@ func readAgentSettingsFromReader(r interface {
 	return FileSettings{
 		LLM: SettingsPayloadFromRuntimeValues(values),
 		Tools: ToolsSettingsPayload{
-			WriteFile:    ToolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
-			Spawn:        ToolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
-			Coder:        ToolEnabledPayload{Enabled: r.GetBool("tools.coder.enabled")},
-			ContactsSend: ToolEnabledPayload{Enabled: r.GetBool("tools.contacts_send.enabled")},
-			TodoUpdate:   ToolEnabledPayload{Enabled: r.GetBool("tools.todo_update.enabled")},
-			PlanCreate:   ToolEnabledPayload{Enabled: r.GetBool("tools.plan_create.enabled")},
-			URLFetch:     ToolEnabledPayload{Enabled: r.GetBool("tools.url_fetch.enabled")},
-			WebSearch:    ToolEnabledPayload{Enabled: r.GetBool("tools.web_search.enabled")},
-			Bash:         ToolEnabledPayload{Enabled: r.GetBool("tools.bash.enabled")},
-			PowerShell:   ToolEnabledPayload{Enabled: r.GetBool("tools.powershell.enabled")},
+			WriteFile:     ToolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
+			Spawn:         ToolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
+			Coder:         ToolEnabledPayload{Enabled: r.GetBool("tools.coder.enabled")},
+			ContactsSend:  ToolEnabledPayload{Enabled: r.GetBool("tools.contacts_send.enabled")},
+			TodoUpdate:    ToolEnabledPayload{Enabled: r.GetBool("tools.todo_update.enabled")},
+			PlanCreate:    ToolEnabledPayload{Enabled: r.GetBool("tools.plan_create.enabled")},
+			URLFetch:      ToolEnabledPayload{Enabled: r.GetBool("tools.url_fetch.enabled")},
+			WebSearch:     ToolEnabledPayload{Enabled: r.GetBool("tools.web_search.enabled")},
+			Bash:          ToolEnabledPayload{Enabled: r.GetBool("tools.bash.enabled")},
+			PowerShell:    ToolEnabledPayload{Enabled: r.GetBool("tools.powershell.enabled")},
+			ImageGenerate: ToolEnabledPayload{Enabled: r.GetBool("tools.image_generate.enabled")},
+			ImageEdit:     ToolEnabledPayload{Enabled: r.GetBool("tools.image_edit.enabled")},
 		},
 	}, nil
 }

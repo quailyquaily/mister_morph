@@ -42,8 +42,7 @@ func contextCompactionTestConfig() Config {
 	return Config{
 		MaxSteps: 5,
 		ContextCompaction: ContextCompactionConfig{
-			TriggerRatio:        0.80,
-			OutputReserveTokens: 100,
+			TriggerRatio: 0.80,
 		},
 	}
 }
@@ -303,7 +302,7 @@ func TestRunRetriesContextLengthErrorOnceAfterCompaction(t *testing.T) {
 		Scene:               "telegram.loop",
 		History:             history,
 		HistoryBoundaries:   []string{"old-boundary"},
-		ContextWindowTokens: 1000,
+		ContextWindowTokens: 10000,
 	})
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -332,7 +331,7 @@ func TestRunDoesNotRetryContextLengthErrorTwice(t *testing.T) {
 	}}
 	_, _, err := newContextCompactionEngine(client, contextCompactionTestConfig()).Run(context.Background(), "current", RunOptions{
 		History:             []llm.Message{{Role: "user", Content: "old"}},
-		ContextWindowTokens: 1000,
+		ContextWindowTokens: 10000,
 	})
 	if !errors.Is(err, providerErr) {
 		t.Fatalf("run error = %v, want provider error", err)
