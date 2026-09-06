@@ -4,7 +4,7 @@
 
 .mcp-settings-skeleton {
   display: grid;
-  gap: 16px;
+  gap: 8px;
 }
 
 .mcp-settings-message {
@@ -28,7 +28,7 @@
 }
 
 .mcp-settings-empty {
-  min-height: 220px;
+  min-height: 180px;
   display: grid;
   place-items: center;
   align-content: center;
@@ -48,72 +48,36 @@
 }
 
 .mcp-server-list {
+  min-width: 0;
+}
+
+.mcp-server-row {
+  min-width: 0;
+}
+
+.mcp-server-copy {
+  min-width: 0;
+}
+
+.mcp-server-copy strong,
+.mcp-server-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-editor-dialog {
   display: grid;
+  gap: 18px;
 }
 
-.mcp-server {
-  display: grid;
-  gap: 16px;
-  padding: 20px 0;
-  border-top: 1px solid var(--line-soft);
-}
-
-.mcp-server:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.mcp-server:last-child {
-  padding-bottom: 0;
-}
-
-.mcp-server-head {
-  display: grid;
-  grid-template-columns: minmax(112px, 1fr) auto 36px;
-  align-items: center;
-  gap: 12px;
-}
-
-.mcp-server-enabled,
-.mcp-field-head,
-.mcp-transport {
+.mcp-field-head {
   display: flex;
   align-items: center;
 }
 
-.mcp-server-enabled {
-  gap: 8px;
-  color: var(--text-1);
-  font-size: var(--font-size-meta);
-  font-weight: 650;
-}
-
 .mcp-transport {
-  padding: 2px;
-  border: 1px solid var(--line-soft);
-  background: var(--q-bg-page);
-}
-
-.mcp-transport-option {
-  min-height: 32px;
-  gap: 6px;
-  border-radius: 0 !important;
-  color: var(--text-2) !important;
-}
-
-.mcp-transport-option.is-active {
-  color: var(--text-1) !important;
-  background: var(--q-bg-paper) !important;
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--text-1) 10%, transparent);
-}
-
-.mcp-server-delete {
-  color: var(--text-2) !important;
-}
-
-.mcp-server-delete:hover:not(:disabled),
-.mcp-server-delete:focus-visible {
-  color: var(--danger) !important;
+  justify-self: start;
 }
 
 .mcp-server-fields {
@@ -139,29 +103,17 @@
   align-items: center;
 }
 
+.mcp-editor-delete {
+  justify-self: start;
+}
+
 @media (max-width: 720px) {
   .mcp-settings-panel .settings-panel-head {
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
   }
 
-  .mcp-settings-panel .settings-panel-actions {
-    justify-content: stretch;
-  }
-
-  .mcp-settings-panel .settings-panel-actions > * {
-    flex: 1 1 0;
-  }
-
-  .mcp-server-head {
-    grid-template-columns: 1fr 36px;
-  }
-
-  .mcp-transport {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-
-  .mcp-transport-option {
+  .mcp-transport .app-tabs-option {
     flex: 1 1 0;
   }
 

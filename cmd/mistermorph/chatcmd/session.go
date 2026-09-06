@@ -48,7 +48,6 @@ type chatSession struct {
 	mainCfg                llmconfig.ClientConfig
 	runtimeToolsCfg        toolsutil.RuntimeToolsRegisterConfig
 	projectID              string
-	compactMode            bool
 	launchDir              string
 	fileCacheDir           string
 	fileStateDir           string
@@ -388,7 +387,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	if projectDir == "" {
 		projectDir = launchDir
 	}
-	compactMode := configutil.FlagOrViperBool(cmd, "compact-mode", "chat.compact_mode")
 	sess := &chatSession{
 		version:                strings.TrimSpace(deps.Version),
 		cmd:                    cmd,
@@ -397,7 +395,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		imageScopeKey:          "chat:" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		runtimeToolsCfg:        runtimeToolsCfg,
 		projectID:              cliProjectID(projectDir),
-		compactMode:            compactMode,
 		launchDir:              launchDir,
 		fileCacheDir:           fileCacheDir,
 		fileStateDir:           fileStateDir,
@@ -503,7 +500,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			ContextCompaction: agent.NewContextCompactionConfig(
 				viper.GetBool("context_compaction.enabled"),
 				viper.GetFloat64("context_compaction.trigger_ratio"),
-				viper.GetInt("context_compaction.output_reserve_tokens"),
 			),
 		},
 		EngineToolsConfig: &engineToolsConfig,

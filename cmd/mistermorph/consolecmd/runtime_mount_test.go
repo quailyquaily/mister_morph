@@ -128,6 +128,7 @@ func TestConsoleRuntimeMountExposesConsoleOwnedSettings(t *testing.T) {
 		{method: http.MethodGet, path: "/runtime/settings/agent/models"},
 		{method: http.MethodGet, path: "/runtime/settings/agent/test"},
 		{method: http.MethodPatch, path: "/runtime/settings/console"},
+		{method: http.MethodPatch, path: "/runtime/settings/system"},
 		{method: http.MethodPatch, path: "/runtime/settings/auto-update"},
 		{method: http.MethodGet, path: "/runtime/settings/auto-update/check"},
 		{method: http.MethodDelete, path: "/runtime/auth/codex/status"},

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/configsettings"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
@@ -15,20 +16,30 @@ import (
 )
 
 type LLMConfigFieldsUpdate struct {
-	InferenceProvider   *string `json:"inference_provider,omitempty"`
-	Provider            *string `json:"provider,omitempty"`
-	Endpoint            *string `json:"endpoint,omitempty"`
-	Model               *string `json:"model,omitempty"`
-	ContextWindowTokens *string `json:"context_window_tokens,omitempty"`
-	APIKey              *string `json:"api_key,omitempty"`
-	BedrockAWSKey       *string `json:"bedrock_aws_key,omitempty"`
-	BedrockAWSSecret    *string `json:"bedrock_aws_secret,omitempty"`
-	BedrockRegion       *string `json:"bedrock_region,omitempty"`
-	BedrockModelARN     *string `json:"bedrock_model_arn,omitempty"`
-	CloudflareAPIToken  *string `json:"cloudflare_api_token,omitempty"`
-	CloudflareAccountID *string `json:"cloudflare_account_id,omitempty"`
-	ReasoningEffort     *string `json:"reasoning_effort,omitempty"`
-	ToolsEmulationMode  *string `json:"tools_emulation_mode,omitempty"`
+	InferenceProvider      *string            `json:"inference_provider,omitempty"`
+	Provider               *string            `json:"provider,omitempty"`
+	Endpoint               *string            `json:"endpoint,omitempty"`
+	Model                  *string            `json:"model,omitempty"`
+	ContextWindowTokens    *string            `json:"context_window_tokens,omitempty"`
+	SupportsImageParts     *string            `json:"supports_image_parts,omitempty"`
+	Headers                *map[string]string `json:"headers,omitempty"`
+	CacheTTL               *string            `json:"cache_ttl,omitempty"`
+	CacheKeyPrefix         *string            `json:"cache_key_prefix,omitempty"`
+	RequestTimeout         *string            `json:"request_timeout,omitempty"`
+	Temperature            *string            `json:"temperature,omitempty"`
+	ReasoningBudgetTokens  *string            `json:"reasoning_budget_tokens,omitempty"`
+	APIKey                 *string            `json:"api_key,omitempty"`
+	AzureDeployment        *string            `json:"azure_deployment,omitempty"`
+	BedrockAWSKey          *string            `json:"bedrock_aws_key,omitempty"`
+	BedrockAWSSecret       *string            `json:"bedrock_aws_secret,omitempty"`
+	BedrockAWSSessionToken *string            `json:"bedrock_aws_session_token,omitempty"`
+	BedrockAWSProfile      *string            `json:"bedrock_aws_profile,omitempty"`
+	BedrockRegion          *string            `json:"bedrock_region,omitempty"`
+	BedrockModelARN        *string            `json:"bedrock_model_arn,omitempty"`
+	CloudflareAPIToken     *string            `json:"cloudflare_api_token,omitempty"`
+	CloudflareAccountID    *string            `json:"cloudflare_account_id,omitempty"`
+	ReasoningEffort        *string            `json:"reasoning_effort,omitempty"`
+	ToolsEmulationMode     *string            `json:"tools_emulation_mode,omitempty"`
 }
 
 type LLMProfileUpdate struct {
@@ -76,29 +87,33 @@ type ToolEnabledUpdate struct {
 }
 
 type ToolsSettingsPayload struct {
-	WriteFile    ToolEnabledPayload `json:"write_file"`
-	Spawn        ToolEnabledPayload `json:"spawn"`
-	Coder        ToolEnabledPayload `json:"coder"`
-	ContactsSend ToolEnabledPayload `json:"contacts_send"`
-	TodoUpdate   ToolEnabledPayload `json:"todo_update"`
-	PlanCreate   ToolEnabledPayload `json:"plan_create"`
-	URLFetch     ToolEnabledPayload `json:"url_fetch"`
-	WebSearch    ToolEnabledPayload `json:"web_search"`
-	Bash         ToolEnabledPayload `json:"bash"`
-	PowerShell   ToolEnabledPayload `json:"powershell"`
+	WriteFile     ToolEnabledPayload `json:"write_file"`
+	Spawn         ToolEnabledPayload `json:"spawn"`
+	Coder         ToolEnabledPayload `json:"coder"`
+	ContactsSend  ToolEnabledPayload `json:"contacts_send"`
+	TodoUpdate    ToolEnabledPayload `json:"todo_update"`
+	PlanCreate    ToolEnabledPayload `json:"plan_create"`
+	URLFetch      ToolEnabledPayload `json:"url_fetch"`
+	WebSearch     ToolEnabledPayload `json:"web_search"`
+	Bash          ToolEnabledPayload `json:"bash"`
+	PowerShell    ToolEnabledPayload `json:"powershell"`
+	ImageGenerate ToolEnabledPayload `json:"image_generate"`
+	ImageEdit     ToolEnabledPayload `json:"image_edit"`
 }
 
 type ToolsSettingsUpdate struct {
-	WriteFile    *ToolEnabledUpdate `json:"write_file,omitempty"`
-	Spawn        *ToolEnabledUpdate `json:"spawn,omitempty"`
-	Coder        *ToolEnabledUpdate `json:"coder,omitempty"`
-	ContactsSend *ToolEnabledUpdate `json:"contacts_send,omitempty"`
-	TodoUpdate   *ToolEnabledUpdate `json:"todo_update,omitempty"`
-	PlanCreate   *ToolEnabledUpdate `json:"plan_create,omitempty"`
-	URLFetch     *ToolEnabledUpdate `json:"url_fetch,omitempty"`
-	WebSearch    *ToolEnabledUpdate `json:"web_search,omitempty"`
-	Bash         *ToolEnabledUpdate `json:"bash,omitempty"`
-	PowerShell   *ToolEnabledUpdate `json:"powershell,omitempty"`
+	WriteFile     *ToolEnabledUpdate `json:"write_file,omitempty"`
+	Spawn         *ToolEnabledUpdate `json:"spawn,omitempty"`
+	Coder         *ToolEnabledUpdate `json:"coder,omitempty"`
+	ContactsSend  *ToolEnabledUpdate `json:"contacts_send,omitempty"`
+	TodoUpdate    *ToolEnabledUpdate `json:"todo_update,omitempty"`
+	PlanCreate    *ToolEnabledUpdate `json:"plan_create,omitempty"`
+	URLFetch      *ToolEnabledUpdate `json:"url_fetch,omitempty"`
+	WebSearch     *ToolEnabledUpdate `json:"web_search,omitempty"`
+	Bash          *ToolEnabledUpdate `json:"bash,omitempty"`
+	PowerShell    *ToolEnabledUpdate `json:"powershell,omitempty"`
+	ImageGenerate *ToolEnabledUpdate `json:"image_generate,omitempty"`
+	ImageEdit     *ToolEnabledUpdate `json:"image_edit,omitempty"`
 }
 
 type SkillsSettingsPayload struct {
@@ -124,26 +139,35 @@ type MCPSettingsUpdate struct {
 }
 
 type AgentSettingsUpdate struct {
-	LLM    LLMSettingsUpdate     `json:"llm"`
-	Skills *SkillsSettingsUpdate `json:"skills,omitempty"`
-	Tools  *ToolsSettingsUpdate  `json:"tools,omitempty"`
-	MCP    *MCPSettingsUpdate    `json:"mcp,omitempty"`
+	ConfigRevision string                     `json:"config_revision,omitempty"`
+	ConfigChanges  map[string]json.RawMessage `json:"config_changes,omitempty"`
+	Reset          []string                   `json:"reset,omitempty"`
+	LLM            LLMSettingsUpdate          `json:"llm"`
+	Skills         *SkillsSettingsUpdate      `json:"skills,omitempty"`
+	Tools          *ToolsSettingsUpdate       `json:"tools,omitempty"`
+	MCP            *MCPSettingsUpdate         `json:"mcp,omitempty"`
 }
 
 type AgentSettingsView struct {
-	OK             bool                  `json:"ok,omitempty"`
-	LLM            LLMSettingsPayload    `json:"llm"`
-	EnvManaged     EnvManagedPayload     `json:"env_managed,omitempty"`
-	SecretFields   SecretFieldsPayload   `json:"secret_fields,omitempty"`
-	Skills         SkillsSettingsPayload `json:"skills"`
-	Tools          ToolsSettingsPayload  `json:"tools"`
-	MCP            MCPSettingsPayload    `json:"mcp"`
-	ConfigPath     string                `json:"config_path"`
-	ConfigExists   bool                  `json:"config_exists"`
-	ConfigValid    bool                  `json:"config_valid"`
-	ConfigSource   string                `json:"config_source"`
-	ReadOnly       bool                  `json:"read_only"`
-	ReadOnlyReason string                `json:"read_only_reason,omitempty"`
+	OK             bool                                 `json:"ok,omitempty"`
+	LLM            LLMSettingsPayload                   `json:"llm"`
+	EnvManaged     EnvManagedPayload                    `json:"env_managed,omitempty"`
+	SecretFields   SecretFieldsPayload                  `json:"secret_fields,omitempty"`
+	Skills         SkillsSettingsPayload                `json:"skills"`
+	Tools          ToolsSettingsPayload                 `json:"tools"`
+	MCP            MCPSettingsPayload                   `json:"mcp"`
+	ConfigPath     string                               `json:"config_path"`
+	ConfigExists   bool                                 `json:"config_exists"`
+	ConfigValid    bool                                 `json:"config_valid"`
+	ConfigSource   string                               `json:"config_source"`
+	ReadOnly       bool                                 `json:"read_only"`
+	ReadOnlyReason string                               `json:"read_only_reason,omitempty"`
+	ConfigRevision string                               `json:"config_revision"`
+	ConfigValues   map[string]any                       `json:"config_values"`
+	FieldStates    map[string]configsettings.FieldState `json:"field_states"`
+	ApplyMode      configsettings.ApplyMode             `json:"apply_mode,omitempty"`
+	ApplyStatus    string                               `json:"apply_status,omitempty"`
+	RestartTargets []string                             `json:"restart_targets,omitempty"`
 }
 
 type Owner interface {

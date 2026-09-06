@@ -90,6 +90,28 @@ func captureConsoleRuntimeOverrides(cmd *cobra.Command) consoleRuntimeOverrides 
 	setInt("log-max-skill-content-chars", "logging.max_skill_content_chars")
 	setStringArray("log-redact-key", "logging.redact_keys")
 
+	localFlags := cmd.Flags()
+	if localFlags.Changed("console-listen") {
+		if value, err := localFlags.GetString("console-listen"); err == nil {
+			out["console.listen"] = value
+		}
+	}
+	if localFlags.Changed("console-base-path") {
+		if value, err := localFlags.GetString("console-base-path"); err == nil {
+			out["console.base_path"] = value
+		}
+	}
+	if localFlags.Changed("console-static-dir") {
+		if value, err := localFlags.GetString("console-static-dir"); err == nil {
+			out["console.static_dir"] = value
+		}
+	}
+	if localFlags.Changed("console-session-ttl") {
+		if value, err := localFlags.GetDuration("console-session-ttl"); err == nil {
+			out["console.session_ttl"] = value.String()
+		}
+	}
+
 	if len(out) == 0 {
 		return nil
 	}

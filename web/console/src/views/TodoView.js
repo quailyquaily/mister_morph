@@ -5,6 +5,7 @@ import "./TodoView.css";
 
 import AppPage from "../components/AppPage";
 import AppMarkdownEditor from "../components/AppMarkdownEditor";
+import AppTabs from "../components/AppTabs";
 import TodoCalendar from "../components/TodoCalendar";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
 import { isValidCronExpression } from "../core/cron";
@@ -662,6 +663,7 @@ const TodoView = {
   components: {
     AppPage,
     AppMarkdownEditor,
+    AppTabs,
     TodoCalendar,
   },
   setup() {
@@ -1385,26 +1387,6 @@ const TodoView = {
         repeatKindTabs.value[0] ||
         null
       );
-    }
-
-    function repeatKindInitialIndex(task) {
-      const kind = repeatKind(task);
-      const index = repeatKindTabs.value.findIndex((item) => item.id === kind);
-      if (index >= 0) {
-        return index;
-      }
-      return Math.max(
-        0,
-        repeatKindTabs.value.findIndex((item) => item.id === DEFAULT_REPEAT_KIND)
-      );
-    }
-
-    function guardRepeatKindTabsEvent(event) {
-      if (!saving.value && !loading.value) {
-        return;
-      }
-      event?.preventDefault?.();
-      event?.stopPropagation?.();
     }
 
     function updateRepeatTime(task, value) {
@@ -2390,14 +2372,12 @@ const TodoView = {
       repeatKind,
       repeatKindTabs,
       repeatKindTab,
-      repeatKindInitialIndex,
       repeatInputRevision,
       chatDropdownRevision,
       repeatMinuteInputKey,
       repeatMonthDayInputKey,
       repeatMinuteValue,
       taskListDisplayTask,
-      guardRepeatKindTabsEvent,
       weekdaySelected,
       weekdayLabel,
       previewSegments,
@@ -2465,11 +2445,11 @@ const TodoView = {
 
         <aside v-if="!calendarView && showIndexPane" class="todo-index workspace-sidebar-section" :aria-label="t('todo_nav_title')">
           <div class="todo-index-head workspace-sidebar-head">
-            <QTabs
+            <AppTabs
               class="todo-view-tabs todo-index-view-tabs"
               :tabs="todoViewTabs"
               :modelValue="selectedTodoViewTab"
-              variant="plain"
+              :ariaLabel="t('todo_nav_title')"
               @change="onTodoViewChange"
             />
             <QButton
@@ -2726,17 +2706,12 @@ const TodoView = {
               </label>
 
               <div v-else class="todo-field is-wide todo-repeat-field">
-                <QTabs
+                <AppTabs
                   :class="saving || loading ? 'todo-repeat-kind-tabs is-disabled' : 'todo-repeat-kind-tabs'"
                   :tabs="repeatKindTabs"
                   :modelValue="repeatKindTab(selectedTask)"
-                  :initialIndex="repeatKindInitialIndex(selectedTask)"
-                  variant="plain"
-                  :aria-label="t('todo_field_repeat')"
-                  :aria-disabled="saving || loading"
-                  @click.capture="guardRepeatKindTabsEvent"
-                  @keydown.enter.capture="guardRepeatKindTabsEvent"
-                  @keydown.space.capture="guardRepeatKindTabsEvent"
+                  :disabled="saving || loading"
+                  :ariaLabel="t('todo_field_repeat')"
                   @change="updateRepeatKindFromTab(selectedTask, $event)"
                 />
 

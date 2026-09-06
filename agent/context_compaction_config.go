@@ -8,16 +8,14 @@ const (
 )
 
 type ContextCompactionConfig struct {
-	Enabled             *bool
-	TriggerRatio        float64
-	OutputReserveTokens int
+	Enabled      *bool
+	TriggerRatio float64
 }
 
-func NewContextCompactionConfig(enabled bool, triggerRatio float64, outputReserveTokens int) ContextCompactionConfig {
+func NewContextCompactionConfig(enabled bool, triggerRatio float64) ContextCompactionConfig {
 	return ContextCompactionConfig{
-		Enabled:             &enabled,
-		TriggerRatio:        triggerRatio,
-		OutputReserveTokens: outputReserveTokens,
+		Enabled:      &enabled,
+		TriggerRatio: triggerRatio,
 	}
 }
 
@@ -26,16 +24,12 @@ func (config ContextCompactionConfig) Validate() error {
 	if !usesDefaultTriggerRatio && (config.TriggerRatio <= 0 || config.TriggerRatio >= 1) {
 		return fmt.Errorf("context compaction trigger ratio must be greater than 0 and less than 1")
 	}
-	if config.OutputReserveTokens < 0 {
-		return fmt.Errorf("context compaction output reserve tokens cannot be negative")
-	}
 	return nil
 }
 
 type resolvedContextCompactionConfig struct {
-	Enabled             bool
-	TriggerRatio        float64
-	OutputReserveTokens int
+	Enabled      bool
+	TriggerRatio float64
 }
 
 func resolveContextCompactionConfig(config ContextCompactionConfig, disabledForRun bool) resolvedContextCompactionConfig {
@@ -47,14 +41,9 @@ func resolveContextCompactionConfig(config ContextCompactionConfig, disabledForR
 	if ratio <= 0 || ratio >= 1 {
 		ratio = defaultContextCompactionTriggerRatio
 	}
-	reserve := config.OutputReserveTokens
-	if reserve < 0 {
-		reserve = 0
-	}
 	return resolvedContextCompactionConfig{
-		Enabled:             enabled && !disabledForRun,
-		TriggerRatio:        ratio,
-		OutputReserveTokens: reserve,
+		Enabled:      enabled && !disabledForRun,
+		TriggerRatio: ratio,
 	}
 }
 
@@ -64,9 +53,6 @@ func contextInputLimits(contextWindowTokens int64, config resolvedContextCompact
 	}
 	window := int(contextWindowTokens)
 	outputReserve = requestMaxTokens
-	if outputReserve <= 0 {
-		outputReserve = config.OutputReserveTokens
-	}
 	if outputReserve <= 0 {
 		outputReserve = defaultContextOutputReserve(window)
 	}

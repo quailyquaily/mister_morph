@@ -131,6 +131,7 @@ type server struct {
 	runtimeConfigPollerWG       sync.WaitGroup
 	webSockets                  consoleWebSocketHandlers
 	secretStore                 secref.OSStore
+	settingsWriteMu             sync.Mutex
 }
 
 const endpointHealthTimeout = 2 * time.Second
@@ -528,6 +529,7 @@ func (s *server) handler() http.Handler {
 		register("/settings/agent/models", s.handleAgentSettingsModels)
 		register("/settings/agent/test", s.handleAgentSettingsTest)
 		register("/settings/console", s.handleConsoleSettings)
+		register("/settings/system", s.handleSystemSettings)
 		register("/settings/auto-update", s.handleAutoUpdateSettings)
 		register("/settings/auto-update/check", s.handleAutoUpdateCheck)
 		register("/setup/integrity", s.handleSetupIntegrity)

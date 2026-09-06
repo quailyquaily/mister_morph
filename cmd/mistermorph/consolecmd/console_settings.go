@@ -14,9 +14,12 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
+	"github.com/quailyquaily/mistermorph/internal/configrevision"
+	"github.com/quailyquaily/mistermorph/internal/configsettings"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
@@ -156,6 +159,9 @@ type consoleGuardSettingsUpdatePayload struct {
 }
 
 type consoleSettingsUpdatePayload struct {
+	ConfigRevision  string                                `json:"config_revision,omitempty"`
+	ConfigChanges   map[string]json.RawMessage            `json:"config_changes,omitempty"`
+	Reset           []string                              `json:"reset,omitempty"`
 	ManagedRuntimes *[]string                             `json:"managed_runtimes,omitempty"`
 	Telegram        *consoleTelegramSettingsUpdatePayload `json:"telegram,omitempty"`
 	Slack           *consoleSlackSettingsUpdatePayload    `json:"slack,omitempty"`
@@ -163,6 +169,10 @@ type consoleSettingsUpdatePayload struct {
 	Lark            *consoleLarkSettingsUpdatePayload     `json:"lark,omitempty"`
 	Mixin           *consoleMixinSettingsUpdatePayload    `json:"mixin,omitempty"`
 	Guard           *consoleGuardSettingsUpdatePayload    `json:"guard,omitempty"`
+	NewPassword     *string                               `json:"new_password,omitempty"`
+	ClearPassword   bool                                  `json:"clear_password,omitempty"`
+	Endpoints       *[]consoleEndpointSettingsPayload     `json:"endpoints,omitempty"`
+	AuthProfiles    *[]consoleAuthProfileSettingsPayload  `json:"auth_profiles,omitempty"`
 }
 
 type consoleSettingsEnvManagedPayload struct {
@@ -178,15 +188,6 @@ type consoleSettingsSecretFieldsPayload struct {
 	Slack    map[string]agentsettings.SecretFieldStatus `json:"slack,omitempty"`
 	Line     map[string]agentsettings.SecretFieldStatus `json:"line,omitempty"`
 	Lark     map[string]agentsettings.SecretFieldStatus `json:"lark,omitempty"`
-}
-
-func deleteConsoleOSSecretIDs(ctx context.Context, store secref.OSStore, ids []string) {
-	if store == nil {
-		return
-	}
-	for _, id := range ids {
-		_ = store.Delete(ctx, id)
-	}
 }
 
 func prepareConsoleSecretUpdates(ctx context.Context, req *consoleSettingsUpdatePayload, store secref.OSStore) ([]string, error) {
@@ -232,11 +233,11 @@ func prepareConsoleSecretUpdates(ctx context.Context, req *consoleSettingsUpdate
 		}
 		id, err := secref.NewOSSecretID()
 		if err != nil {
-			deleteConsoleOSSecretIDs(ctx, store, newSecretIDs)
+			secref.DeleteOSSecrets(ctx, store, newSecretIDs)
 			return nil, fmt.Errorf("%s: %w", field.name, err)
 		}
 		if err := store.Put(ctx, id, field.name, []byte(value)); err != nil {
-			deleteConsoleOSSecretIDs(ctx, store, newSecretIDs)
+			secref.DeleteOSSecrets(ctx, store, newSecretIDs)
 			return nil, fmt.Errorf("%s: %w", field.name, err)
 		}
 		newSecretIDs = append(newSecretIDs, id)
@@ -250,6 +251,10 @@ func prepareConsoleSecretUpdates(ctx context.Context, req *consoleSettingsUpdate
 }
 
 func (s *server) handleConsoleSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		s.settingsWriteMu.Lock()
+		defer s.settingsWriteMu.Unlock()
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.handleConsoleSettingsGet(w, r)
@@ -266,20 +271,28 @@ func (s *server) handleConsoleSettingsGet(w http.ResponseWriter, _ *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	settings, err := readConsoleSettings(configPath)
+	snapshot, err := configrevision.Read(configPath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	doc := configbootstrap.NewEmptyDocument()
-	if raw, readErr := os.ReadFile(configPath); readErr == nil && len(bytes.TrimSpace(raw)) > 0 {
-		doc, err = configbootstrap.LoadDocumentBytes(raw)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
+	settings, err := readConsoleSettingsBytes(snapshot.Data)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	doc, err := configbootstrap.LoadDocumentBytes(snapshot.Data)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	settings, envManaged, secretFields := buildConsoleSettingsResponseView(settings, doc)
+	configView, err := configsettings.View(snapshot.Data, configsettings.ConsoleFields())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	configsettings.ApplyRuntimeOverrides(&configView, s.cfg.runtimeOverrides)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"managed_runtimes": settings.ManagedRuntimes,
 		"telegram":         settings.Telegram,
@@ -288,9 +301,14 @@ func (s *server) handleConsoleSettingsGet(w http.ResponseWriter, _ *http.Request
 		"lark":             settings.Lark,
 		"mixin":            settings.Mixin,
 		"guard":            settings.Guard,
+		"endpoints":        consoleEndpointSettingsFromDocument(doc),
+		"auth_profiles":    consoleAuthProfileSettingsFromDocument(doc),
 		"env_managed":      envManaged,
 		"secret_fields":    secretFields,
 		"config_path":      configPath,
+		"config_revision":  snapshot.Revision,
+		"config_values":    configView.Values,
+		"field_states":     configView.FieldStates,
 	})
 }
 
@@ -305,12 +323,26 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	current, err := readConsoleSettings(configPath)
+	snapshot, err := configrevision.Read(configPath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	previousDoc, err := loadYAMLDocument(configPath)
+	if expected := strings.TrimSpace(req.ConfigRevision); expected != "" && expected != snapshot.Revision {
+		writeError(w, http.StatusConflict, "config changed; reload settings and try again")
+		return
+	}
+	configUpdate := configsettings.Update{Changes: req.ConfigChanges, Reset: req.Reset}
+	if err := configsettings.RejectRuntimeOverrideUpdate(configUpdate, s.cfg.runtimeOverrides); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	current, err := readConsoleSettingsBytes(snapshot.Data)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	previousDoc, err := configbootstrap.LoadDocumentBytes(snapshot.Data)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -324,18 +356,95 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 	committed := false
 	defer func() {
 		if !committed {
-			deleteConsoleOSSecretIDs(r.Context(), s.secretStore, newSecretIDs)
+			secref.DeleteOSSecrets(r.Context(), s.secretStore, newSecretIDs)
 		}
 	}()
-	next, err := normalizeConsoleSettingsUpdatePayload(current, req)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if req.Endpoints != nil {
+		endpointSecretIDs, endpointSecretErr := prepareConsoleEndpointSecrets(r.Context(), *req.Endpoints, s.secretStore)
+		if endpointSecretErr != nil {
+			s.logger().Warn("os_secret_store_write_failed", "scope", "console_endpoints", "error", endpointSecretErr)
+		} else {
+			newSecretIDs = append(newSecretIDs, endpointSecretIDs...)
+		}
+	}
+	if req.AuthProfiles != nil {
+		authSecretIDs, authSecretErr := prepareConsoleAuthProfileSecrets(r.Context(), *req.AuthProfiles, s.secretStore)
+		if authSecretErr != nil {
+			s.logger().Warn("os_secret_store_write_failed", "scope", "auth_profiles", "error", authSecretErr)
+		} else {
+			newSecretIDs = append(newSecretIDs, authSecretIDs...)
+		}
+	}
+	protectedIDs, protectErr := configsettings.ProtectSecrets(r.Context(), &configUpdate, configsettings.ConsoleFields(), s.secretStore)
+	if protectErr != nil {
+		s.logger().Warn("os_secret_store_write_failed", "scope", "console_settings", "error", protectErr)
+	} else {
+		newSecretIDs = append(newSecretIDs, protectedIDs...)
+	}
+	if req.NewPassword != nil && req.ClearPassword {
+		writeError(w, http.StatusBadRequest, "new_password and clear_password cannot be combined")
 		return
 	}
-
-	serialized, err := writeConsoleSettings(configPath, next)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if req.NewPassword != nil {
+		if *req.NewPassword == "" {
+			writeError(w, http.StatusBadRequest, "new_password cannot be empty")
+			return
+		}
+		hash, hashErr := bcrypt.GenerateFromPassword([]byte(*req.NewPassword), bcrypt.DefaultCost)
+		if hashErr != nil {
+			writeError(w, http.StatusBadRequest, "invalid console password")
+			return
+		}
+		if configUpdate.Changes == nil {
+			configUpdate.Changes = map[string]json.RawMessage{}
+		}
+		configUpdate.Changes["console.password_hash"], _ = json.Marshal(string(hash))
+		configUpdate.Reset = append(configUpdate.Reset, "console.password")
+	} else if req.ClearPassword {
+		configUpdate.Reset = append(configUpdate.Reset, "console.password", "console.password_hash")
+	}
+	next := current
+	serialized := snapshot.Data
+	hasLegacyUpdate := req.ManagedRuntimes != nil || req.Telegram != nil || req.Slack != nil || req.Line != nil || req.Lark != nil || req.Mixin != nil || req.Guard != nil
+	if hasLegacyUpdate {
+		next, err = normalizeConsoleSettingsUpdatePayload(current, req)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		serialized, err = writeConsoleSettings(configPath, next)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if len(configUpdate.Changes) > 0 || len(configUpdate.Reset) > 0 {
+		serialized, err = configsettings.Apply(serialized, configUpdate, configsettings.ConsoleFields())
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Endpoints != nil {
+		serialized, err = applyConsoleEndpointSettings(serialized, *req.Endpoints)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.AuthProfiles != nil {
+		serialized, err = applyConsoleAuthProfileSettings(serialized, *req.AuthProfiles)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err = validateConsoleAuthProfileSettings(serialized); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if !hasLegacyUpdate && req.Endpoints == nil && req.AuthProfiles == nil && len(configUpdate.Changes) == 0 && len(configUpdate.Reset) == 0 {
+		writeError(w, http.StatusBadRequest, "no settings changes")
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
@@ -353,7 +462,18 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, docErr.Error())
 		return
 	}
+	next, err = readConsoleSettingsBytes(serialized)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	next, envManaged, secretFields := buildConsoleSettingsResponseView(next, doc)
+	configView, err := configsettings.View(serialized, configsettings.ConsoleFields())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	configsettings.ApplyRuntimeOverrides(&configView, s.cfg.runtimeOverrides)
 	currentSecretIDs := secref.OSSecretIDsInYAML(doc)
 	if s.secretStore != nil {
 		for id := range previousSecretIDs {
@@ -361,6 +481,25 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 				_ = s.secretStore.Delete(r.Context(), id)
 			}
 		}
+	}
+	additionalModes := []configsettings.ApplyMode(nil)
+	if hasLegacyUpdate {
+		additionalModes = append(additionalModes, configsettings.ApplyRuntimeRestart)
+	}
+	if req.AuthProfiles != nil {
+		additionalModes = append(additionalModes, configsettings.ApplyNextGeneration)
+	}
+	if req.Endpoints != nil {
+		additionalModes = append(additionalModes, configsettings.ApplyProcessRestart)
+	}
+	applyResult := configsettings.ResultForUpdate(
+		configUpdate,
+		configsettings.ConsoleFields(),
+		next.ManagedRuntimes,
+		additionalModes...,
+	)
+	if applyResult.ApplyMode == configsettings.ApplyProcessRestart {
+		applyResult.RestartTargets = []string{"process"}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":               true,
@@ -371,9 +510,17 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		"lark":             next.Lark,
 		"mixin":            next.Mixin,
 		"guard":            next.Guard,
+		"endpoints":        consoleEndpointSettingsFromDocument(doc),
+		"auth_profiles":    consoleAuthProfileSettingsFromDocument(doc),
 		"env_managed":      envManaged,
 		"secret_fields":    secretFields,
 		"config_path":      configPath,
+		"config_revision":  configrevision.Hash(serialized),
+		"config_values":    configView.Values,
+		"field_states":     configView.FieldStates,
+		"apply_mode":       applyResult.ApplyMode,
+		"apply_status":     applyResult.ApplyStatus,
+		"restart_targets":  applyResult.RestartTargets,
 	})
 }
 
@@ -385,6 +532,10 @@ func readConsoleSettings(configPath string) (consoleSettingsPayload, error) {
 		}
 		return consoleSettingsPayload{}, err
 	}
+	return readConsoleSettingsBytes(data)
+}
+
+func readConsoleSettingsBytes(data []byte) (consoleSettingsPayload, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return defaultConsoleSettingsPayload(), nil
 	}

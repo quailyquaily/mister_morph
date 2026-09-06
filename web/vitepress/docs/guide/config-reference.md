@@ -9,6 +9,10 @@ Source of truth: `assets/config/config.example.yaml`.
 
 All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Variables](/guide/env-vars-reference).
 
+## Web Settings
+
+Console Settings covers every supported public field on this page. It submits only changed fields and rejects stale file revisions instead of overwriting external edits. Secret values are redacted and can only be replaced or cleared. Environment- and command-line-managed fields are read-only. Each field reports whether it applies immediately, to new tasks, after a runtime restart, or after a process restart. Remote endpoint edits are executed by the selected Morph instance.
+
 ## Global
 
 - `user_agent`: outbound HTTP user-agent for tools.
@@ -21,14 +25,19 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.endpoint` (API Base; required only for `*_compatible` inference providers)
 - `llm.api_key`
 - `llm.headers.<name>` (optional custom HTTP headers)
+- `llm.cache_ttl`
+- `llm.cache_key_prefix`
 - `llm.request_timeout`
 - `llm.temperature` (optional)
 - `llm.reasoning_effort`
 - `llm.reasoning_budget_tokens` (optional; ignored with a warning for `openai_resp`)
+- `llm.pricing_file`
 - `llm.tools_emulation_mode` (`off|fallback|force`)
 - `llm.azure.deployment`
 - `llm.bedrock.aws_key`
 - `llm.bedrock.aws_secret`
+- `llm.bedrock.aws_session_token`
+- `llm.bedrock.aws_profile`
 - `llm.bedrock.region`
 - `llm.bedrock.model_arn`
 - `llm.cloudflare.account_id`
@@ -42,6 +51,7 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.image.options.gemini`
 - `llm.image.options.cloudflare`
 - `llm.profiles.<profile>.*` (named profile overrides, including `inference_provider`)
+- `llm.profiles.<profile>.supports_image_parts`
 - `llm.profiles.<profile>.headers.<name>` (optional profile-scoped headers)
 - `llm.routes.<purpose>` (`main_loop|addressing|awareness|heartbeat|think|plan_create`)
 - `llm.routes.<purpose>.profile`
@@ -54,6 +64,8 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `logging.level`
 - `logging.format`
 - `logging.add_source`
+- `logging.file.dir`
+- `logging.file.max_age`
 - `logging.include_thoughts`
 - `logging.include_tool_params`
 - `logging.include_skill_contents`
@@ -66,6 +78,8 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 ## Secrets and Auth Profiles
 
 - `secrets.allow_profiles`
+- `secrets.aws_secrets_manager.region`
+- `secrets.aws_secrets_manager.profile`
 - `auth_profiles.<id>.credential.kind`
 - `auth_profiles.<id>.credential.secret`
 - `auth_profiles.<id>.allow.url_prefixes`
@@ -146,6 +160,17 @@ Shell defaults are platform-specific:
 - `mcp.servers[].url`
 - `mcp.servers[].headers`
 - `mcp.servers[].allowed_tools`
+
+## ACP
+
+- `acp.agents[].name`
+- `acp.agents[].command`
+- `acp.agents[].args`
+- `acp.agents[].env`
+- `acp.agents[].cwd`
+- `acp.agents[].read_roots`
+- `acp.agents[].write_roots`
+- `acp.agents[].session_options`
 
 ## Bus, Contacts, Tasks, Skills
 

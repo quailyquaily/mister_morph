@@ -1,7 +1,7 @@
 ---
 date: 2026-09-04
 title: Complete Web Settings
-status: proposed
+status: implemented
 ---
 
 # Complete Web Settings
@@ -111,27 +111,50 @@ GET 可以返回完整 section。PUT 只能提交当前 section 中实际变化�
 
 保持现有 Settings 导航风格，不把每个 YAML mapping 都变成侧栏入口。
 
+Settings 使用渐进展示。页面首屏只显示日常需要确认或修改的字段；低频参数通过其所属对象的 `Advanced settings` 入口打开。高级设置不能集中堆在页面末尾，因为这会割裂参数与其实际控制对象之间的关系。
+
+划分依据不是配置结构的深浅，而是使用频率：
+
+- 基础设置：身份、凭据、模型、allowlist、启用状态等首次配置和日常操作需要的字段；
+- 高级设置：timeout、limit、cache、headers、行为阈值、PATH、环境变量、部署监听地址等低频调优字段。
+
+高级设置对话框直接呈现字段，不再嵌套卡片。保存仍调用所属 section 的现有 Settings API，不增加新的 endpoint。
+
 ### 6.1 Persona
 
 继续管理 identity、soul 和 avatar。它们不是 `config.yaml` 字段，不纳入本需求的配置覆盖统计。
 
 ### 6.2 Agent
 
-包含以下卡片：
+页面直接显示：
 
 - Default model；
 - Named profiles；
-- Model routing；
-- Image model；
-- Execution limits；
-- Context compaction；
-- Chat display。
+- Fallback profiles。
+
+Default model 和每个 named profile 的操作菜单增加 `Advanced settings`，并放在 `Benchmark` 上方。这个入口只编辑当前模型对象的参数：
+
+- Supports image parts；
+- Cache TTL 和 Cache key prefix；
+- Request timeout；
+- Temperature；
+- Reasoning budget tokens；
+- HTTP headers；
+- Reasoning effort；
+- Tools emulation；
+- Context window。
+
+Image model、Model routing 和 Execution limits 控制的是 LLM 系统或 Agent loop，而不是 Default model。它们作为独立区域放在 LLM Settings 页面，不能混入 Default model 的高级设置。Context compaction 通过 LLM 菜单中的同名对话框编辑，避免长期占用页面空间。
 
 ### 6.3 Tools
 
-列表显示所有工具的启用状态。每个有额外参数的工具可以展开详情。没有额外参数的工具只显示开关。
+列表只显示所有工具的启用状态。`read_file` 是始终启用的基础工具，也显示一个 disabled、值为 on 的开关，以保持列表结构一致。每个有额外参数的工具在开关左侧显示一个图标按钮，点击后使用对话框编辑该工具的详细参数。没有额外参数的工具只显示开关，也不显示空的高级设置入口。
 
-MCP、ACP 和 Skills 保留独立页面，因为它们都是可增长的动态集合。
+工具的高级设置必须按工具拆分。例如 Bash 对话框只包含 Bash timeout、输出限制、deny paths、PATH、环境变量和 command rewrite，不能同时出现 PowerShell 或其他工具的字段。
+
+移动端仍保持工具名称在左、操作和开关在右的单行结构，不把每个 item 改成上下排列。
+
+MCP 页面默认只显示 Server 列表和 Add 按钮。Add 和 Edit 都使用对话框，保存动作属于单个 MCP Server，因此页面不再提供全局 Save。ACP 和 Skills storage 不提供 Web UI 入口；它们仍可由配置文件管理。
 
 ### 6.4 Channels
 
@@ -139,17 +162,17 @@ MCP、ACP 和 Skills 保留独立页面，因为它们都是可增长的动态�
 
 1. 凭据；
 2. allowlist；
-3. 群聊触发与 journal；
-4. timeout 和 concurrency；
-5. Advanced deployment fields。
+3. 群聊触发模式。
+
+每张 Channel 卡片使用与 LLM profile 相同的 More 菜单提供 `Advanced settings`。`record_untriggered`、addressing thresholds、timeout、concurrency、API base、webhook 和 runtime listen 等低频行为或部署字段放入对应 Channel 的对话框，不能跨 Channel 混在同一个面板中。
 
 ### 6.5 Automation
 
-集中管理 Heartbeat 和 Cron 总开关。具体 TODO item 仍在 TODO 页面管理。
+集中管理 Heartbeat 和 Cron 总开关。具体 TODO item 仍在 TODO 页面管理。Save 放在 Frame 右上角，不使用悬浮在内容下方的操作栏。
 
 ### 6.6 Security
 
-包含：
+导航和路由名称统一为 Security，包含：
 
 - Guard；
 - Admin identities；
@@ -158,17 +181,27 @@ MCP、ACP 和 Skills 保留独立页面，因为它们都是可增长的动态�
 
 ### 6.7 System
 
-包含：
+包含运行时和 Agent process 的通用设置：
 
 - Logging；
 - Workspace and storage；
 - File cache；
 - Tasks and Contacts storage；
 - Server and queue；
-- Console endpoints；
+- 原 Console 页面的非部署配置；
 - Update policy。
 
-部署相关字段放在折叠的 Advanced 区域，并清楚显示 restart 要求。
+System 的低频参数放在默认收起的 `Advanced settings` 区域，并清楚显示 restart 要求。Save 放在对应 Frame 右上角。
+
+### 6.8 Console
+
+Console 只管理 Console 自身：
+
+- Console deployment；
+- Console endpoints；
+- Console password。
+
+这三类配置不能分散到 System 或其他页面。
 
 需要 restart 的配置允许保存，但 Web UI 不自动重启进程或 runtime。可能断开当前 Console 连接的修改，保存前需要确认。
 
@@ -242,8 +275,6 @@ Routes：
 - `timeout`
 - `context_compaction.enabled`
 - `context_compaction.trigger_ratio`
-- `context_compaction.output_reserve_tokens`
-- `chat.compact_mode`
 
 ### 7.3 Tools
 
@@ -636,50 +667,93 @@ Legacy alias 不进入 Web UI。保存当前字段时也不能借机扫描或清
 
 ### Phase 1：安全的配置编辑基础
 
-- [ ] 增加 `config_revision` 冲突检查。
-- [ ] 定义统一 `field_states`。
-- [ ] 定义部分更新和 reset 语义。
-- [ ] 把 secret replace/clear 事务用于所有 secret 字段。
-- [ ] 增加 untouched YAML preservation 回归测试。
+- [x] 增加 `config_revision` 冲突检查。
+- [x] 定义统一 `field_states`。
+- [x] 定义部分更新和 reset 语义。
+- [x] 把 secret replace/clear 事务用于所有 secret 字段。
+- [x] 增加 untouched YAML preservation 回归测试。
 
 ### Phase 2：补齐高频行为配置
 
-- [ ] Agent execution limits。
-- [ ] Context compaction 和 chat display。
-- [ ] Channel trigger、journal、timeout、concurrency 和 thresholds。
-- [ ] 缺失的 tool enabled 开关和 `plan_create.max_steps`。
-- [ ] Heartbeat 和 Cron 总开关。
+- [x] Agent execution limits。
+- [x] Context compaction 和 chat display。
+- [x] Channel trigger、journal、timeout、concurrency 和 thresholds。
+- [x] 缺失的 tool enabled 开关和 `plan_create.max_steps`。
+- [x] Heartbeat 和 Cron 总开关。
 
 ### Phase 3：补齐 LLM
 
-- [ ] cache、request timeout、temperature、reasoning budget 和 headers。
-- [ ] Bedrock session token 和 profile。
-- [ ] Image model。
-- [ ] 完整 named profile 字段。
-- [ ] 完整 routes。
+- [x] cache、request timeout、temperature、reasoning budget 和 headers。
+- [x] Bedrock session token 和 profile。
+- [x] Image model。
+- [x] 完整 named profile 字段。
+- [x] 完整 routes。
 
 ### Phase 4：补齐工具和集成
 
-- [ ] Bash、PowerShell、URL Fetch、Web Search、Read/Write File 详细参数。
-- [ ] ACP agents。
-- [ ] Auth profiles 和 secret sources。
-- [ ] Admin identities。
+- [x] Bash、PowerShell、URL Fetch、Web Search、Read/Write File 详细参数。
+- [x] ACP agents。
+- [x] Auth profiles 和 secret sources。
+- [x] Admin identities。
 
 ### Phase 5：补齐系统设置
 
-- [ ] Logging。
-- [ ] Paths、file cache、tasks 和 contacts storage。
-- [ ] Console endpoints 和 update policy。
-- [ ] Console/server deployment fields，并显示 restart 要求。
-- [ ] Bus、queue 和 user agent。
+- [x] Logging。
+- [x] Paths、file cache、tasks 和 contacts storage。
+- [x] Console endpoints 和 update policy。
+- [x] Console/server deployment fields，并显示 restart 要求。
+- [x] Bus、queue 和 user agent。
 
 ### Phase 6：完整性检查
 
-- [ ] 逐项核对公开配置模板。
-- [ ] 删除 UI 中已经失效的 legacy 字段。
-- [ ] 验证每个字段的 source、reset 和 apply mode。
-- [ ] 验证 local/remote 行为一致。
-- [ ] 更新配置文档和 VitePress。
+- [x] 逐项核对公开配置模板。
+- [x] 删除 UI 中已经失效的 legacy 字段。
+- [x] 验证每个字段的 source、reset 和 apply mode。
+- [x] 验证 local/remote 行为一致。
+- [x] 更新配置文档和 VitePress。
+
+### Phase 7：简化 Settings 首屏
+
+- [x] Default model 和 named profile 的菜单提供 `Advanced settings`，并置于 `Benchmark` 上方。
+- [x] Model behavior 和其他低频 Agent 配置不再平铺在 Agent 页面。
+- [x] Tool 列表只保留启用状态；有详细参数的 Tool 在开关左侧提供对话框入口。
+- [x] 每个 Channel 独立提供高级设置入口，不再显示合并的 Channel behavior 面板。
+- [x] 高级设置对话框复用现有字段状态、partial update、secret 和 restart 语义。
+- [x] 桌面端和移动端均可完整访问高级设置，且对话框内不嵌套卡片。
+- [x] Console 前端构建通过。
+
+### Phase 8：统一 Settings 对象层级
+
+- [x] Default model 的 Advanced settings 只包含模型参数；Image、Routes 和 Agent loop 参数回到 LLM 页面独立区域。
+- [x] Tools 列表为 `read_file` 显示 disabled on 开关，并修正移动端左右布局和 Frame margin。
+- [x] MCP 改为 Server 列表，使用 Add/Edit 对话框逐项保存，移除页面 Save。
+- [x] 移除 ACP 的 Web UI 入口和 Skills storage Frame。
+- [x] Channel 的高级设置改用 More 菜单。
+- [x] Guard 导航与路由改名为 Security。
+- [x] System 和 Automation 的 Save 放在 Frame 右上角，移除浮动操作栏。
+- [x] 修正 Automation Frame margin。
+- [x] Console 页面只保留 deployment、endpoints 和 password；其余系统配置移入 System。
+- [x] System 高级设置默认收起。
+- [x] Console 前端构建通过。
+
+### Phase 9：统一 Settings 编辑对话框
+
+- [x] 增加 `SettingDialog`，统一标题、单一滚动区和底部操作栏。
+- [x] Cancel 固定在左侧，Save 固定在右侧；保存期间禁止关闭和重复提交。
+- [x] 高级设置、MCP 编辑、Console password 和头像裁切使用统一组件。
+- [x] 移除调用方重复的 padding、滚动容器和 Save/Cancel 按钮。
+- [x] Cancel 丢弃未保存的对话框草稿。
+- [x] 认证、测试和选择器等非设置编辑对话框不使用该组件。
+- [x] Console 前端测试与构建通过。
+
+### Phase 10：精简字段状态和 LLM 页面
+
+- [x] 移除 LLM Pricing 设置界面。
+- [x] 环境变量托管的通用配置字段使用只读托管状态展示，不再显示输入框。
+- [x] 移除 `Configured in config.yaml`、`Using default` 和非密钥字段的 `Use default` 操作。
+- [x] Context compaction 保留完整配置能力，但改为从 LLM 菜单打开，不再平铺；删除已经失效的 `chat.compact_mode`。
+- [x] 输出预留量改由运行时计算，删除 `context_compaction.output_reserve_tokens` 配置。
+- [x] `image_generate` 和 `image_edit` 并入标准 Tool 列表，删除 `Additional tools` 专用区域。
 
 ## 16. 验收标准
 

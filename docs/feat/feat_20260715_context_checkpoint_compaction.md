@@ -216,11 +216,11 @@ checkpoint 不保存 API key、header、system prompt 全文、runtime meta 或 
 ### 6.1 可用输入空间
 
 ```text
-input_limit = context_window_tokens - output_reserve_tokens
+input_limit = context_window_tokens - output_reserve
 trigger     = input_limit * trigger_ratio
 ```
 
-`output_reserve_tokens` 优先取当前请求明确设置的 `max_tokens`。未设置时使用：
+内部的 `output_reserve` 优先取当前请求明确设置的 `max_tokens`。未设置时使用：
 
 ```text
 default_reserve = min(context_window_tokens / 2,
@@ -316,7 +316,7 @@ prompt manager 从 TranscriptBlocks 的最旧端选择连续前缀。
 2. 不提供 tools。
 3. 不使用主 agent 的 plan/final 输出协议。
 4. 输出使用严格 JSON。
-5. 最大输出 token 为 `min(4096, output_reserve_tokens)`。
+5. 最大输出 token 为 `min(4096, output_reserve)`。
 6. 不携带 system prompt、runtime meta、memory 或 `RetainedTail`。
 
 checkpoint JSON 最大为 64 KiB，单个字符串字段最大为 16 KiB。该限制和最大输出 token 是内部常量，V1 不增加配置项。
@@ -460,7 +460,6 @@ channel runtime 监听 `context_compaction_done`，在 checkpoint 已验证、�
 context_compaction:
   enabled: true
   trigger_ratio: 0.80
-  output_reserve_tokens: 0
 ```
 
 规则：
@@ -468,7 +467,7 @@ context_compaction:
 1. `enabled` 控制主动、被动和手工压缩。
 2. 未配置时 `enabled` 默认为 `true`。
 3. `trigger_ratio` 必须大于 0 且小于 1；配置文件显式设置为 `0` 也非法，未配置时使用默认值 `0.80`。
-4. `output_reserve_tokens: 0` 表示使用默认规则。
+4. 输出预留量由运行时根据请求和 context window 计算，不提供配置项。
 5. 压缩策略是 agent runtime 行为，不放进 LLM profile。
 6. V1 不增加 tokenizer 和重试次数等可调参数。
 7. awareness 通过显式 per-run 选项关闭主动和被动压缩，不根据 scene 字符串推断。

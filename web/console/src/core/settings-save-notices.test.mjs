@@ -9,7 +9,7 @@ test("Settings action notices use toast instead of inline fences", async () => {
 
   assert.match(source, /const saveMessage = t\("msg_save_success"\);/);
   assert.match(source, /toast\.success\(saveMessage\);/);
-  assert.match(source, /toast\.success\(t\("msg_save_success"\)\);/);
+  assert.match(source, /toast\.success\(settingsSavedMessage\(payload\)\);/);
   assert.match(source, /toast\.success\(t\("settings_desktop_update_checksum_copied"\)\);/);
 
   assert.doesNotMatch(source, /:text="agentOk"/);

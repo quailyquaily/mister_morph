@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/configsettings"
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
@@ -136,6 +138,197 @@ func TestHandleConsoleSettingsKeepsSharedOSSecret(t *testing.T) {
 	}
 }
 
+func TestHandleConsoleSettingsReadsAndUpdatesEndpointsWithoutExposingSecrets(t *testing.T) {
+	const oldID = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := `console:
+  endpoints:
+    - name: Remote
+      url: https://old.example.test
+      auth_token: ` + secref.OSSecretRef(oldID) + `
+      future_field: keep-me
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	store := &consoleSettingsTestOSStore{values: map[string]string{oldID: "old-token"}}
+	srv := &server{secretStore: store}
+
+	getRec := httptest.NewRecorder()
+	srv.handleConsoleSettings(getRec, httptest.NewRequest(http.MethodGet, "/api/settings/console", nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", getRec.Code, getRec.Body.String())
+	}
+	var got struct {
+		Endpoints []consoleEndpointSettingsPayload `json:"endpoints"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Endpoints) != 1 || got.Endpoints[0].AuthToken != "" || !got.Endpoints[0].AuthTokenConfigured {
+		t.Fatalf("unsafe endpoint response: %#v", got.Endpoints)
+	}
+
+	body := `{"endpoints":[{"original_name":"Remote","name":"Remote 2","url":"https://new.example.test","auth_token":""}]}`
+	putRec := httptest.NewRecorder()
+	srv.handleConsoleSettings(putRec, httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(body)))
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d: %s", putRec.Code, putRec.Body.String())
+	}
+	var putPayload struct {
+		ApplyMode   configsettings.ApplyMode `json:"apply_mode"`
+		ApplyStatus string                   `json:"apply_status"`
+	}
+	if err := json.Unmarshal(putRec.Body.Bytes(), &putPayload); err != nil {
+		t.Fatal(err)
+	}
+	if putPayload.ApplyMode != configsettings.ApplyProcessRestart || putPayload.ApplyStatus != "pending" {
+		t.Fatalf("apply result = %#v", putPayload)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, want := range []string{"name: Remote 2", "url: https://new.example.test", secref.OSSecretRef(oldID), "future_field: keep-me"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("updated config missing %q:\n%s", want, text)
+		}
+	}
+	if len(store.puts) != 0 || len(store.deletes) != 0 {
+		t.Fatalf("metadata-only update changed token: puts=%v deletes=%v", store.puts, store.deletes)
+	}
+}
+
+func TestHandleConsoleSettingsProtectsNewEndpointToken(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("console: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	store := &consoleSettingsTestOSStore{}
+	body := `{"endpoints":[{"name":"Remote","url":"https://remote.example.test","auth_token":"new-token"}]}`
+	rec := httptest.NewRecorder()
+	(&server{secretStore: store}).handleConsoleSettings(rec, httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	raw, _ := os.ReadFile(configPath)
+	if strings.Contains(string(raw), "new-token") || len(store.puts) != 1 || store.labels[store.puts[0]] != "console.endpoints.Remote.auth_token" {
+		t.Fatalf("endpoint token was not protected: puts=%v labels=%v\n%s", store.puts, store.labels, raw)
+	}
+}
+
+func TestHandleConsoleSettingsReadsAndUpdatesAuthProfilesWithoutExposingSecrets(t *testing.T) {
+	const oldID = "b_LsX7HLzAR3OShG7YjRcw"
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := `auth_profiles:
+  billing:
+    credential:
+      kind: token
+      secret: ` + secref.OSSecretRef(oldID) + `
+    allow:
+      url_prefixes: [https://api.example.test/v1]
+      methods: [GET]
+      deny_private_ips: true
+    bindings:
+      url_fetch:
+        inject:
+          location: header
+          name: Authorization
+          format: bearer
+    future_field: keep-me
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	store := &consoleSettingsTestOSStore{values: map[string]string{oldID: "old-secret"}}
+	srv := &server{secretStore: store}
+
+	getRec := httptest.NewRecorder()
+	srv.handleConsoleSettings(getRec, httptest.NewRequest(http.MethodGet, "/api/settings/console", nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", getRec.Code, getRec.Body.String())
+	}
+	var got struct {
+		AuthProfiles []consoleAuthProfileSettingsPayload `json:"auth_profiles"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.AuthProfiles) != 1 || got.AuthProfiles[0].CredentialSecret != "" || !got.AuthProfiles[0].CredentialSecretConfigured {
+		t.Fatalf("unsafe auth profile response: %#v", got.AuthProfiles)
+	}
+
+	profile := got.AuthProfiles[0]
+	profile.Name = "billing-v2"
+	profile.URLPrefixes = []string{"https://api.example.test/v2"}
+	body, _ := json.Marshal(map[string]any{"auth_profiles": []consoleAuthProfileSettingsPayload{profile}})
+	putRec := httptest.NewRecorder()
+	srv.handleConsoleSettings(putRec, httptest.NewRequest(http.MethodPut, "/api/settings/console", bytes.NewReader(body)))
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d: %s", putRec.Code, putRec.Body.String())
+	}
+	raw, _ := os.ReadFile(configPath)
+	text := string(raw)
+	for _, want := range []string{"billing-v2:", "https://api.example.test/v2", secref.OSSecretRef(oldID), "future_field: keep-me"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("updated config missing %q:\n%s", want, text)
+		}
+	}
+	if len(store.puts) != 0 || len(store.deletes) != 0 {
+		t.Fatalf("metadata-only update changed secret: puts=%v deletes=%v", store.puts, store.deletes)
+	}
+}
+
+func TestHandleConsoleSettingsRejectsInvalidAuthProfile(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	body := `{"auth_profiles":[{"name":"broken","credential_kind":"token","credential_secret":"secret","url_prefixes":["https://api.example.test"],"methods":["TRACE"],"bindings":{}}]}`
+	rec := httptest.NewRecorder()
+	(&server{}).handleConsoleSettings(rec, httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleConsoleSettingsFallsBackToPlaintextWhenOSStoreWriteFails(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte("console:\n  managed_runtimes: [telegram]\n"), 0o600); err != nil {
@@ -219,6 +412,169 @@ func TestReadConsoleSettings(t *testing.T) {
 	}
 	if got.Guard.Redaction.Enabled || !got.Guard.Approvals.Enabled {
 		t.Fatalf("guard redaction/approvals = %#v / %#v", got.Guard.Redaction, got.Guard.Approvals)
+	}
+}
+
+func TestHandleConsoleSettingsRejectsStaleConfigRevision(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	initial := "console:\n  managed_runtimes: [telegram]\n"
+	if err := os.WriteFile(configPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	getRec := httptest.NewRecorder()
+	(&server{}).handleConsoleSettings(getRec, httptest.NewRequest(http.MethodGet, "/api/settings/console", nil))
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d: %s", getRec.Code, getRec.Body.String())
+	}
+	var getPayload struct {
+		ConfigRevision string `json:"config_revision"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &getPayload); err != nil {
+		t.Fatal(err)
+	}
+	if getPayload.ConfigRevision == "" {
+		t.Fatal("config revision is empty")
+	}
+
+	external := initial + "user_agent: external-edit\n"
+	if err := os.WriteFile(configPath, []byte(external), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"config_revision":` + fmt.Sprintf("%q", getPayload.ConfigRevision) + `,"telegram":{"group_trigger_mode":"strict"}}`
+	putRec := httptest.NewRecorder()
+	(&server{}).handleConsoleSettings(putRec, httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(body)))
+	if putRec.Code != http.StatusConflict {
+		t.Fatalf("PUT status = %d, want 409: %s", putRec.Code, putRec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != external {
+		t.Fatalf("stale update changed config:\n%s", raw)
+	}
+}
+
+func TestHandleConsoleSettingsReadsAndUpdatesAdditionalConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	initial := "# keep\ntelegram:\n  record_untriggered: false\n  task_timeout: 0s\nunknown: value\n"
+	if err := os.WriteFile(configPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	getRec := httptest.NewRecorder()
+	(&server{}).handleConsoleSettings(getRec, httptest.NewRequest(http.MethodGet, "/api/settings/console", nil))
+	var getPayload struct {
+		ConfigRevision string                               `json:"config_revision"`
+		ConfigValues   map[string]any                       `json:"config_values"`
+		FieldStates    map[string]configsettings.FieldState `json:"field_states"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &getPayload); err != nil {
+		t.Fatal(err)
+	}
+	if getPayload.ConfigValues["telegram.record_untriggered"] != false || !getPayload.FieldStates["telegram.task_timeout"].Explicit {
+		t.Fatalf("GET payload = %#v states=%#v", getPayload.ConfigValues, getPayload.FieldStates)
+	}
+
+	body := `{"config_revision":` + fmt.Sprintf("%q", getPayload.ConfigRevision) + `,"config_changes":{"telegram.record_untriggered":true},"reset":["telegram.task_timeout"]}`
+	putRec := httptest.NewRecorder()
+	(&server{}).handleConsoleSettings(putRec, httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(body)))
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d: %s", putRec.Code, putRec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	if !strings.Contains(out, "# keep") || !strings.Contains(out, "unknown: value") || !strings.Contains(out, "record_untriggered: true") || strings.Contains(out, "task_timeout:") {
+		t.Fatalf("updated YAML =\n%s", out)
+	}
+}
+
+func TestHandleConsoleSettingsProtectsAdditionalSecret(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("server:\n  max_queue: 8\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	store := &consoleSettingsTestOSStore{}
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(
+		`{"config_changes":{"server.auth_token":"runtime-secret"}}`,
+	))
+	rec := httptest.NewRecorder()
+	(&server{secretStore: store}).handleConsoleSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(store.puts) != 1 || store.labels[store.puts[0]] != "server.auth_token" {
+		t.Fatalf("stored secret puts=%v labels=%v", store.puts, store.labels)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "runtime-secret") || !strings.Contains(string(raw), secref.OSSecretRef(store.puts[0])) {
+		t.Fatalf("secret was not protected:\n%s", raw)
+	}
+}
+
+func TestHandleConsoleSettingsStoresNewPasswordAsBcryptHash(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("console:\n  password: old-password\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", strings.NewReader(
+		`{"new_password":"new-password"}`,
+	))
+	rec := httptest.NewRecorder()
+	(&server{}).handleConsoleSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	if strings.Contains(out, "new-password") || strings.Contains(out, "password: old-password") || !strings.Contains(out, "password_hash: $2") {
+		t.Fatalf("password was not replaced with bcrypt hash:\n%s", out)
 	}
 }
 

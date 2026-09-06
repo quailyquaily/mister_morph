@@ -24,18 +24,18 @@ func TestRunRejectsInvalidContextCompactionConfig(t *testing.T) {
 }
 
 func TestNewContextCompactionConfigKeepsExplicitDisabledValue(t *testing.T) {
-	config := NewContextCompactionConfig(false, 0.75, 2048)
+	config := NewContextCompactionConfig(false, 0.75)
 	resolved := resolveContextCompactionConfig(config, false)
 	if resolved.Enabled {
 		t.Fatal("resolved enabled = true, want false")
 	}
-	if resolved.TriggerRatio != 0.75 || resolved.OutputReserveTokens != 2048 {
+	if resolved.TriggerRatio != 0.75 {
 		t.Fatalf("resolved config = %+v", resolved)
 	}
 }
 
 func TestNewContextCompactionConfigRejectsExplicitZeroTriggerRatio(t *testing.T) {
-	config := NewContextCompactionConfig(true, 0, 0)
+	config := NewContextCompactionConfig(true, 0)
 	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "trigger ratio") {
 		t.Fatalf("Validate() error = %v, want trigger ratio error", err)
 	}

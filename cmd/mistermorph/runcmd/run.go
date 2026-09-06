@@ -373,7 +373,6 @@ func New(deps Dependencies) *cobra.Command {
 					ContextCompaction: agent.NewContextCompactionConfig(
 						viper.GetBool("context_compaction.enabled"),
 						viper.GetFloat64("context_compaction.trigger_ratio"),
-						viper.GetInt("context_compaction.output_reserve_tokens"),
 					),
 				},
 				engineToolsConfig: agent.EngineToolsConfig{

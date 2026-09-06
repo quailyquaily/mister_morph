@@ -179,3 +179,41 @@ func TestSanitizeProviderSpecificLLMFieldsPreservesCodexAPIKey(t *testing.T) {
 		t.Fatalf("ResolvedAgentSettingsAPIKey() = %q, want provider-key", key)
 	}
 }
+
+func TestSanitizeProviderSpecificLLMFieldsKeepsSelectedProviderCredentials(t *testing.T) {
+	fields := LLMConfigFieldsPayload{
+		APIKey:                 "api-secret",
+		BedrockAWSKey:          "aws-key",
+		BedrockAWSSecret:       "aws-secret",
+		BedrockAWSSessionToken: "aws-session",
+		BedrockAWSProfile:      "aws-profile",
+		BedrockRegion:          "aws-region",
+		BedrockModelARN:        "aws-arn",
+		CloudflareAPIToken:     "cf-secret",
+		CloudflareAccountID:    "cf-account",
+	}
+
+	t.Run("bedrock", func(t *testing.T) {
+		got := SanitizeProviderSpecificLLMFields(fields, "bedrock")
+		if got.APIKey != "" || got.CloudflareAPIToken != "" || got.CloudflareAccountID != "" {
+			t.Fatalf("unrelated credentials were not cleared: %+v", got)
+		}
+		if got.BedrockAWSKey != "aws-key" || got.BedrockAWSSecret != "aws-secret" ||
+			got.BedrockAWSSessionToken != "aws-session" || got.BedrockAWSProfile != "aws-profile" ||
+			got.BedrockRegion != "aws-region" || got.BedrockModelARN != "aws-arn" {
+			t.Fatalf("Bedrock credentials were changed: %+v", got)
+		}
+	})
+
+	t.Run("cloudflare", func(t *testing.T) {
+		got := SanitizeProviderSpecificLLMFields(fields, "cloudflare")
+		if got.APIKey != "" || got.BedrockAWSKey != "" || got.BedrockAWSSecret != "" ||
+			got.BedrockAWSSessionToken != "" || got.BedrockAWSProfile != "" ||
+			got.BedrockRegion != "" || got.BedrockModelARN != "" {
+			t.Fatalf("unrelated credentials were not cleared: %+v", got)
+		}
+		if got.CloudflareAPIToken != "cf-secret" || got.CloudflareAccountID != "cf-account" {
+			t.Fatalf("Cloudflare credentials were changed: %+v", got)
+		}
+	})
+}

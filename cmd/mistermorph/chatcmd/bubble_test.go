@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewChatModel(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	if m.textarea.ShowLineNumbers {
@@ -27,7 +27,7 @@ func TestNewChatModel(t *testing.T) {
 }
 
 func TestChatModelWindowSize(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	// simulate a window resize
@@ -62,7 +62,7 @@ func TestWrapChatTranscriptAvoidsTerminalAutoWrap(t *testing.T) {
 func TestChatTranscriptQueuePrintsBlocksSequentially(t *testing.T) {
 	t.Parallel()
 
-	m := newChatModel(&chatSession{compactMode: false})
+	m := newChatModel(&chatSession{})
 	_, firstCmd := m.Update(tuiOutputMsg{output: "first"})
 	if firstCmd == nil {
 		t.Fatal("first transcript block did not start printing")
@@ -91,7 +91,7 @@ func TestChatTranscriptQueuePrintsBlocksSequentially(t *testing.T) {
 }
 
 func TestChatModelSubmit(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	// type something and press enter
@@ -116,7 +116,7 @@ func TestChatModelSubmit(t *testing.T) {
 }
 
 func TestChatModelHistoryNavigation(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.inputHistory = []string{"first", "second", "third"}
 	m.historyIdx = 3
@@ -146,7 +146,7 @@ func TestChatModelHistoryNavigation(t *testing.T) {
 }
 
 func TestChatModelAutocomplete(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	reg := chatcommands.NewRegistry()
 	reg.Register("/exit", "exit the chat session", nil)
@@ -160,7 +160,7 @@ func TestChatModelAutocomplete(t *testing.T) {
 }
 
 func TestChatModelThinkingState(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	// turn on thinking with custom message
@@ -188,7 +188,7 @@ func TestChatModelThinkingState(t *testing.T) {
 }
 
 func TestChatModelSubmitsInputWhileThinking(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.thinking = true
 	m.textarea.SetValue("make it shorter")
@@ -212,7 +212,7 @@ func TestChatModelSubmitsInputWhileThinking(t *testing.T) {
 }
 
 func TestChatModelCtrlCWhileThinkingSubmitsStop(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.thinking = true
 
@@ -231,7 +231,7 @@ func TestChatModelCtrlCWhileThinkingSubmitsStop(t *testing.T) {
 }
 
 func TestChatModelEscWhileThinkingSubmitsStop(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.thinking = true
 
@@ -250,7 +250,7 @@ func TestChatModelEscWhileThinkingSubmitsStop(t *testing.T) {
 }
 
 func TestChatModelCtrlCWhileForegroundCommandCancelsItDirectly(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	commandCtx, finish := sess.beginForegroundCommand(context.Background())
 	defer finish()
 	m := newChatModel(sess)
@@ -273,7 +273,7 @@ func TestChatModelCtrlCWhileForegroundCommandCancelsItDirectly(t *testing.T) {
 }
 
 func TestChatModelEscWhileForegroundCommandCancelsItDirectly(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	commandCtx, finish := sess.beginForegroundCommand(context.Background())
 	defer finish()
 	m := newChatModel(sess)
@@ -296,7 +296,7 @@ func TestChatModelEscWhileForegroundCommandCancelsItDirectly(t *testing.T) {
 }
 
 func TestChatModelView(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	view := m.View().Content
@@ -319,7 +319,7 @@ func TestChatModelView(t *testing.T) {
 }
 
 func TestChatModelDynamicHeight(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.textarea.SetWidth(40)
 
@@ -342,7 +342,7 @@ func TestChatModelDynamicHeight(t *testing.T) {
 }
 
 func TestChatModelQuit(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	_, cmd := m.Update(quitMsg{})
@@ -352,7 +352,7 @@ func TestChatModelQuit(t *testing.T) {
 }
 
 func TestChatModelAgentResult(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.thinking = true
 
@@ -375,7 +375,7 @@ func TestChatModelAgentResult(t *testing.T) {
 }
 
 func TestChatModelAgentResultCanKeepThinking(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.thinking = true
 
@@ -390,7 +390,7 @@ func TestChatModelAgentResultCanKeepThinking(t *testing.T) {
 }
 
 func TestChatModelAgentErrorCanKeepThinking(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.thinking = true
 
@@ -425,7 +425,7 @@ func TestCountPasteLines(t *testing.T) {
 }
 
 func TestChatModelPasteFoldsLargeBlock(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	pasted := "line1\nline2\nline3\nline4"
@@ -446,7 +446,7 @@ func TestChatModelPasteFoldsLargeBlock(t *testing.T) {
 }
 
 func TestChatModelPasteShortInline(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	// 2 lines meets the threshold — should fold into a placeholder.
@@ -465,7 +465,7 @@ func TestChatModelPasteShortInline(t *testing.T) {
 }
 
 func TestChatModelPasteSubmitExpands(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 
 	pasted := "alpha\nbeta\ngamma\ndelta"
@@ -498,7 +498,7 @@ func TestChatModelPasteSubmitExpands(t *testing.T) {
 }
 
 func TestExpandPastePlaceholdersExactMatch(t *testing.T) {
-	sess := &chatSession{compactMode: false}
+	sess := &chatSession{}
 	m := newChatModel(sess)
 	m.pastedTexts["[Pasted text #2 +3 lines]"] = "the real text"
 

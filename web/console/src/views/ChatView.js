@@ -5,6 +5,7 @@ import "./ChatView.css";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
+import AppTabs from "../components/AppTabs";
 import ChatComposer from "../components/ChatComposer";
 import ChatHistoryList from "../components/ChatHistoryList";
 import { approvalDetailsByID, taskApprovalState } from "../core/chat-approvals";
@@ -532,6 +533,7 @@ const ChatView = {
     AppDialogShell,
     AppKicker,
     AppPage,
+    AppTabs,
     ChatComposer,
     ChatHistoryList,
     RawJsonDialog,
@@ -4274,13 +4276,15 @@ const ChatView = {
             :aria-label="t('chat_workspace_label')"
           >
             <div class="chat-workspace-sidebar-shell">
-              <QTabs
-                class="chat-workspace-tabs"
-                :tabs="workspacePanelTabs"
-                :modelValue="selectedWorkspacePanelTab"
-                variant="plain"
-                @change="onWorkspaceTabChange"
-              />
+              <div class="chat-workspace-tabs-shell">
+                <AppTabs
+                  class="chat-workspace-tabs"
+                  :tabs="workspacePanelTabs"
+                  :modelValue="selectedWorkspacePanelTab"
+                  :ariaLabel="t('chat_workspace_label')"
+                  @change="onWorkspaceTabChange"
+                />
+              </div>
 
               <div class="chat-workspace-pane ui-track-panel">
                 <template v-if="workspaceSidebarTabID === 'workspace'">
@@ -4537,13 +4541,15 @@ const ChatView = {
                 tabindex="-1"
               >
                 <div class="chat-workspace-sidebar-shell-mobile">
-            <QTabs
-              class="chat-workspace-tabs"
-              :tabs="workspacePanelTabs"
-              :modelValue="selectedWorkspacePanelTab"
-              variant="plain"
-              @change="onWorkspaceTabChange"
-            />
+            <div class="chat-workspace-tabs-shell">
+              <AppTabs
+                class="chat-workspace-tabs"
+                :tabs="workspacePanelTabs"
+                :modelValue="selectedWorkspacePanelTab"
+                :ariaLabel="t('chat_workspace_label')"
+                @change="onWorkspaceTabChange"
+              />
+            </div>
 
             <div class="chat-workspace-pane ui-track-panel">
               <template v-if="workspaceSidebarTabID === 'workspace'">
@@ -5049,14 +5055,18 @@ const ChatView = {
           :json="rawDialogJSON"
           @close="closeRawDialog"
         />
-        <QMessageDialog
-          v-model="topicDeleteDialogOpen"
-          icon="PhTrash"
-          iconColor="red"
-          :title="t('chat_topic_delete_action')"
-          :text="topicDeleteDialogText"
-          :actions="topicDeleteDialogActions"
-        />
+        <Teleport to="body">
+          <div class="chat-topic-delete-dialog-host">
+            <QMessageDialog
+              v-model="topicDeleteDialogOpen"
+              icon="PhTrash"
+              iconColor="red"
+              :title="t('chat_topic_delete_action')"
+              :text="topicDeleteDialogText"
+              :actions="topicDeleteDialogActions"
+            />
+          </div>
+        </Teleport>
       </template>
     </AppPage>
   `,

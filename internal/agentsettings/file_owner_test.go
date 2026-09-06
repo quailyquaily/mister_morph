@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
+	"github.com/quailyquaily/mistermorph/internal/configsettings"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
@@ -310,6 +311,85 @@ func TestFileOwnerPreservesAndRotatesOSManagedProfileSecret(t *testing.T) {
 	raw, _ = os.ReadFile(configPath)
 	if strings.Contains(string(raw), "new-profile-secret") || !strings.Contains(string(raw), secref.OSSecretRef(newID)) {
 		t.Fatalf("profile secret was not stored as OS ref:\n%s", raw)
+	}
+}
+
+func TestFileOwnerReadsAndUpdatesCompleteLLMProfile(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	config := `llm:
+  provider: openai
+  model: gpt-main
+  profiles:
+    research:
+      provider: bedrock
+      model: old-model
+      supports_image_parts: true
+      headers:
+        X-Trace: old
+      cache_ttl: 5m
+      cache_key_prefix: research
+      request_timeout: 45s
+      temperature: "0.3"
+      reasoning_budget_tokens: "2048"
+      azure:
+        deployment: preserved
+      bedrock:
+        aws_key: old-key
+        aws_secret: old-secret
+        aws_session_token: old-token
+        aws_profile: old-profile
+        region: us-east-1
+      future_field: keep-me
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{values: map[string]string{}}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+
+	before, err := owner.View(context.Background())
+	if err != nil {
+		t.Fatalf("View() error = %v", err)
+	}
+	profile := before.LLM.Profiles[0]
+	if profile.SupportsImageParts != "true" || profile.Headers["x-trace"] != "old" || profile.CacheTTL != "5m" ||
+		profile.CacheKeyPrefix != "research" || profile.RequestTimeout != "45s" || profile.Temperature != "0.3" ||
+		profile.ReasoningBudgetTokens != "2048" || profile.AzureDeployment != "preserved" ||
+		profile.BedrockAWSProfile != "old-profile" {
+		t.Fatalf("incomplete profile view: %#v", profile)
+	}
+	if profile.BedrockAWSSessionToken != "" {
+		t.Fatalf("View() exposed session token %q", profile.BedrockAWSSessionToken)
+	}
+
+	profile.Headers = map[string]string{"X-Trace": "new", "X-Mode": "fast"}
+	profile.CacheTTL = "10m"
+	profile.RequestTimeout = "1m"
+	profile.BedrockAWSProfile = ""
+	profile.BedrockAWSSessionToken = "new-session-token"
+	update := LLMProfileUpdate{OriginalName: "research", LLMProfileSettingsPayload: profile}
+	update.providedSecretFields = map[string]bool{"bedrock_aws_session_token": true}
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{LLM: LLMSettingsUpdate{Profile: &update}}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, want := range []string{"cache_ttl: 10m", "request_timeout: 1m", "X-Mode: fast", "future_field: keep-me"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("updated config missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "new-session-token") || len(backend.puts) != 1 ||
+		backend.labels[backend.puts[0]] != "llm.profiles.research.bedrock.aws_session_token" {
+		t.Fatalf("session token was not protected: puts=%v labels=%v\n%s", backend.puts, backend.labels, text)
 	}
 }
 
@@ -1016,6 +1096,146 @@ func TestFileOwnerPersistsSettingsAcrossOwnerRestart(t *testing.T) {
 	}
 	if view.LLM.Model != "after-restart" {
 		t.Fatalf("model after owner restart = %q", view.LLM.Model)
+	}
+}
+
+func TestFileOwnerRejectsStaleConfigRevision(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	initial := "# keep this comment\nllm:\n  provider: openai\n  model: before\n"
+	if err := os.WriteFile(configPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	view, err := owner.View(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ConfigRevision == "" {
+		t.Fatal("config revision is empty")
+	}
+
+	external := initial + "user_agent: external-edit\n"
+	if err := os.WriteFile(configPath, []byte(external), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := "after"
+	_, err = owner.Update(context.Background(), AgentSettingsUpdate{
+		ConfigRevision: view.ConfigRevision,
+		LLM:            LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{Model: &model}},
+	})
+	if err == nil {
+		t.Fatal("Update() error = nil, want revision conflict")
+	}
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) || statusErr.HTTPStatus() != http.StatusConflict {
+		t.Fatalf("Update() error = %v, want HTTP 409", err)
+	}
+	raw, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != external {
+		t.Fatalf("stale update changed config:\n%s", raw)
+	}
+}
+
+func TestFileOwnerReadsAndUpdatesAdditionalAgentConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	initial := "# keep\nllm:\n  provider: openai\n  model: test\nmax_steps: 8\ncontext_compaction:\n  enabled: false\nunknown: value\n"
+	if err := os.WriteFile(configPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	view, err := owner.View(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ConfigValues["max_steps"] != 8 || view.FieldStates["context_compaction.enabled"].Explicit != true {
+		t.Fatalf("additional config view = %#v states=%#v", view.ConfigValues, view.FieldStates)
+	}
+
+	view, err = owner.Update(context.Background(), AgentSettingsUpdate{
+		ConfigRevision: view.ConfigRevision,
+		ConfigChanges: map[string]json.RawMessage{
+			"max_steps": json.RawMessage("12"),
+		},
+		Reset: []string{"context_compaction.enabled"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.ConfigValues["max_steps"] != 12 || view.FieldStates["context_compaction.enabled"].Explicit {
+		t.Fatalf("updated view = %#v states=%#v", view.ConfigValues, view.FieldStates)
+	}
+	if view.ApplyMode != configsettings.ApplyNextGeneration || view.ApplyStatus != "pending" {
+		t.Fatalf("apply result = mode %q status %q", view.ApplyMode, view.ApplyStatus)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	if !strings.Contains(out, "# keep") || !strings.Contains(out, "unknown: value") || strings.Contains(out, "context_compaction:") {
+		t.Fatalf("updated config did not preserve unrelated YAML:\n%s", out)
+	}
+}
+
+func TestFileOwnerProtectsAdditionalAgentSecret(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeFileOwnerSecretBackend{}
+	owner := NewFileOwner(FileOwnerOptions{
+		ConfigPath:   configPath,
+		Reader:       readFileOwnerTestConfigWithSource(t, configPath, backend),
+		SecretSource: backend,
+		OSStore:      backend,
+	})
+	view, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		ConfigChanges: map[string]json.RawMessage{
+			"llm.image.api_key": json.RawMessage(`"image-secret"`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.puts) != 1 || backend.labels[backend.puts[0]] != "llm.image.api_key" {
+		t.Fatalf("stored secret puts=%v labels=%v", backend.puts, backend.labels)
+	}
+	if state := view.FieldStates["llm.image.api_key"]; !state.Configured || state.Source != "config_os_ref" {
+		t.Fatalf("secret field state = %#v", state)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "image-secret") || !strings.Contains(string(raw), secref.OSSecretRef(backend.puts[0])) {
+		t.Fatalf("secret was not protected:\n%s", raw)
+	}
+}
+
+func TestFileOwnerRejectsInvalidACPAgentConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	initial := "llm:\n  provider: openai\n  model: test\n"
+	if err := os.WriteFile(configPath, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	_, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		ConfigChanges: map[string]json.RawMessage{
+			"acp.agents": json.RawMessage(`[{"name":"codex"}]`),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "command is required") {
+		t.Fatalf("Update() error = %v, want invalid ACP command", err)
+	}
+	raw, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != initial {
+		t.Fatalf("invalid update changed config:\n%s", raw)
 	}
 }
 

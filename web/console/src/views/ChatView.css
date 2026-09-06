@@ -398,24 +398,20 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   border-radius: 16px;
 }
 
-.chat-workspace-tabs {
+.chat-workspace-tabs-shell {
   padding: 14px 16px 0;
 }
 
-.chat-workspace-tabs .q-tab-button {
+.chat-workspace-tabs .q-button.app-tabs-option {
   flex: 1 1 0;
   min-width: 0;
 }
 
-.chat-workspace-tabs .q-tab-button-label {
+.chat-workspace-tabs .app-tabs-option-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.chat-workspace-tabs .q-tab-button.with-icon:not(.with-label) {
-  min-width: 42px;
 }
 
 .chat-workspace-pane {
@@ -2161,7 +2157,7 @@ body.artifact-preview-scroll-lock {
 }
 
 @media (max-width: 920px) {
-  .chat-page-topics .page-bar {
+  .chat-page-topics .page-bar:has(.chat-page-bar-back) {
     padding: 8px;
   }
 
@@ -2264,6 +2260,10 @@ body.artifact-preview-scroll-lock {
     overflow-y: auto;
     padding-bottom: 0;
   }
+}
+
+.chat-topic-delete-dialog-host .q-dialog-mask {
+  z-index: 1100;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -695,18 +695,8 @@ context_compaction:
   enabled: true
   # Trigger after the latest main-loop input reaches this share of the usable input window.
   trigger_ratio: 0.80
-  # Reserved output tokens. 0 uses the runtime default.
-  output_reserve_tokens: 0
-
 # Overall run timeout.
 timeout: "10m"
-
-# Chat display settings.
-chat:
-  # Compact mode: omit user/assistant name prefixes in prompts and output.
-  # When true, shows a green bullet (•) for user prompt and plain text for assistant.
-  # Default: false (chat-style display with colored name prefixes).
-  compact_mode: false
 
 # Default project directory for scopes without a workspace attachment.
 # The directory must already exist and be readable. Empty disables the default.

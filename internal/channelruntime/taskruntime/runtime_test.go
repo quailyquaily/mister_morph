@@ -1311,8 +1311,7 @@ func TestResumePreservesContextCompactionState(t *testing.T) {
 			ParseRetries:    0,
 			ToolRepeatLimit: 2,
 			ContextCompaction: agent.ContextCompactionConfig{
-				TriggerRatio:        0.80,
-				OutputReserveTokens: 100,
+				TriggerRatio: 0.80,
 			},
 		},
 	})

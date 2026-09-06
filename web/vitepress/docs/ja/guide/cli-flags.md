@@ -60,7 +60,6 @@ description: mistermorph が現在サポートしているコマンドライン�
 ## `chat`
 
 - `--api-key`: API key を上書きする。
-- `--compact-mode`: 対話 chat 出力をコンパクト表示にする。
 - `--endpoint`: provider の base URL を上書きする。
 - `--llm-request-timeout`: LLM HTTP リクエスト単位のタイムアウト。
 - `--max-steps`: tool-call の最大ステップ数。

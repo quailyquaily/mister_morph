@@ -2,6 +2,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import "./StatsView.css";
 
 import AppPage from "../components/AppPage";
+import AppTabs from "../components/AppTabs";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 import { modelVendorMeta } from "../core/model-vendor";
 
@@ -176,85 +177,10 @@ function summaryHeroMetric(t, totals, key) {
 }
 
 function summaryHeroMetrics(t, totals) {
-  const orderedKeys = ["total_cost", "total_tokens", "requests"];
-  const primaryKey = orderedKeys.find((key) => hasMetricValue(totals, key)) || orderedKeys[0];
   return {
-    primary: summaryHeroMetric(t, totals, primaryKey),
-    secondary: orderedKeys.filter((key) => key !== primaryKey).map((key) => summaryHeroMetric(t, totals, key)),
+    primary: summaryHeroMetric(t, totals, "total_cost"),
+    secondary: ["total_tokens", "requests"].map((key) => summaryHeroMetric(t, totals, key)),
   };
-}
-
-function summaryCostMetrics(t, totals, includeTotal = true) {
-  const costCurrency = typeof totals?.cost_currency === "string" ? totals.cost_currency : "USD";
-  return [
-    {
-      key: "total_cost",
-      label: t("stats_total_cost"),
-      value: hasMetricValue(totals, "total_cost") ? formatCost(totals?.total_cost, costCurrency) : "-",
-      unavailable: !hasMetricValue(totals, "total_cost"),
-    },
-    {
-      key: "input_cost",
-      label: t("stats_input_cost"),
-      value: formatCost(totals?.input_cost, costCurrency),
-      unavailable: !hasMetricValue(totals, "input_cost"),
-    },
-    {
-      key: "output_cost",
-      label: t("stats_output_cost"),
-      value: formatCost(totals?.output_cost, costCurrency),
-      unavailable: !hasMetricValue(totals, "output_cost"),
-    },
-    {
-      key: "cached_input_cost",
-      label: t("stats_cached_input_cost"),
-      value: formatCost(totals?.cached_input_cost, costCurrency),
-      unavailable: !hasMetricValue(totals, "cached_input_cost"),
-    },
-    {
-      key: "cache_creation_input_cost",
-      label: t("stats_cache_creation_input_cost"),
-      value: formatCost(totals?.cache_creation_input_cost, costCurrency),
-      unavailable: !hasMetricValue(totals, "cache_creation_input_cost"),
-    },
-  ].filter((item) => (includeTotal || item.key !== "total_cost") && !item.unavailable);
-}
-
-function summaryTokenMetrics(t, totals, includeTotal = true) {
-  return [
-    {
-      key: "total_tokens",
-      label: t("stats_total_tokens"),
-      value: hasMetricValue(totals, "total_tokens") ? formatNumber(totals?.total_tokens) : "-",
-      unavailable: !hasMetricValue(totals, "total_tokens"),
-    },
-    {
-      key: "input_tokens",
-      label: t("stats_input_tokens"),
-      value: hasMetricValue(totals, "input_tokens") ? formatNumber(totals?.input_tokens) : "-",
-      unavailable: !hasMetricValue(totals, "input_tokens"),
-    },
-    {
-      key: "output_tokens",
-      label: t("stats_output_tokens"),
-      value: hasMetricValue(totals, "output_tokens") ? formatNumber(totals?.output_tokens) : "-",
-      unavailable: !hasMetricValue(totals, "output_tokens"),
-    },
-    {
-      key: "cached_input_tokens",
-      label: t("stats_cached_input_tokens"),
-      value: hasMetricValue(totals, "cached_input_tokens") ? formatNumber(totals?.cached_input_tokens) : "-",
-      unavailable: !hasMetricValue(totals, "cached_input_tokens"),
-    },
-    {
-      key: "cache_creation_input_tokens",
-      label: t("stats_cache_creation_input_tokens"),
-      value: hasMetricValue(totals, "cache_creation_input_tokens")
-        ? formatNumber(totals?.cache_creation_input_tokens)
-        : "-",
-      unavailable: !hasMetricValue(totals, "cache_creation_input_tokens"),
-    },
-  ].filter((item) => (includeTotal || item.key !== "total_tokens") && !item.unavailable);
 }
 
 function costMetrics(t, totals) {
@@ -262,31 +188,31 @@ function costMetrics(t, totals) {
   return [
     {
       key: "total_cost",
-      label: t("stats_total_cost"),
+      label: t("stats_total"),
       value: hasMetricValue(totals, "total_cost") ? formatCost(totals.total_cost, costCurrency) : "-",
       unavailable: !hasMetricValue(totals, "total_cost"),
     },
     {
       key: "input_cost",
-      label: t("stats_input_cost"),
+      label: t("stats_input"),
       value: hasMetricValue(totals, "input_cost") ? formatCost(totals.input_cost, costCurrency) : "-",
       unavailable: !hasMetricValue(totals, "input_cost"),
     },
     {
       key: "output_cost",
-      label: t("stats_output_cost"),
+      label: t("stats_output"),
       value: hasMetricValue(totals, "output_cost") ? formatCost(totals.output_cost, costCurrency) : "-",
       unavailable: !hasMetricValue(totals, "output_cost"),
     },
     {
       key: "cached_input_cost",
-      label: t("stats_cached_input_cost"),
+      label: t("stats_cached_input"),
       value: hasMetricValue(totals, "cached_input_cost") ? formatCost(totals.cached_input_cost, costCurrency) : "-",
       unavailable: !hasMetricValue(totals, "cached_input_cost"),
     },
     {
       key: "cache_creation_input_cost",
-      label: t("stats_cache_creation_input_cost"),
+      label: t("stats_cache_write"),
       value: hasMetricValue(totals, "cache_creation_input_cost")
         ? formatCost(totals.cache_creation_input_cost, costCurrency)
         : "-",
@@ -299,61 +225,37 @@ function tokenMetrics(t, totals) {
   return [
     {
       key: "total_tokens",
-      label: t("stats_total_tokens"),
+      label: t("stats_total"),
       value: hasMetricValue(totals, "total_tokens") ? formatNumber(totals.total_tokens) : "-",
       unavailable: !hasMetricValue(totals, "total_tokens"),
     },
     {
       key: "input_tokens",
-      label: t("stats_input_tokens"),
+      label: t("stats_input"),
       value: hasMetricValue(totals, "input_tokens") ? formatNumber(totals.input_tokens) : "-",
       unavailable: !hasMetricValue(totals, "input_tokens"),
     },
     {
       key: "output_tokens",
-      label: t("stats_output_tokens"),
+      label: t("stats_output"),
       value: hasMetricValue(totals, "output_tokens") ? formatNumber(totals.output_tokens) : "-",
       unavailable: !hasMetricValue(totals, "output_tokens"),
     },
     {
       key: "cached_input_tokens",
-      label: t("stats_cached_input_tokens"),
+      label: t("stats_cached_input"),
       value: hasMetricValue(totals, "cached_input_tokens") ? formatNumber(totals.cached_input_tokens) : "-",
       unavailable: !hasMetricValue(totals, "cached_input_tokens"),
     },
     {
       key: "cache_creation_input_tokens",
-      label: t("stats_cache_creation_input_tokens"),
+      label: t("stats_cache_write"),
       value: hasMetricValue(totals, "cache_creation_input_tokens")
         ? formatNumber(totals.cache_creation_input_tokens)
         : "-",
       unavailable: !hasMetricValue(totals, "cache_creation_input_tokens"),
     },
   ];
-}
-
-function visibleModelCostColumns(t) {
-  const columns = [
-    { key: "total_cost", label: t("stats_total_cost"), kind: "cost" },
-    { key: "input_cost", label: t("stats_input_cost"), kind: "cost" },
-    { key: "output_cost", label: t("stats_output_cost"), kind: "cost" },
-    { key: "cached_input_cost", label: t("stats_cached_input_cost"), kind: "cost" },
-    { key: "cache_creation_input_cost", label: t("stats_cache_creation_input_cost"), kind: "cost" },
-    { key: "cache_cost_delta", label: t("stats_cache_cost_delta"), kind: "cache_cost_delta" },
-  ];
-  return columns;
-}
-
-function visibleModelTokenColumns(t) {
-  const columns = [
-    { key: "total_tokens", label: t("stats_total_tokens"), kind: "token" },
-    { key: "input_tokens", label: t("stats_input_tokens"), kind: "token" },
-    { key: "output_tokens", label: t("stats_output_tokens"), kind: "token" },
-    { key: "cached_input_tokens", label: t("stats_cached_input_tokens"), kind: "token" },
-    { key: "cache_creation_input_tokens", label: t("stats_cache_creation_input_tokens"), kind: "token" },
-    { key: "cache_rate", label: t("stats_cache_rate"), kind: "cache_rate" },
-  ];
-  return columns;
 }
 
 function formatModelLedgerValue(row, column) {
@@ -397,6 +299,7 @@ function modelLedgerValueToneClass(row, column) {
 const StatsView = {
   components: {
     AppPage,
+    AppTabs,
   },
   setup() {
     const t = translate;
@@ -421,16 +324,34 @@ const StatsView = {
     const visibleHosts = computed(() => (Array.isArray(payload.value.api_hosts) ? payload.value.api_hosts : []));
     const visibleModels = computed(() => (Array.isArray(payload.value.models) ? payload.value.models : []));
     const heroSummaryMetrics = computed(() => summaryHeroMetrics(t, payload.value.summary || {}));
-    const summaryCosts = computed(() => summaryCostMetrics(t, payload.value.summary || {}, false));
-    const summaryTokens = computed(() => summaryTokenMetrics(t, payload.value.summary || {}, false));
+    const summaryCosts = computed(() => costMetrics(t, payload.value.summary || {}).filter(
+      (item) => item.key !== "total_cost" && !item.unavailable,
+    ));
+    const summaryTokens = computed(() => tokenMetrics(t, payload.value.summary || {}).filter(
+      (item) => item.key !== "total_tokens" && !item.unavailable,
+    ));
     const summaryMetaItems = computed(() => {
       const items = [];
       if (payload.value.updated_at) {
-        items.push(`${t("stats_updated_at")}: ${formatTime(payload.value.updated_at)}`);
+        const value = formatTime(payload.value.updated_at);
+        items.push({
+          key: "updated",
+          icon: "PhClockCounterClockwise",
+          text: value,
+          label: `${t("stats_updated_at")}: ${value}`,
+        });
       }
-      items.push(`${t("stats_projected_records")}: ${formatNumber(payload.value.projected_records)}`);
+      const projectedRecords = formatNumber(payload.value.projected_records);
+      items.push({
+        key: "projected_records",
+        icon: "PhChartLineUp",
+        text: projectedRecords,
+        label: `${t("stats_projected_records")}: ${projectedRecords}`,
+      });
       if (Number(payload.value.skipped_records || 0) > 0) {
-        items.push(`${t("stats_skipped_records")}: ${formatNumber(payload.value.skipped_records)}`);
+        const skippedRecords = formatNumber(payload.value.skipped_records);
+        const text = `${t("stats_skipped_records")}: ${skippedRecords}`;
+        items.push({ key: "skipped_records", text, label: text });
       }
       return items;
     });
@@ -462,13 +383,22 @@ const StatsView = {
       return tokenMetrics(t, item || {});
     }
 
-    function modelLedgerCostColumns(items) {
-      return visibleModelCostColumns(t, Array.isArray(items) ? items : []);
-    }
-
-    function modelLedgerTokenColumns(items) {
-      return visibleModelTokenColumns(t, Array.isArray(items) ? items : []);
-    }
+    const modelLedgerCostColumns = computed(() => [
+      { key: "total_cost", label: t("stats_total"), kind: "cost" },
+      { key: "input_cost", label: t("stats_input"), kind: "cost" },
+      { key: "output_cost", label: t("stats_output"), kind: "cost" },
+      { key: "cached_input_cost", label: t("stats_cached_input"), kind: "cost" },
+      { key: "cache_creation_input_cost", label: t("stats_cache_write"), kind: "cost" },
+      { key: "cache_cost_delta", label: t("stats_cache_delta"), kind: "cache_cost_delta" },
+    ]);
+    const modelLedgerTokenColumns = computed(() => [
+      { key: "total_tokens", label: t("stats_total"), kind: "token" },
+      { key: "input_tokens", label: t("stats_input"), kind: "token" },
+      { key: "output_tokens", label: t("stats_output"), kind: "token" },
+      { key: "cached_input_tokens", label: t("stats_cached_input"), kind: "token" },
+      { key: "cache_creation_input_tokens", label: t("stats_cache_write"), kind: "token" },
+      { key: "cache_rate", label: t("stats_cache_rate"), kind: "cache_rate" },
+    ]);
 
     function onTabChange(detail) {
       const nextID = String(detail?.tab?.id || "").trim();
@@ -517,7 +447,16 @@ const StatsView = {
         <header class="stats-hero block-default">
           <div class="stats-hero-copy">
             <p v-if="summaryMetaItems.length > 0" class="stats-hero-meta">
-              <span v-for="item in summaryMetaItems" :key="item" class="stats-hero-meta-item">{{ item }}</span>
+              <span
+                v-for="item in summaryMetaItems"
+                :key="item.key"
+                class="stats-hero-meta-item"
+                :aria-label="item.label"
+                :title="item.label"
+              >
+                <component :is="item.icon" v-if="item.icon" class="stats-hero-meta-icon" aria-hidden="true" />
+                <span>{{ item.text }}</span>
+              </span>
             </p>
           </div>
 
@@ -526,9 +465,6 @@ const StatsView = {
             <span class="stats-hero-primary-value" :class="{ 'stats-hero-primary-value-unavailable': heroSummaryMetrics.primary.unavailable }">
               {{ heroSummaryMetrics.primary.value }}
             </span>
-          </section>
-
-          <div class="stats-hero-side">
             <div class="stats-hero-secondary-grid">
               <article v-for="item in heroSummaryMetrics.secondary" :key="item.key" class="stats-hero-secondary-item">
                 <span class="stats-hero-secondary-label">{{ item.label }}</span>
@@ -537,31 +473,45 @@ const StatsView = {
                 </span>
               </article>
             </div>
+          </section>
 
+          <div class="stats-hero-side">
             <div v-if="summaryCosts.length > 0 || summaryTokens.length > 0" class="stats-hero-detail-groups">
-              <div v-if="summaryCosts.length > 0" class="stats-inline-meta stats-inline-meta-summary">
-                <div v-for="item in summaryCosts" :key="'summary:cost:' + item.key" class="stats-inline-meta-item">
-                  <span class="stats-inline-meta-label">{{ item.label }}</span>
-                  <span class="stats-inline-meta-value">{{ item.value }}</span>
+              <section v-if="summaryCosts.length > 0" class="stats-hero-detail-group">
+                <header class="stats-band-head">
+                  <PhWallet class="stats-band-icon icon" />
+                  <span class="stats-band-title">{{ t("stats_costs") }}</span>
+                </header>
+                <div class="stats-inline-meta stats-inline-meta-summary">
+                  <div v-for="item in summaryCosts" :key="'summary:cost:' + item.key" class="stats-inline-meta-item">
+                    <span class="stats-inline-meta-label">{{ item.label }}</span>
+                    <span class="stats-inline-meta-value">{{ item.value }}</span>
+                  </div>
                 </div>
-              </div>
+              </section>
 
-              <div v-if="summaryTokens.length > 0" class="stats-inline-meta stats-inline-meta-summary">
-                <div v-for="item in summaryTokens" :key="'summary:token:' + item.key" class="stats-inline-meta-item">
-                  <span class="stats-inline-meta-label">{{ item.label }}</span>
-                  <span class="stats-inline-meta-value">{{ item.value }}</span>
+              <section v-if="summaryTokens.length > 0" class="stats-hero-detail-group">
+                <header class="stats-band-head">
+                  <PhChartBar class="stats-band-icon icon" />
+                  <span class="stats-band-title">{{ t("stats_tokens") }}</span>
+                </header>
+                <div class="stats-inline-meta stats-inline-meta-summary">
+                  <div v-for="item in summaryTokens" :key="'summary:token:' + item.key" class="stats-inline-meta-item">
+                    <span class="stats-inline-meta-label">{{ item.label }}</span>
+                    <span class="stats-inline-meta-value">{{ item.value }}</span>
+                  </div>
                 </div>
-              </div>
+              </section>
             </div>
           </div>
         </header>
 
         <section class="stats-section">
-          <QTabs
+          <AppTabs
             class="stats-section-tabs"
             :tabs="statsTabs"
             :modelValue="selectedStatsTab"
-            variant="plain"
+            :ariaLabel="t('stats_title')"
             @change="onTabChange"
           />
 
@@ -614,8 +564,8 @@ const StatsView = {
                           <th rowspan="2" class="stats-model-ledger-stub">{{ t("stats_model") }}</th>
                           <th rowspan="2" class="stats-model-ledger-stub stats-model-ledger-stub-requests">{{ t("stats_requests") }}</th>
                           <th
-                            v-if="modelLedgerCostColumns(host.models).length > 0"
-                            :colspan="modelLedgerCostColumns(host.models).length"
+                            v-if="modelLedgerCostColumns.length > 0"
+                            :colspan="modelLedgerCostColumns.length"
                             class="stats-model-ledger-group"
                           >
                             <span class="stats-model-ledger-group-copy">
@@ -623,7 +573,7 @@ const StatsView = {
                               <span>{{ t("stats_costs") }}</span>
                             </span>
                           </th>
-                          <th :colspan="modelLedgerTokenColumns(host.models).length" class="stats-model-ledger-group">
+                          <th :colspan="modelLedgerTokenColumns.length" class="stats-model-ledger-group">
                             <span class="stats-model-ledger-group-copy">
                               <PhChartBar class="stats-model-ledger-group-icon icon" />
                               <span>{{ t("stats_tokens") }}</span>
@@ -632,14 +582,14 @@ const StatsView = {
                         </tr>
                         <tr class="stats-model-ledger-column-row">
                           <th
-                            v-for="column in modelLedgerCostColumns(host.models)"
+                            v-for="column in modelLedgerCostColumns"
                             :key="host.api_host + ':head:cost:' + column.key"
                             class="stats-model-ledger-column"
                           >
                             {{ column.label }}
                           </th>
                           <th
-                            v-for="column in modelLedgerTokenColumns(host.models)"
+                            v-for="column in modelLedgerTokenColumns"
                             :key="host.api_host + ':head:token:' + column.key"
                             class="stats-model-ledger-column"
                           >
@@ -665,7 +615,7 @@ const StatsView = {
                           </th>
                           <td class="stats-model-ledger-value-cell stats-model-ledger-requests">{{ formatNumber(model.requests) }}</td>
                           <td
-                            v-for="column in modelLedgerCostColumns(host.models)"
+                            v-for="column in modelLedgerCostColumns"
                             :key="host.api_host + ':' + model.model + ':cost:' + column.key"
                             class="stats-model-ledger-value-cell"
                             :class="[
@@ -676,7 +626,7 @@ const StatsView = {
                             {{ formatModelLedgerValue(model, column) }}
                           </td>
                           <td
-                            v-for="column in modelLedgerTokenColumns(host.models)"
+                            v-for="column in modelLedgerTokenColumns"
                             :key="host.api_host + ':' + model.model + ':token:' + column.key"
                             class="stats-model-ledger-value-cell"
                             :class="{ 'stats-model-ledger-value-cell-unavailable': isModelLedgerValueUnavailable(model, column) }"
@@ -711,8 +661,8 @@ const StatsView = {
                           <th rowspan="2" class="stats-model-ledger-stub">{{ t("stats_model") }}</th>
                           <th rowspan="2" class="stats-model-ledger-stub stats-model-ledger-stub-requests">{{ t("stats_requests") }}</th>
                           <th
-                            v-if="modelLedgerCostColumns(visibleModels).length > 0"
-                            :colspan="modelLedgerCostColumns(visibleModels).length"
+                            v-if="modelLedgerCostColumns.length > 0"
+                            :colspan="modelLedgerCostColumns.length"
                             class="stats-model-ledger-group"
                           >
                             <span class="stats-model-ledger-group-copy">
@@ -720,7 +670,7 @@ const StatsView = {
                               <span>{{ t("stats_costs") }}</span>
                             </span>
                           </th>
-                          <th :colspan="modelLedgerTokenColumns(visibleModels).length" class="stats-model-ledger-group">
+                          <th :colspan="modelLedgerTokenColumns.length" class="stats-model-ledger-group">
                             <span class="stats-model-ledger-group-copy">
                               <PhChartBar class="stats-model-ledger-group-icon icon" />
                               <span>{{ t("stats_tokens") }}</span>
@@ -729,14 +679,14 @@ const StatsView = {
                         </tr>
                         <tr class="stats-model-ledger-column-row">
                           <th
-                            v-for="column in modelLedgerCostColumns(visibleModels)"
+                            v-for="column in modelLedgerCostColumns"
                             :key="'models:head:cost:' + column.key"
                             class="stats-model-ledger-column"
                           >
                             {{ column.label }}
                           </th>
                           <th
-                            v-for="column in modelLedgerTokenColumns(visibleModels)"
+                            v-for="column in modelLedgerTokenColumns"
                             :key="'models:head:token:' + column.key"
                             class="stats-model-ledger-column"
                           >
@@ -762,7 +712,7 @@ const StatsView = {
                           </th>
                           <td class="stats-model-ledger-value-cell stats-model-ledger-requests">{{ formatNumber(model.requests) }}</td>
                           <td
-                            v-for="column in modelLedgerCostColumns(visibleModels)"
+                            v-for="column in modelLedgerCostColumns"
                             :key="model.model + ':cost:' + column.key"
                             class="stats-model-ledger-value-cell"
                             :class="[
@@ -773,7 +723,7 @@ const StatsView = {
                             {{ formatModelLedgerValue(model, column) }}
                           </td>
                           <td
-                            v-for="column in modelLedgerTokenColumns(visibleModels)"
+                            v-for="column in modelLedgerTokenColumns"
                             :key="model.model + ':token:' + column.key"
                             class="stats-model-ledger-value-cell"
                             :class="{ 'stats-model-ledger-value-cell-unavailable': isModelLedgerValueUnavailable(model, column) }"

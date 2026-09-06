@@ -75,14 +75,11 @@
   min-width: 0;
 }
 
-.todo-view-tabs .q-tab-button {
+.todo-view-tabs .q-button.app-tabs-option {
   flex: 1 1 0;
-  min-width: 0;
-  min-height: 30px;
-  padding: 0 7px;
 }
 
-.todo-view-tabs .q-tab-button-label {
+.todo-view-tabs .app-tabs-option-label {
   white-space: nowrap;
 }
 

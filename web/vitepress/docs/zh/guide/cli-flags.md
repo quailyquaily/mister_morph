@@ -53,7 +53,6 @@ description: mistermorph 的命令行参数总览。
 ## `chat`
 
 - `--api-key`：覆盖 API key。
-- `--compact-mode`：交互式 chat 的紧凑显示模式。
 - `--endpoint`：覆盖 provider 的 base URL。
 - `--llm-request-timeout`：单次 LLM HTTP 请求超时。
 - `--max-steps`：最大 tool-call 步数。

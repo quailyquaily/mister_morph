@@ -3,10 +3,23 @@ import { storeToRefs } from "pinia";
 import { useToast } from "quail-ui";
 import "./ContactsView.css";
 
+import channelLarkLogoURL from "../assets/images/channels/lark.svg";
+import channelLineLogoURL from "../assets/images/channels/line.svg";
+import channelMixinLogoURL from "../assets/images/channels/mixin.svg";
+import channelSlackLogoURL from "../assets/images/channels/slack.svg";
+import channelTelegramLogoURL from "../assets/images/channels/telegram.svg";
 import AppPage from "../components/AppPage";
 import ContactAvatar from "../components/ContactAvatar";
-import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
+import { currentLocale, endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 import { useContactsStore } from "../stores/contactsStore";
+
+const CHANNEL_LOGOS = {
+  lark: channelLarkLogoURL,
+  line: channelLineLogoURL,
+  mixin: channelMixinLogoURL,
+  slack: channelSlackLogoURL,
+  telegram: channelTelegramLogoURL,
+};
 
 function normalizeStatus(raw) {
   return String(raw || "").trim().toLowerCase() === "inactive" ? "inactive" : "active";
@@ -52,8 +65,8 @@ function fallbackHandleFromContactID(item, channel) {
       return prefix === "line" ? parts[parts.length - 1] : "";
     case "lark":
       return prefix === "lark" || prefix === "lark_user" ? parts[parts.length - 1] : "";
-	case "mixin":
-	  return prefix === "mixin" ? parts[parts.length - 1] : "";
+    case "mixin":
+      return prefix === "mixin" ? parts[parts.length - 1] : "";
     default:
       return "";
   }
@@ -71,8 +84,8 @@ function channelLabel(t, raw) {
       return t("endpoint_channel_line");
     case "lark":
       return t("endpoint_channel_lark");
-	case "mixin":
-	  return t("endpoint_channel_mixin");
+    case "mixin":
+      return t("endpoint_channel_mixin");
     case "console":
       return t("endpoint_channel_console");
     default:
@@ -96,6 +109,7 @@ function channelHandles(t, item) {
     seen.add(key);
     out.push({
       key,
+      channelKey: channel,
       channel: channelLabel(t, channel),
       full,
       short: shortenIdentifier(full),
@@ -107,10 +121,58 @@ function channelHandles(t, item) {
   push("slack", String(item?.slack_user_id || "").trim() || fallbackHandleFromContactID(item, "slack"));
   push("line", String(item?.line_user_id || "").trim() || fallbackHandleFromContactID(item, "line"));
   push("lark", String(item?.lark_open_id || "").trim() || fallbackHandleFromContactID(item, "lark"));
-	const mixinIdentity = String(item?.mixin_identity_number || "").trim();
-	push("mixin", mixinIdentity ? `@${mixinIdentity}` : String(item?.mixin_user_id || "").trim() || fallbackHandleFromContactID(item, "mixin"));
+  const mixinIdentity = String(item?.mixin_identity_number || "").trim();
+  push(
+    "mixin",
+    mixinIdentity
+      ? `@${mixinIdentity}`
+      : String(item?.mixin_user_id || "").trim() || fallbackHandleFromContactID(item, "mixin"),
+  );
 
   return out;
+}
+
+function channelLogo(raw) {
+  const channel = String(raw || "").trim().toLowerCase();
+  return CHANNEL_LOGOS[channel === "tg" ? "telegram" : channel] || "";
+}
+
+function relativeTime(value) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return "";
+  }
+  const seconds = (timestamp - Date.now()) / 1000;
+  const absoluteSeconds = Math.abs(seconds);
+  let unit = "second";
+  let divisor = 1;
+  if (absoluteSeconds >= 365 * 86400) {
+    unit = "year";
+    divisor = 365 * 86400;
+  } else if (absoluteSeconds >= 30 * 86400) {
+    unit = "month";
+    divisor = 30 * 86400;
+  } else if (absoluteSeconds >= 7 * 86400) {
+    unit = "week";
+    divisor = 7 * 86400;
+  } else if (absoluteSeconds >= 86400) {
+    unit = "day";
+    divisor = 86400;
+  } else if (absoluteSeconds >= 3600) {
+    unit = "hour";
+    divisor = 3600;
+  } else if (absoluteSeconds >= 60) {
+    unit = "minute";
+    divisor = 60;
+  }
+  try {
+    return new Intl.RelativeTimeFormat(currentLocale(), { numeric: "auto" }).format(
+      Math.round(seconds / divisor),
+      unit,
+    );
+  } catch {
+    return formatTime(value);
+  }
 }
 
 const ContactsView = {
@@ -173,10 +235,6 @@ const ContactsView = {
       return compactStrings(item?.topic_preferences);
     }
 
-    function timeOrDash(value) {
-      return String(value || "").trim() ? formatTime(value) : "—";
-    }
-
     function primaryContactMeta(item) {
       const handle = channelHandles(t, item)[0];
       if (handle) {
@@ -216,6 +274,25 @@ const ContactsView = {
       return items.value.find((item) => String(item?.contact_id || "").trim() === contactID) || null;
     });
     const selectedHandles = computed(() => channelHandles(t, selectedContact.value));
+    const selectedConnections = computed(() => {
+      if (selectedHandles.value.length > 0) {
+        return selectedHandles.value.map((handle) => ({
+          ...handle,
+          logo: channelLogo(handle.channelKey),
+        }));
+      }
+      const channelKey = String(selectedContact.value?.channel || "").trim().toLowerCase();
+      return [
+        {
+          key: `primary:${channelKey}`,
+          channelKey,
+          channel: channelLabel(t, channelKey),
+          full: t("contacts_connection_primary"),
+          logo: channelLogo(channelKey),
+          copyable: false,
+        },
+      ];
+    });
     const selectedTopics = computed(() => topicList(selectedContact.value));
     const editing = computed(
       () => Boolean(selectedContact.value) && editingContactID.value === selectedContactID.value
@@ -252,6 +329,15 @@ const ContactsView = {
         label: t("action_delete"),
         class: "danger",
         action: deleteContact,
+      },
+    ]);
+    const contactActionMenuItems = computed(() => [
+      {
+        id: "delete",
+        title: t("action_delete"),
+        danger: true,
+        disabled: deleting.value,
+        action: confirmDelete,
       },
     ]);
 
@@ -379,6 +465,38 @@ const ContactsView = {
       }
     }
 
+    async function copyContactValue(raw) {
+      const value = String(raw || "").trim();
+      if (!value) {
+        return;
+      }
+      try {
+        if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value);
+        } else {
+          const textarea = document.createElement("textarea");
+          textarea.value = value;
+          textarea.setAttribute("readonly", "true");
+          textarea.style.position = "fixed";
+          textarea.style.left = "-9999px";
+          document.body.appendChild(textarea);
+          textarea.select();
+          let copied = false;
+          try {
+            copied = document.execCommand("copy");
+          } finally {
+            document.body.removeChild(textarea);
+          }
+          if (!copied) {
+            throw new Error("copy failed");
+          }
+        }
+        toast.success(t("contacts_copy_success"));
+      } catch {
+        toast.error(t("contacts_copy_failed"));
+      }
+    }
+
     function confirmDelete() {
       if (!selectedContact.value) {
         return;
@@ -445,7 +563,7 @@ const ContactsView = {
       filterText,
       filteredItems,
       selectedContact,
-      selectedHandles,
+      selectedConnections,
       selectedTopics,
       editing,
       editorYAML,
@@ -461,10 +579,12 @@ const ContactsView = {
       pageClass,
       displayName,
       isAgent,
+      isActive,
       statusText,
       kindText,
       channelLabel,
-      timeOrDash,
+      formatTime,
+      relativeTime,
       primaryContactMeta,
       contactItemClass,
       contactAriaLabel,
@@ -474,10 +594,13 @@ const ContactsView = {
       startEdit,
       stopEdit,
       saveEdit,
+      copyContactValue,
       confirmDelete,
+      contactActionMenuItems,
       deleteDialogOpen,
       deleteDialogText,
       deleteDialogActions,
+      deleting,
     };
   },
   template: `
@@ -500,6 +623,45 @@ const ContactsView = {
             <PhArrowLeft class="icon" />
           </QButton>
           <h2 class="page-title page-bar-title workspace-section-title">{{ mobileBarTitle }}</h2>
+        </div>
+      </template>
+
+      <template #actions>
+        <div v-if="mobileShowBack" class="contacts-mobile-actions">
+          <template v-if="editing">
+            <QButton class="primary contacts-mobile-save" :loading="editorSaving" :disabled="saveDisabled" @click="saveEdit">
+              {{ t("action_save") }}
+            </QButton>
+            <QButton
+              class="plain icon contacts-mobile-cancel"
+              :disabled="editorSaving"
+              :title="t('action_cancel')"
+              :aria-label="t('action_cancel')"
+              @click="stopEdit"
+            >
+              <PhX class="icon" />
+            </QButton>
+          </template>
+          <template v-else>
+            <QButton
+              class="plain icon contacts-mobile-edit"
+              :title="t('contacts_action_edit_yaml')"
+              :aria-label="t('contacts_action_edit_yaml')"
+              @click="startEdit"
+            >
+              <PhPencilSimple class="icon contacts-detail-action-icon" />
+            </QButton>
+            <QDropdownMenu
+              class="contacts-actions-menu"
+              :items="contactActionMenuItems"
+              hideSelected
+              hideActionLabel
+              :disabled="deleting"
+            >
+              <PhDotsThree class="contacts-actions-menu-icon" />
+              <span class="contacts-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+            </QDropdownMenu>
+          </template>
         </div>
       </template>
 
@@ -580,29 +742,43 @@ const ContactsView = {
                   </span>
                 </span>
                 <div class="contacts-detail-copy">
-                  <h3 class="contacts-detail-title workspace-document-title">{{ displayName(selectedContact) }}</h3>
+                  <h3 v-if="!isMobile" class="contacts-detail-title workspace-document-title">{{ displayName(selectedContact) }}</h3>
+                  <div class="contacts-detail-meta">
+                    <span>{{ kindText(selectedContact) }}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{{ channelLabel(t, selectedContact.channel) }}</span>
+                    <span :class="isActive(selectedContact) ? 'contacts-status is-active' : 'contacts-status is-inactive'">
+                      <span class="contacts-status-dot" aria-hidden="true"></span>
+                      {{ statusText(selectedContact) }}
+                    </span>
+                  </div>
+                  <p v-if="selectedContact.persona_brief" class="contacts-detail-persona">
+                    {{ selectedContact.persona_brief }}
+                  </p>
                 </div>
               </div>
 
-              <div v-if="editing" class="contacts-detail-actions">
+              <div v-if="editing && !isMobile" class="contacts-detail-actions">
                 <QButton class="primary" :loading="editorSaving" :disabled="saveDisabled" @click="saveEdit">
                   {{ t("action_save") }}
                 </QButton>
                 <QButton class="outlined" :disabled="editorSaving" @click="stopEdit">{{ t("action_cancel") }}</QButton>
               </div>
-              <div v-else class="contacts-detail-actions">
+              <div v-else-if="!isMobile" class="contacts-detail-actions">
                 <QButton class="outlined contacts-edit-action" @click="startEdit">
                   <PhPencilSimple class="icon contacts-detail-action-icon" />
-                  <span>{{ t("action_edit") }}</span>
+                  <span>{{ t("contacts_action_edit_yaml") }}</span>
                 </QButton>
-                <QButton
-                  class="plain icon contacts-delete-action"
-                  :title="t('action_delete')"
-                  :aria-label="t('action_delete')"
-                  @click="confirmDelete"
+                <QDropdownMenu
+                  class="contacts-actions-menu"
+                  :items="contactActionMenuItems"
+                  hideSelected
+                  hideActionLabel
+                  :disabled="deleting"
                 >
-                  <PhTrash class="icon" />
-                </QButton>
+                  <PhDotsThree class="contacts-actions-menu-icon" />
+                  <span class="contacts-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                </QDropdownMenu>
               </div>
             </header>
 
@@ -622,54 +798,89 @@ const ContactsView = {
             </div>
 
             <div v-else class="contacts-detail-body">
-              <section class="contacts-detail-section">
-                <h4 class="contacts-detail-section-title">{{ t("contacts_section_profile") }}</h4>
-                <dl class="contacts-detail-fields">
-                  <div class="contacts-detail-field">
-                    <dt>{{ t("contacts_field_contact_id") }}</dt>
-                    <dd><code>{{ selectedContact.contact_id }}</code></dd>
+              <div class="contacts-detail-main">
+                <section class="contacts-detail-section contacts-connections-section">
+                  <h4 class="contacts-detail-section-title">{{ t("contacts_section_connections") }}</h4>
+                  <div class="contacts-connection-list">
+                    <div v-for="connection in selectedConnections" :key="connection.key" class="contacts-connection-row">
+                      <img
+                        v-if="connection.logo"
+                        class="contacts-connection-icon"
+                        :src="connection.logo"
+                        alt=""
+                      />
+                      <PhTerminalWindow
+                        v-else-if="connection.channelKey === 'console'"
+                        class="contacts-connection-icon"
+                        aria-hidden="true"
+                      />
+                      <PhLink v-else class="contacts-connection-icon" aria-hidden="true" />
+                      <div class="contacts-connection-copy">
+                        <strong>{{ connection.channel }}</strong>
+                        <code :title="connection.full">{{ connection.full }}</code>
+                      </div>
+                      <QButton
+                        v-if="connection.copyable !== false"
+                        class="plain icon contacts-copy-action"
+                        :title="t('action_copy')"
+                        :aria-label="t('action_copy')"
+                        @click="copyContactValue(connection.full)"
+                      >
+                        <PhCopy class="icon" />
+                      </QButton>
+                    </div>
                   </div>
-                  <div class="contacts-detail-field">
-                    <dt>{{ t("contacts_field_channel") }}</dt>
-                    <dd>{{ channelLabel(t, selectedContact.channel) }}</dd>
+                  <div class="contacts-internal-id">
+                    <PhFingerprint class="contacts-internal-id-icon" aria-hidden="true" />
+                    <div class="contacts-internal-id-copy">
+                      <span>{{ t("contacts_field_contact_id") }}</span>
+                      <code>{{ selectedContact.contact_id }}</code>
+                    </div>
+                    <QButton
+                      class="plain icon contacts-copy-action"
+                      :title="t('action_copy')"
+                      :aria-label="t('action_copy')"
+                      @click="copyContactValue(selectedContact.contact_id)"
+                    >
+                      <PhCopy class="icon" />
+                    </QButton>
                   </div>
-                  <div v-if="selectedContact.persona_brief" class="contacts-detail-field is-wide">
-                    <dt>{{ t("contacts_field_persona") }}</dt>
-                    <dd class="contacts-detail-prose">{{ selectedContact.persona_brief }}</dd>
-                  </div>
-                </dl>
-              </section>
+                </section>
 
-              <section v-if="selectedHandles.length > 0" class="contacts-detail-section">
-                <h4 class="contacts-detail-section-title">{{ t("contacts_section_connections") }}</h4>
-                <dl class="contacts-detail-fields">
-                  <div v-for="handle in selectedHandles" :key="handle.key" class="contacts-detail-field">
-                    <dt>{{ handle.channel }}</dt>
-                    <dd><code :title="handle.full">{{ handle.full }}</code></dd>
-                  </div>
-                </dl>
-              </section>
+                <section v-if="selectedTopics.length > 0" class="contacts-detail-section">
+                  <h4 class="contacts-detail-section-title">{{ t("contacts_field_topics") }}</h4>
+                  <ul class="contacts-topic-list">
+                    <li v-for="topic in selectedTopics" :key="selectedContact.contact_id + '-' + topic">{{ topic }}</li>
+                  </ul>
+                </section>
+              </div>
 
-              <section v-if="selectedTopics.length > 0" class="contacts-detail-section">
-                <h4 class="contacts-detail-section-title">{{ t("contacts_field_topics") }}</h4>
-                <ul class="contacts-topic-list">
-                  <li v-for="topic in selectedTopics" :key="selectedContact.contact_id + '-' + topic">{{ topic }}</li>
-                </ul>
-              </section>
-
-              <section class="contacts-detail-section">
+              <aside class="contacts-activity-panel">
                 <h4 class="contacts-detail-section-title">{{ t("contacts_section_activity") }}</h4>
-                <dl class="contacts-detail-fields">
-                  <div class="contacts-detail-field">
-                    <dt>{{ t("contacts_field_last_interaction") }}</dt>
-                    <dd>{{ timeOrDash(selectedContact.last_interaction_at) }}</dd>
+                <div class="contacts-activity-list">
+                  <div class="contacts-activity-item">
+                    <PhClockCounterClockwise class="contacts-activity-icon" aria-hidden="true" />
+                    <div class="contacts-activity-copy">
+                      <span>{{ t("contacts_field_last_interaction") }}</span>
+                      <strong v-if="selectedContact.last_interaction_at">
+                        {{ relativeTime(selectedContact.last_interaction_at) }}
+                      </strong>
+                      <strong v-else>{{ t("contacts_activity_none") }}</strong>
+                      <time v-if="selectedContact.last_interaction_at" :datetime="selectedContact.last_interaction_at">
+                        {{ formatTime(selectedContact.last_interaction_at) }}
+                      </time>
+                    </div>
                   </div>
-                  <div class="contacts-detail-field">
-                    <dt>{{ t("contacts_field_cooldown") }}</dt>
-                    <dd>{{ timeOrDash(selectedContact.cooldown_until) }}</dd>
+                  <div v-if="selectedContact.cooldown_until" class="contacts-activity-item">
+                    <PhTimer class="contacts-activity-icon" aria-hidden="true" />
+                    <div class="contacts-activity-copy">
+                      <span>{{ t("contacts_field_cooldown") }}</span>
+                      <strong>{{ relativeTime(selectedContact.cooldown_until) }}</strong>
+                      <time :datetime="selectedContact.cooldown_until">{{ formatTime(selectedContact.cooldown_until) }}</time>
+                    </div>
                   </div>
-                </dl>
-              </section>
+                </div>
+              </aside>
             </div>
           </div>
         </QCard>
