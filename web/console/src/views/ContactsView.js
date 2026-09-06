@@ -626,45 +626,6 @@ const ContactsView = {
         </div>
       </template>
 
-      <template #actions>
-        <div v-if="mobileShowBack" class="contacts-mobile-actions">
-          <template v-if="editing">
-            <QButton class="primary contacts-mobile-save" :loading="editorSaving" :disabled="saveDisabled" @click="saveEdit">
-              {{ t("action_save") }}
-            </QButton>
-            <QButton
-              class="plain icon contacts-mobile-cancel"
-              :disabled="editorSaving"
-              :title="t('action_cancel')"
-              :aria-label="t('action_cancel')"
-              @click="stopEdit"
-            >
-              <PhX class="icon" />
-            </QButton>
-          </template>
-          <template v-else>
-            <QButton
-              class="plain icon contacts-mobile-edit"
-              :title="t('contacts_action_edit_yaml')"
-              :aria-label="t('contacts_action_edit_yaml')"
-              @click="startEdit"
-            >
-              <PhPencilSimple class="icon contacts-detail-action-icon" />
-            </QButton>
-            <QDropdownMenu
-              class="contacts-actions-menu"
-              :items="contactActionMenuItems"
-              hideSelected
-              hideActionLabel
-              :disabled="deleting"
-            >
-              <PhDotsThree class="contacts-actions-menu-icon" />
-              <span class="contacts-actions-menu-accessible">{{ t("todo_action_more") }}</span>
-            </QDropdownMenu>
-          </template>
-        </div>
-      </template>
-
       <div class="contacts-workbench">
         <aside v-if="showIndexPane" class="contacts-index workspace-sidebar-section" :aria-label="t('contacts_title')">
           <div class="contacts-index-head workspace-sidebar-head">
@@ -728,6 +689,43 @@ const ContactsView = {
         <QCard v-if="showEditorPane && selectedContact" class="contacts-detail-card" variant="default">
           <div class="contacts-detail-shell">
             <header class="contacts-detail-head">
+              <div v-if="isMobile" class="contacts-mobile-actions">
+                <template v-if="editing">
+                  <QButton class="primary contacts-mobile-save" :loading="editorSaving" :disabled="saveDisabled" @click="saveEdit">
+                    {{ t("action_save") }}
+                  </QButton>
+                  <QButton
+                    class="plain icon contacts-mobile-cancel"
+                    :disabled="editorSaving"
+                    :title="t('action_cancel')"
+                    :aria-label="t('action_cancel')"
+                    @click="stopEdit"
+                  >
+                    <PhX class="icon" />
+                  </QButton>
+                </template>
+                <template v-else>
+                  <QButton
+                    class="plain icon contacts-mobile-edit"
+                    :title="t('contacts_action_edit_yaml')"
+                    :aria-label="t('contacts_action_edit_yaml')"
+                    @click="startEdit"
+                  >
+                    <PhPencilSimple class="icon contacts-detail-action-icon" />
+                  </QButton>
+                  <QDropdownMenu
+                    class="contacts-actions-menu"
+                    :items="contactActionMenuItems"
+                    hideSelected
+                    hideActionLabel
+                    :disabled="deleting"
+                  >
+                    <PhDotsThree class="contacts-actions-menu-icon" />
+                    <span class="contacts-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                  </QDropdownMenu>
+                </template>
+              </div>
+
               <div class="contacts-detail-identity">
                 <span class="contacts-detail-kind" :title="kindText(selectedContact)" aria-hidden="true">
                   <ContactAvatar
