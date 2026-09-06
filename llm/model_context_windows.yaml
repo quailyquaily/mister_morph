@@ -2,6 +2,14 @@ version: 1
 models:
   # OpenAI
   - provider: openai
+    model: gpt-6-astra
+    aliases:
+      - openai/gpt-6-astra
+    context_window_tokens: 1050000
+    sources:
+      - url: https://developers.openai.com/api/docs/models/gpt-6-astra
+        checked_at: "2026-09-06"
+  - provider: openai
     model: gpt-5.6-sol
     aliases:
       - gpt-5.6
@@ -114,12 +122,38 @@ models:
     model: fugu-ultra-20260615
     aliases:
       - fugu-ultra
-    context_window_tokens: 272000
+      - fugu-ultra-v1.0
+      - fugu-ultra-v1.1
+    context_window_tokens: 1000000
     sources:
-      - url: https://console.sakana.ai/pricing
-        checked_at: "2026-06-22"
+      - url: https://console.sakana.ai/get-started
+        checked_at: "2026-09-06"
+  - provider: sakana
+    model: sakana-namazu-v1.0
+    aliases:
+      - sakana-namazu
+    context_window_tokens: 262144
+    sources:
+      - url: https://console.sakana.ai/models?model=sakana-namazu
+        checked_at: "2026-09-06"
 
   # Anthropic
+  - provider: anthropic
+    model: claude-fable-5-1
+    aliases:
+      - anthropic/claude-fable-5-1
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/models/fable-5-1/overview
+        checked_at: "2026-09-06"
+  - provider: anthropic
+    model: claude-mythos-5-1
+    aliases:
+      - anthropic/claude-mythos-5-1
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/build-with-claude/context-windows
+        checked_at: "2026-09-06"
   - provider: anthropic
     model: claude-sonnet-5
     aliases:
@@ -222,6 +256,15 @@ models:
 
   # Gemini
   - provider: gemini
+    model: gemini-3.8-flash
+    aliases:
+      - google/gemini-3.8-flash
+      - models/gemini-3.8-flash
+    context_window_tokens: 1048576
+    sources:
+      - url: https://ai.google.dev/gemini-api/docs/latest-model
+        checked_at: "2026-09-06"
+  - provider: gemini
     model: gemini-3.5-flash
     aliases:
       - google/gemini-3.5-flash
@@ -286,11 +329,20 @@ models:
     model: mistral-medium-2508
     aliases:
       - mistral/mistral-medium-2508
-      - mistral-medium-latest
     context_window_tokens: 128000
     sources:
       - url: https://docs.mistral.ai/models/model-cards/mistral-medium-3-1-25-08
         checked_at: "2026-05-24"
+  - provider: mistral
+    model: mistral-medium-3-5
+    aliases:
+      - mistral/mistral-medium-3-5
+      - mistral-medium-3
+      - mistral-medium-latest
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.mistral.ai/models/mistral-medium-3-5-26-04
+        checked_at: "2026-09-06"
   - provider: mistral
     model: mistral-small-2603
     aliases:
@@ -336,6 +388,18 @@ models:
         checked_at: "2026-05-24"
 
   # Z.AI
+  - provider: zai
+    model: GLM-5.3
+    context_window_tokens: 1048576
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-5.3
+        checked_at: "2026-09-06"
+  - provider: zai
+    model: GLM-5.3-Flash
+    context_window_tokens: 1048576
+    sources:
+      - url: https://docs.z.ai/guides/vlm/glm-5.3-flash
+        checked_at: "2026-09-06"
   - provider: zai
     model: GLM-5
     context_window_tokens: 128000
@@ -399,6 +463,18 @@ models:
       - url: https://platform.kimi.ai/docs/models
         checked_at: "2026-07-26"
   - provider: moonshot
+    model: kimi-k2.7-code
+    context_window_tokens: 262144
+    sources:
+      - url: https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart
+        checked_at: "2026-09-06"
+  - provider: moonshot
+    model: kimi-k2.7-code-highspeed
+    context_window_tokens: 262144
+    sources:
+      - url: https://platform.kimi.ai/docs/guide/kimi-k2-7-code-quickstart
+        checked_at: "2026-09-06"
+  - provider: moonshot
     model: kimi-k2.6
     context_window_tokens: 262144
     sources:
@@ -424,6 +500,12 @@ models:
         checked_at: "2026-05-24"
 
   # MiniMax
+  - provider: minimax
+    model: MiniMax-M3
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.minimax.io/docs/guides/models-intro
+        checked_at: "2026-09-06"
   - provider: minimax
     model: MiniMax-M2.7
     context_window_tokens: 204800
@@ -474,6 +556,12 @@ models:
         checked_at: "2026-05-24"
 
   # DeepSeek
+  - provider: deepseek
+    model: deepseek-v4-flash-vision-exp
+    context_window_tokens: 1000000
+    sources:
+      - url: https://api-docs.deepseek.com/quick_start/pricing/
+        checked_at: "2026-09-06"
   - provider: deepseek
     model: deepseek-v4-flash
     aliases:
@@ -612,6 +700,48 @@ models:
         checked_at: "2026-07-10"
 
   # Cloudflare Workers AI
+  - provider: cloudflare
+    model: "@cf/deepseek-ai/deepseek-v4-flash-0731"
+    context_window_tokens: 1310720
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/deepseek-v4-flash-0731/
+        checked_at: "2026-09-06"
+  - provider: cloudflare
+    model: "@cf/deepseek-ai/deepseek-v4-pro-0813"
+    context_window_tokens: 1048576
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/deepseek-v4-pro-0813/
+        checked_at: "2026-09-06"
+  - provider: cloudflare
+    model: "@cf/zai-org/glm-5.2"
+    context_window_tokens: 262144
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/glm-5.2/
+        checked_at: "2026-09-06"
+  - provider: cloudflare
+    model: "@cf/zai-org/glm-5.3"
+    context_window_tokens: 1048576
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/glm-5.3/
+        checked_at: "2026-09-06"
+  - provider: cloudflare
+    model: "@cf/zai-org/glm-5.3-flash"
+    context_window_tokens: 1048576
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/glm-5.3-flash/
+        checked_at: "2026-09-06"
+  - provider: cloudflare
+    model: "@cf/moonshotai/kimi-k2.6"
+    context_window_tokens: 262144
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/kimi-k2.6/
+        checked_at: "2026-09-06"
+  - provider: cloudflare
+    model: "@cf/moonshotai/kimi-k2.7-code"
+    context_window_tokens: 262144
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/kimi-k2.7-code/
+        checked_at: "2026-09-06"
   - provider: cloudflare
     model: "@cf/openai/gpt-oss-120b"
     context_window_tokens: 131072
