@@ -180,6 +180,10 @@ func TestDesktopPackagesRegisterMisterMorphApplicationID(t *testing.T) {
 		if !strings.Contains(content, "APPLICATION_ID") || !strings.Contains(content, "Icon=${APPLICATION_ID}") {
 			t.Errorf("%s does not associate the application ID with its icon", filepath.Join(file...))
 		}
+		if !strings.Contains(content, `DESKTOP_FILE_ID="${DESKTOP_FILE_ID:-org.wails.mistermorph}"`) ||
+			!strings.Contains(content, "${DESKTOP_FILE_ID}.desktop") {
+			t.Errorf("%s does not associate its desktop file with the Wails GTK application ID", filepath.Join(file...))
+		}
 	}
 }
 
