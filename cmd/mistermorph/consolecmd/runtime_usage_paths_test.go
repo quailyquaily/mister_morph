@@ -1,9 +1,12 @@
 package consolecmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -120,6 +124,13 @@ func assertConsoleUsageJournalPath(
 	globalPaths runtimepaths.Paths,
 ) {
 	t.Helper()
+	testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.String() != "https://example.test/v1/chat/completions" {
+			t.Errorf("request URL = %q", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":13,"total_tokens":13}}`)
+	}))
 	values, err := llmutil.RuntimeValuesFromReader(reader)
 	if err != nil {
 		t.Fatalf("RuntimeValuesFromReader() error = %v", err)
@@ -132,22 +143,17 @@ func assertConsoleUsageJournalPath(
 	if err != nil {
 		t.Fatalf("CreateLLMClient() error = %v", err)
 	}
-	usageClient, ok := client.(*llmstats.UsageClient)
-	if !ok {
-		t.Fatalf("CreateLLMClient() type = %T, want *llmstats.UsageClient", client)
-	}
-	if usageClient.Provider != "openai" || usageClient.APIBase != "https://example.test/v1" || usageClient.DefaultModel != "test-model" {
-		t.Fatalf("chat usage metadata = %q/%q/%q", usageClient.Provider, usageClient.APIBase, usageClient.DefaultModel)
-	}
-	usageClient.Base = consoleUsagePathStubClient{}
 	conversationKey := "console:captured-topic"
 	ctx := topiccontext.WithScope(context.Background(), topiccontext.Scope{ConversationKey: conversationKey, Runtime: "console"})
-	if _, err := usageClient.Chat(ctx, llm.Request{Model: "test-model", Scene: "console.loop"}); err != nil {
-		t.Fatalf("UsageClient.Chat() error = %v", err)
+	if _, err := client.Chat(ctx, llm.Request{Scene: "console.loop", Messages: []llm.Message{{Role: "user", Content: "test"}}}); err != nil {
+		t.Fatalf("Chat() error = %v", err)
 	}
-	appendConsoleUsagePathTestRecord(t, usageClient.Journal, "chat", "test-model")
-	if err := usageClient.Close(); err != nil {
-		t.Fatalf("UsageClient.Close() error = %v", err)
+	closer, ok := client.(io.Closer)
+	if !ok {
+		t.Fatalf("CreateLLMClient() type %T does not implement io.Closer", client)
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 
 	imageClient, err := deps.CreateImageClient()
@@ -173,6 +179,32 @@ func assertConsoleUsageJournalPath(
 	if len(entries) == 0 {
 		t.Fatal("captured usage journal is empty")
 	}
+	foundChat := false
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(capturedPaths.LLMUsageJournalDir, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		for {
+			var record llmstats.RequestRecord
+			if err := decoder.Decode(&record); err == io.EOF {
+				break
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if record.Operation != "chat" {
+				continue
+			}
+			foundChat = true
+			if record.Provider != "openai" || record.APIBase != "https://example.test/v1" || record.Model != "test-model" || record.InputTokens != 13 {
+				t.Fatalf("chat usage record = %+v", record)
+			}
+		}
+	}
+	if !foundChat {
+		t.Fatal("captured chat usage record is missing")
+	}
 	globalEntries, err := os.ReadDir(globalPaths.LLMUsageJournalDir)
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatalf("ReadDir(global journal) error = %v", err)
@@ -187,12 +219,6 @@ func assertConsoleUsageJournalPath(
 	if _, err := os.Stat(globalPaths.TopicContextPath); !os.IsNotExist(err) {
 		t.Fatalf("global topic context path was used: %v", err)
 	}
-}
-
-type consoleUsagePathStubClient struct{}
-
-func (consoleUsagePathStubClient) Chat(context.Context, llm.Request) (llm.Result, error) {
-	return llm.Result{Usage: llm.Usage{InputTokens: 13, TotalTokens: 13}}, nil
 }
 
 func appendConsoleUsagePathTestRecord(t *testing.T, journal *llmstats.Journal, operation, model string) {

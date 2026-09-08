@@ -437,10 +437,6 @@ func BuildRouteClient(route ResolvedRoute, primaryOverride *llmconfig.ClientConf
 	if wrap != nil {
 		primaryClient = wrap(primaryClient, primaryCfg, route.Profile)
 	}
-	if len(route.Fallbacks) == 0 {
-		return primaryClient, nil
-	}
-
 	candidates := make([]FallbackCandidate, 0, len(route.Fallbacks))
 	builtClients := []llm.Client{primaryClient}
 	for _, fallback := range route.Fallbacks {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"testing/synctest"
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -23,51 +24,53 @@ func (c *testLLMClient) Chat(ctx context.Context, req llm.Request) (llm.Result, 
 }
 
 func TestFallbackClientFallsBackOnTimeoutAndUsesFallbackModel(t *testing.T) {
-	var primaryCalls int
-	var fallbackCalls int
+	synctest.Test(t, func(t *testing.T) {
+		var primaryCalls int
+		var fallbackCalls int
 
-	client := NewFallbackClient(FallbackClientOptions{
-		Primary: &testLLMClient{
-			chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
-				primaryCalls++
-				if req.Model != "gpt-5.2" {
-					t.Fatalf("primary model = %q, want gpt-5.2", req.Model)
-				}
-				return llm.Result{}, context.DeadlineExceeded
+		client := NewFallbackClient(FallbackClientOptions{
+			Primary: &testLLMClient{
+				chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+					primaryCalls++
+					if req.Model != "gpt-5.2" {
+						t.Fatalf("primary model = %q, want gpt-5.2", req.Model)
+					}
+					return llm.Result{}, context.DeadlineExceeded
+				},
 			},
-		},
-		PrimaryProfile: "default",
-		PrimaryModel:   "gpt-5.2",
-		Fallbacks: []FallbackCandidate{
-			{
-				Profile: "cheap",
-				Model:   "gpt-4.1-mini",
-				Client: &testLLMClient{
-					chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
-						fallbackCalls++
-						if req.Model != "gpt-4.1-mini" {
-							t.Fatalf("fallback model = %q, want gpt-4.1-mini", req.Model)
-						}
-						return llm.Result{Text: "ok"}, nil
+			PrimaryProfile: "default",
+			PrimaryModel:   "gpt-5.2",
+			Fallbacks: []FallbackCandidate{
+				{
+					Profile: "cheap",
+					Model:   "gpt-4.1-mini",
+					Client: &testLLMClient{
+						chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+							fallbackCalls++
+							if req.Model != "gpt-4.1-mini" {
+								t.Fatalf("fallback model = %q, want gpt-4.1-mini", req.Model)
+							}
+							return llm.Result{Text: "ok"}, nil
+						},
 					},
 				},
 			},
-		},
-	})
+		})
 
-	result, err := client.Chat(context.Background(), llm.Request{Model: "gpt-5.2"})
-	if err != nil {
-		t.Fatalf("Chat() error = %v", err)
-	}
-	if result.Text != "ok" {
-		t.Fatalf("result text = %q, want ok", result.Text)
-	}
-	if primaryCalls != 1 {
-		t.Fatalf("primary calls = %d, want 1", primaryCalls)
-	}
-	if fallbackCalls != 1 {
-		t.Fatalf("fallback calls = %d, want 1", fallbackCalls)
-	}
+		result, err := client.Chat(context.Background(), llm.Request{Model: "gpt-5.2"})
+		if err != nil {
+			t.Fatalf("Chat() error = %v", err)
+		}
+		if result.Text != "ok" {
+			t.Fatalf("result text = %q, want ok", result.Text)
+		}
+		if primaryCalls != 6 {
+			t.Fatalf("primary calls = %d, want 6", primaryCalls)
+		}
+		if fallbackCalls != 1 {
+			t.Fatalf("fallback calls = %d, want 1", fallbackCalls)
+		}
+	})
 }
 
 func TestFallbackClientFallsBackOnHTTP5xx(t *testing.T) {

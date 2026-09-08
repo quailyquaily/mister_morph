@@ -106,6 +106,21 @@ llm:
 
 If the current llm hits a fallback-eligible error, and no other candidate is available, the runtime tries the configs in `fallback_profiles` one by one.
 
+For request timeouts, the runtime first retries the same profile up to five times
+after the initial attempt. This includes network timeouts and HTTP 408/504 errors.
+Retries wait 0.5–1, 1–2, 2–4, 4–8, and 8–16 seconds, with random jitter to avoid
+synchronized retry bursts. Only after these attempts fail does the runtime move
+to another candidate or fallback profile. Each backup profile has the same retry
+limit. Other errors retain the fallback behavior described above.
+
+Timeout retries also apply when no fallback is configured. Each attempt gets a
+fresh `llm.request_timeout`, but all attempts and waits share the task's deadline.
+Cancellation or task expiry stops retries and fallback immediately. For example,
+six requests at the default 90-second timeout can use nine minutes plus backoff;
+a shorter task deadline stops them earlier. Retries repeat only the LLM request,
+not tools already executed in earlier steps. Logs record each scheduled retry as
+`llm_request_timeout_retry`, including its profile, retry number, and delay.
+
 ## How to write this in integration
 
 The configuration style is similar. You just replace YAML with `cfg.Set(...)`:

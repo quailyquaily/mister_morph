@@ -57,6 +57,8 @@ llm:
   # Change this value to force a new cache group during testing.
   cache_key_prefix: ""
   # Per-LLM HTTP request timeout (0 uses provider default).
+  # Request timeouts retry the same profile up to 5 times before fallback.
+  # Retries use exponential backoff with jitter and share the task deadline.
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
   # temperature: 0.2

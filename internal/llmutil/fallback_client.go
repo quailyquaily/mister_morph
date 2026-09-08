@@ -13,7 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
-var fallbackStatusPattern = regexp.MustCompile(`\bstatus(?:\s+code)?\s+(\d{3})\b`)
+var fallbackStatusPattern = regexp.MustCompile(`\b(?:status(?:\s+code)?|http)\s+(\d{3})\b`)
 
 type FallbackCandidate struct {
 	Profile string
@@ -50,9 +50,6 @@ func NewFallbackClient(opts FallbackClientOptions) llm.Client {
 		fallback.Model = strings.TrimSpace(fallback.Model)
 		fallbacks = append(fallbacks, fallback)
 	}
-	if len(fallbacks) == 0 {
-		return opts.Primary
-	}
 	return &fallbackClient{
 		primary:        opts.Primary,
 		primaryProfile: strings.TrimSpace(opts.PrimaryProfile),
@@ -66,9 +63,9 @@ func (c *fallbackClient) Chat(ctx context.Context, req llm.Request) (llm.Result,
 	if c == nil || c.primary == nil {
 		return llm.Result{}, errors.New("fallback client is not initialized")
 	}
-	result, err := c.primary.Chat(ctx, req)
-	if err == nil {
-		return result, nil
+	result, err := c.chatWithTimeoutRetry(ctx, c.primary, req, c.primaryProfile)
+	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) || len(c.fallbacks) == 0 {
+		return result, err
 	}
 	reason, ok := fallbackEligibleReason(err)
 	if !ok {
@@ -81,10 +78,13 @@ func (c *fallbackClient) Chat(ctx context.Context, req llm.Request) (llm.Result,
 		fallbackReq := req
 		fallbackReq.Model = fallback.Model
 
-		result, err = fallback.Client.Chat(ctx, fallbackReq)
+		result, err = c.chatWithTimeoutRetry(ctx, fallback.Client, fallbackReq, fallback.Profile)
 		if err == nil {
 			c.logFallback("llm_profile_fallback_succeeded", idx+1, fallback.Profile, fallback.Model, reason, lastErr)
 			return result, nil
+		}
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			return llm.Result{}, err
 		}
 		lastErr = err
 		nextReason, transient := fallbackEligibleReason(err)

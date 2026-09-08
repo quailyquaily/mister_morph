@@ -104,19 +104,18 @@ func TestIntegrationUsageAndTopicContextStayInsideRuntimeSnapshot(t *testing.T) 
 			if err != nil {
 				t.Fatalf("CreateLLMClient() error = %v", err)
 			}
-			usageClient, ok := client.(*llmstats.UsageClient)
-			if !ok {
-				t.Fatalf("CreateLLMClient() type = %T, want *llmstats.UsageClient", client)
-			}
-			if usageClient.DefaultModel != tc.model {
-				t.Fatalf("chat usage model = %q, want %q", usageClient.DefaultModel, tc.model)
-			}
 			ctx := topiccontext.WithScope(context.Background(), topiccontext.Scope{ConversationKey: "shared", Runtime: tc.name})
-			if _, err := usageClient.Chat(ctx, llm.Request{Model: tc.model, Scene: "integration.loop"}); err != nil {
-				t.Fatalf("UsageClient.Chat() error = %v", err)
+			// Leave Model empty to verify the runtime's default through persisted
+			// usage metadata, without depending on the outer client wrapper type.
+			if _, err := client.Chat(ctx, llm.Request{Scene: "integration.loop"}); err != nil {
+				t.Fatalf("Chat() error = %v", err)
 			}
-			if err := usageClient.Close(); err != nil {
-				t.Fatalf("UsageClient.Close() error = %v", err)
+			closer, ok := client.(io.Closer)
+			if !ok {
+				t.Fatalf("CreateLLMClient() type %T does not implement io.Closer", client)
+			}
+			if err := closer.Close(); err != nil {
+				t.Fatalf("Close() error = %v", err)
 			}
 
 			item, found, err := topiccontext.NewStore(snap.Paths.TopicContextPath).Get("shared")
