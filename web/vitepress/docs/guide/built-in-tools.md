@@ -105,7 +105,11 @@ Runs a coding subtask with the local Codex or Claude Code CLI. The CLI stdout is
 
 - Key limits: disabled by default via `tools.coder.enabled=false`, but `$coder` can expose it for one task; only supports `coder=codex` or `coder=claude`; runs local CLI processes with approval and permission prompts bypassed. If the CLIs are outside the service PATH, set `tools.coder.path_extra`.
 - Default Codex path: `codex exec --dangerously-bypass-approvals-and-sandbox --json -C <cwd> -`.
-- Default Claude path: `claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions`.
+- Default Claude path: `claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions --debug-file <log-dir>/debug.log`.
+
+Both CLIs report startup, tool activity, and the remaining task time in Console progress. Codex reports command execution, file changes, MCP calls, and turn status; Claude reports initialization and tool activity. When Guard is enabled, progress shows status summaries with configured redaction; raw tool arguments, results, and stderr are withheld.
+
+Each call saves `stdout.jsonl` and `stderr.log` in a separate `file_cache_dir/coder/codex-*` or `file_cache_dir/coder/claude-*` directory, or the system temporary directory when no cache directory is configured. Claude also writes `debug.log`. The progress output reports the directory. These raw logs can contain prompts and file contents; they remain local and are not automatically deleted. Timeout errors include elapsed time, the last activity, the stderr tail, and the log directory. The CLI shares the parent task deadline; `llm.request_timeout` does not control it.
 
 Use this for Codex / Claude Code delegation. Keep `acp_spawn` for agents that really need ACP.
 

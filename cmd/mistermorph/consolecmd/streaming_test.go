@@ -16,6 +16,26 @@ type stubConsoleSemanticObserver struct {
 	summary string
 }
 
+func TestConsoleStreamHubReplaysCompleteProgress(t *testing.T) {
+	hub := newConsoleStreamHub()
+	hub.PublishPreview("task", "working")
+	hub.PublishPlan("task", &consolePlanProgress{Steps: []consolePlanStep{{Step: "inspect", Status: agent.PlanStatusInProgress}}})
+	hub.PublishReasoning("task", "checking the code")
+	hub.PublishActivity("task", &consoleActivityProgress{Current: &consoleActivityEntry{ID: "coder", Kind: "tool", Name: "coder", Output: "Read source.go"}})
+	hub.PublishStatus("task", "running")
+	frames, unsubscribe := hub.Subscribe("task")
+	defer unsubscribe()
+	frame := <-frames
+	if frame.Plan == nil || frame.Activity == nil || frame.Reasoning != "checking the code" || frame.Text != "working" || !frame.Preview {
+		t.Fatalf("reconnect snapshot lost progress: %#v", frame)
+	}
+	hub.PublishFinal("task", "finished")
+	frame = <-frames
+	if !frame.Done || frame.Preview || frame.Text != "finished" || frame.Plan == nil || frame.Activity == nil || frame.Reasoning == "" {
+		t.Fatalf("final snapshot lost progress or retained preview: %#v", frame)
+	}
+}
+
 func (s stubConsoleSemanticObserver) Summarize(_ context.Context, _ consoleObserveRequest) (string, error) {
 	return s.summary, nil
 }
@@ -303,6 +323,23 @@ func TestConsoleEventPreviewSinkHidesRawToolOutputWhenGuardEnabled(t *testing.T)
 	}
 	if frame.Activity != nil && frame.Activity.Current != nil && strings.Contains(frame.Activity.Current.Output, "unredacted") {
 		t.Fatalf("activity leaked raw tool output: %#v", frame.Activity.Current)
+	}
+}
+
+func TestConsoleEventPreviewSinkKeepsCoderStatusWhenGuardEnabled(t *testing.T) {
+	for _, backend := range []string{"claude", "codex"} {
+		t.Run(backend, func(t *testing.T) {
+			hub := newConsoleStreamHub()
+			sink := newConsoleEventPreviewSink(hub, "task", nil, guard.New(guard.Config{Enabled: true}, nil, nil))
+			defer sink.Close()
+			summary := "[" + backend + "] tool completed"
+			sink.HandleEvent(context.Background(), agent.Event{Kind: agent.EventKindToolStart, ActivityID: "coder", ToolName: "coder", Status: "running"})
+			sink.HandleEvent(context.Background(), agent.Event{Kind: agent.EventKindToolOutput, ToolName: "coder", Stream: backend, Summary: summary, Text: "private file contents"})
+			frame, _ := hub.Latest("task")
+			if frame.Activity == nil || frame.Activity.Current == nil || !strings.Contains(frame.Activity.Current.Output, summary) || strings.Contains(frame.Activity.Current.Output, "private") {
+				t.Fatalf("guarded progress = %#v", frame.Activity)
+			}
+		})
 	}
 }
 

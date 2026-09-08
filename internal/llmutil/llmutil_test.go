@@ -366,6 +366,31 @@ func TestResolveRoute_OpenAIInferenceProviderUsesResponsesProtocol(t *testing.T)
 	}
 }
 
+func TestResolveRoute_OpenAICodexDefaultModel(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		model string
+		want  string
+	}{
+		{name: "empty", want: "gpt-5.6-luna"},
+		{name: "whitespace", model: "  ", want: "gpt-5.6-luna"},
+		{name: "explicit", model: "gpt-5.6-sol", want: "gpt-5.6-sol"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			route, err := ResolveRoute(RuntimeValues{
+				InferenceProvider: InferenceProviderOpenAICodex,
+				Model:             tt.model,
+			}, RoutePurposeMainLoop)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := route.ClientConfig.Model; got != tt.want {
+				t.Fatalf("model = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveRoute_OpenAICodexSupportsOptionalCustomEndpoint(t *testing.T) {
 	tests := []struct {
 		name         string

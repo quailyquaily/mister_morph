@@ -21,7 +21,7 @@ const (
 	DefaultClientID     = "app_EMoamEEZ73f0CkXaXp7hrann"
 	DefaultIssuer       = "https://auth.openai.com"
 	DefaultAPIBase      = "https://chatgpt.com/backend-api/codex"
-	DefaultModel        = "gpt-5.5"
+	DefaultModel        = "gpt-5.6-luna"
 	defaultDeviceTTL    = 15 * time.Minute
 	defaultPollInterval = 5 * time.Second
 )

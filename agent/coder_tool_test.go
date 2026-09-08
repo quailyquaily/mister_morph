@@ -324,6 +324,12 @@ func TestRunCoderCLIIncludesStderrTail(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "stderr tail") {
 		t.Fatalf("runCoderCLI() error = %v, want stderr tail", err)
 	}
+	if !strings.Contains(err.Error(), "codex exited with code 7") {
+		t.Fatalf("runCoderCLI() error = %v, want exit code 7", err)
+	}
+	if strings.Count(err.Error(), "stderr tail") != 1 {
+		t.Fatalf("runCoderCLI() error = %v, want stderr tail exactly once", err)
+	}
 }
 
 func TestRunCoderCLIUsesPathExtraForCommandLookupAndChildEnv(t *testing.T) {
@@ -406,6 +412,66 @@ func TestCoderStreamCollectorClaude(t *testing.T) {
 	}
 }
 
+func TestCoderStreamCollectorClaudeToolProgress(t *testing.T) {
+	var chunks []string
+	collector := newCoderStreamCollector(coderBackendClaude, func(text string) { chunks = append(chunks, text) })
+	for _, line := range []string{
+		`{"type":"system","subtype":"init","session_id":"session-1"}`,
+		`{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","id":"tool-1","name":"Read","input":{}}}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":"Read","input":{"file_path":"source.go"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"source content"}]}}`,
+		`{"type":"result","result":"finished","is_error":false}`,
+	} {
+		if err := collector.ConsumeLine([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	progress := strings.Join(chunks, "")
+	for _, want := range []string{"init", "Read", "source.go", "tool-1", "completed"} {
+		if !strings.Contains(progress, want) {
+			t.Fatalf("progress %q missing %q", progress, want)
+		}
+	}
+	if collector.Output() != "finished" {
+		t.Fatalf("output = %q", collector.Output())
+	}
+}
+
+func TestRunClaudeTimeoutPreservesDiagnostics(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable uses /bin/sh")
+	}
+	binDir := t.TempDir()
+	logRoot := t.TempDir()
+	writeFakeCoderExecutable(t, binDir, "claude", "while [ $# -gt 0 ]; do\n  if [ \"$1\" = '--debug-file' ]; then shift; printf 'debug enabled\\n' > \"$1\"; fi\n  shift\ndone\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\"}'\nprintf 'waiting for upstream\\n' >&2\nexec sleep 10\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	var chunks []string
+	_, err := runCoderCLI(ctx, coderCLIRequest{Backend: coderBackendClaude, Task: "x", CWD: t.TempDir(), LogRoot: logRoot, PathExtra: []string{binDir}}, func(text string) { chunks = append(chunks, text) })
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v", err)
+	}
+	for _, want := range []string{"waiting for upstream", "init", "diagnostics:"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err, want)
+		}
+	}
+	progress := strings.Join(chunks, "")
+	if !strings.Contains(progress, "waiting for upstream") {
+		t.Fatalf("stderr not streamed: %q", progress)
+	}
+	dirs, err := filepath.Glob(filepath.Join(logRoot, "coder", "claude-*"))
+	if err != nil || len(dirs) != 1 {
+		t.Fatalf("diagnostic directories = %v, err=%v", dirs, err)
+	}
+	for name, want := range map[string]string{"stdout.jsonl": `"subtype":"init"`, "stderr.log": "waiting for upstream", "debug.log": "debug enabled"} {
+		data, err := os.ReadFile(filepath.Join(dirs[0], name))
+		if err != nil || !strings.Contains(string(data), want) {
+			t.Fatalf("%s = %q, err=%v", name, data, err)
+		}
+	}
+}
+
 func TestCoderStreamCollectorCodex(t *testing.T) {
 	t.Parallel()
 
@@ -448,10 +514,95 @@ func TestCoderStreamCollectorCodexCurrentJSONL(t *testing.T) {
 			t.Fatalf("ConsumeLine(%s) error = %v", line, err)
 		}
 	}
-	if got := strings.Join(chunks, ""); got != "$ /bin/bash -lc 'printf hi'\nhi\ndone" {
-		t.Fatalf("chunks = %#v joined %q, want command output and final", chunks, got)
+	for _, want := range []string{"thread.started", "turn.started", "command_execution", "in_progress", "completed", "printf hi", "hi", "done"} {
+		if got := strings.Join(chunks, ""); !strings.Contains(got, want) {
+			t.Fatalf("progress %q missing %q", got, want)
+		}
 	}
 	if got := collector.Output(); got != "done" {
 		t.Fatalf("collector.Output() = %q, want done", got)
+	}
+}
+
+func TestRunCodexTimeoutPreservesDiagnostics(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable uses /bin/sh")
+	}
+	binDir, logRoot := t.TempDir(), t.TempDir()
+	writeFakeCoderExecutable(t, binDir, "codex", "printf '%s\\n' '{\"type\":\"turn.started\"}'\nprintf 'waiting for upstream\\n' >&2\nexec sleep 10\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	var progress []string
+	_, err := runCoderCLI(ctx, coderCLIRequest{Backend: coderBackendCodex, Task: "x", CWD: t.TempDir(), LogRoot: logRoot, PathExtra: []string{binDir}}, func(text string) { progress = append(progress, text) })
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v", err)
+	}
+	for _, want := range []string{"waiting for upstream", "turn.started", "diagnostics:"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err, want)
+		}
+	}
+	for _, want := range []string{"[codex] started pid=", "remaining task time:", "waiting for upstream", "diagnostics:"} {
+		if got := strings.Join(progress, ""); !strings.Contains(got, want) {
+			t.Fatalf("progress %q missing %q", got, want)
+		}
+	}
+	dirs, err := filepath.Glob(filepath.Join(logRoot, "coder", "codex-*"))
+	if err != nil || len(dirs) != 1 {
+		t.Fatalf("diagnostics = %v, err=%v", dirs, err)
+	}
+	for name, want := range map[string]string{"stdout.jsonl": `"turn.started"`, "stderr.log": "waiting for upstream"} {
+		data, err := os.ReadFile(filepath.Join(dirs[0], name))
+		if err != nil || !strings.Contains(string(data), want) {
+			t.Fatalf("%s = %q, err=%v", name, data, err)
+		}
+	}
+}
+
+func TestCoderStreamCollectorCodexStatusAndFailure(t *testing.T) {
+	var summaries []string
+	collector := newCoderStreamCollector(coderBackendCodex, nil)
+	collector.progress = func(summary, _ string) { summaries = append(summaries, summary) }
+	for _, line := range []string{
+		`{"type":"item.started","item":{"id":"cmd","type":"command_execution","status":"in_progress","command":"echo private-command"}}`,
+		`{"type":"item.completed","item":{"id":"cmd","type":"command_execution","status":"completed","aggregated_output":"private-output","exit_code":0}}`,
+		`{"type":"item.completed","item":{"id":"patch","type":"file_change","status":"completed","changes":[{"path":"private-path","kind":"update"}]}}`,
+		`{"type":"item.started","item":{"id":"mcp","type":"mcp_tool_call","status":"in_progress"}}`,
+		`{"type":"turn.failed","error":{"message":"upstream disconnected"}}`,
+	} {
+		if err := collector.ConsumeLine([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := strings.Join(summaries, "")
+	for _, want := range []string{"command_execution", "completed", "file_change", "mcp_tool_call", "turn.failed"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("summaries %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "private") {
+		t.Fatalf("summary leaked raw details: %q", got)
+	}
+	if collector.Error() != "upstream disconnected" {
+		t.Fatalf("error = %q", collector.Error())
+	}
+	if collector.Output() != "" {
+		t.Fatalf("status polluted final output: %q", collector.Output())
+	}
+}
+
+func TestCoderStreamCollectorCodexRecoversFromStreamError(t *testing.T) {
+	collector := newCoderStreamCollector(coderBackendCodex, nil)
+	for _, line := range []string{
+		`{"type":"error","message":"Reconnecting..."}`,
+		`{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"done"}}`,
+		`{"type":"turn.completed","usage":{}}`,
+	} {
+		if err := collector.ConsumeLine([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if collector.Error() != "" || collector.Output() != "done" {
+		t.Fatalf("successful turn: output=%q error=%q", collector.Output(), collector.Error())
 	}
 }

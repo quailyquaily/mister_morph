@@ -402,7 +402,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   padding: 14px 16px 0;
 }
 
-.chat-workspace-tabs .q-button.app-tabs-option {
+.app-tabs.chat-workspace-tabs .q-button.app-tabs-option {
   flex: 1 1 0;
   min-width: 0;
 }

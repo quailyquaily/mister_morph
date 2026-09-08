@@ -140,11 +140,10 @@ func (h *consoleStreamHub) Subscribe(taskID string) (<-chan consoleStreamFrame, 
 	}
 	h.subs[taskID][ch] = struct{}{}
 	latest, hasLatest := h.latest[taskID]
-	h.mu.Unlock()
-
 	if hasLatest {
 		ch <- latest
 	}
+	h.mu.Unlock()
 
 	return ch, func() {
 		h.mu.Lock()
@@ -179,21 +178,31 @@ func (h *consoleStreamHub) publish(frame consoleStreamFrame) {
 	}
 
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.nextSeq++
 	frame.Seq = h.nextSeq
-
-	subs := make([]chan consoleStreamFrame, 0, len(h.subs[frame.TaskID]))
-	for sub := range h.subs[frame.TaskID] {
-		subs = append(subs, sub)
+	previous := h.latest[frame.TaskID]
+	if frame.Plan == nil {
+		frame.Plan = previous.Plan
 	}
+	if frame.Activity == nil {
+		frame.Activity = previous.Activity
+	}
+	if frame.Reasoning == "" {
+		frame.Reasoning = previous.Reasoning
+	}
+	if frame.Text == "" && !frame.Done {
+		frame.Text = previous.Text
+		frame.Preview = previous.Preview
+	}
+
+	subs := h.subs[frame.TaskID]
 	if frame.Done && len(subs) == 0 {
 		delete(h.latest, frame.TaskID)
 	} else {
 		h.latest[frame.TaskID] = frame
 	}
-	h.mu.Unlock()
-
-	for _, sub := range subs {
+	for sub := range subs {
 		select {
 		case sub <- frame:
 		default:

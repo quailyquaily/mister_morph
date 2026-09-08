@@ -40,38 +40,38 @@ type consoleEventPreviewSink struct {
 	observeCancel   context.CancelFunc
 	observeWake     chan struct{}
 
-	mu                sync.Mutex
-	activity          *consoleActivityProgress
-	subtaskLine       string
-	toolLine          string
-	stdoutTail        string
-	stderrTail        string
-	observerSummary   string
-	subtaskProfile    agent.ObserveProfile
-	toolProfile       agent.ObserveProfile
-	pendingNewBytes   int
-	pendingEvents     int
-	lastPublishAt     time.Time
-	seenOutput        bool
-	observeStarted    bool
-	pendingObserve    *consoleObserveRequest
-	observeCalls      map[agent.ObserveProfile]int
-	deferEventContent bool
+	mu              sync.Mutex
+	activity        *consoleActivityProgress
+	subtaskLine     string
+	toolLine        string
+	stdoutTail      string
+	stderrTail      string
+	observerSummary string
+	subtaskProfile  agent.ObserveProfile
+	toolProfile     agent.ObserveProfile
+	pendingNewBytes int
+	pendingEvents   int
+	lastPublishAt   time.Time
+	seenOutput      bool
+	observeStarted  bool
+	pendingObserve  *consoleObserveRequest
+	observeCalls    map[agent.ObserveProfile]int
+	outputGuard     *guard.Guard
 }
 
 func newConsoleEventPreviewSink(hub *consoleStreamHub, taskID string, logger *slog.Logger, outputGuard *guard.Guard) *consoleEventPreviewSink {
 	observeCtx, observeCancel := context.WithCancel(context.Background())
 	return &consoleEventPreviewSink{
-		hub:               hub,
-		taskID:            strings.TrimSpace(taskID),
-		logger:            logger,
-		now:               time.Now,
-		observeTimeout:    consoleObserveTimeout,
-		observeCtx:        observeCtx,
-		observeCancel:     observeCancel,
-		observeWake:       make(chan struct{}, 1),
-		observeCalls:      map[agent.ObserveProfile]int{},
-		deferEventContent: outputGuard != nil && outputGuard.Enabled(),
+		hub:            hub,
+		taskID:         strings.TrimSpace(taskID),
+		logger:         logger,
+		now:            time.Now,
+		observeTimeout: consoleObserveTimeout,
+		observeCtx:     observeCtx,
+		observeCancel:  observeCancel,
+		observeWake:    make(chan struct{}, 1),
+		observeCalls:   map[agent.ObserveProfile]int{},
+		outputGuard:    outputGuard,
 	}
 }
 
@@ -86,12 +86,16 @@ func (s *consoleEventPreviewSink) HandleEvent(_ context.Context, event agent.Eve
 	if s == nil || s.hub == nil || strings.TrimSpace(s.taskID) == "" {
 		return
 	}
-	if s.deferEventContent {
+	if s.outputGuard.Enabled() {
 		// Tool and subtask events are emitted before their complete output can pass
 		// through Guard. Keep status metadata, but do not expose raw content.
 		switch strings.TrimSpace(event.Kind) {
 		case agent.EventKindToolOutput:
 			event.Text = ""
+			if event.ToolName == "coder" && event.Summary != "" {
+				// Coder emits complete status summaries separately from raw CLI output.
+				event.Text, _ = s.outputGuard.RedactString(event.Summary)
+			}
 		case agent.EventKindToolDone, agent.EventKindSubtaskDone:
 			event.Summary = ""
 			event.Error = ""

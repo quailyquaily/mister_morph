@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -37,6 +38,8 @@ type coderCLIRequest struct {
 	Task      string
 	CWD       string
 	PathExtra []string
+	LogRoot   string
+	Progress  func(summary, text string)
 }
 
 type coderCLICommand struct {
@@ -90,6 +93,7 @@ func (t *coderTool) Execute(ctx context.Context, params map[string]any) (string,
 		return "", err
 	}
 	req.PathExtra = append([]string(nil), t.deps.PathExtra...)
+	req.LogRoot = pathroots.Resolve(ctx, t.deps.Roots).FileCacheDir
 
 	runner := t.deps.Runner
 	if runner == nil {
@@ -102,6 +106,12 @@ func (t *coderTool) Execute(ctx context.Context, params map[string]any) (string,
 
 	result, err := runner.RunSubtask(ctx, SubtaskRequest{
 		RunFunc: func(runCtx context.Context) (*SubtaskResult, error) {
+			req.Progress = func(summary, text string) {
+				EmitEvent(runCtx, nil, Event{
+					Kind: EventKindToolOutput, ToolName: coderToolName, Stream: req.Backend,
+					Text: text, Summary: summary, Status: "running",
+				})
+			}
 			output, runErr := runCLI(runCtx, req, func(text string) {
 				text = strings.TrimRight(text, "\x00")
 				if text == "" {
@@ -293,7 +303,26 @@ func buildCoderCLICommand(req coderCLIRequest) coderCLICommand {
 	}
 }
 
-func runCoderCLI(ctx context.Context, req coderCLIRequest, emit func(string)) (string, error) {
+func runCoderCLI(ctx context.Context, req coderCLIRequest, emit func(string)) (output string, runErr error) {
+	started := time.Now()
+	// stdout and stderr can both publish progress. Serialize the consumer.
+	var emitMu sync.Mutex
+	publish := func(text string) {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		if emit != nil {
+			emit(text)
+		}
+	}
+	progress := func(summary, text string) {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		if req.Progress != nil {
+			req.Progress(summary, text)
+		} else if emit != nil {
+			emit(text)
+		}
+	}
 	spec := buildCoderCLICommand(req)
 	if strings.TrimSpace(spec.Command) == "" {
 		return "", fmt.Errorf("unsupported coder: %s", req.Backend)
@@ -302,6 +331,55 @@ func runCoderCLI(ctx context.Context, req coderCLIRequest, emit func(string)) (s
 	if err != nil {
 		return "", err
 	}
+	root := strings.TrimSpace(req.LogRoot)
+	if root != "" {
+		root, err = filepath.Abs(filepath.Join(root, "coder"))
+		if err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return "", fmt.Errorf("create coder diagnostics directory: %w", err)
+		}
+	}
+	diagnosticDir, err := os.MkdirTemp(root, req.Backend+"-")
+	if err != nil {
+		return "", fmt.Errorf("create coder diagnostics directory: %w", err)
+	}
+	stdoutLog, err := os.OpenFile(filepath.Join(diagnosticDir, "stdout.jsonl"), os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	defer stdoutLog.Close()
+	stderrLog, err := os.OpenFile(filepath.Join(diagnosticDir, "stderr.log"), os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	defer stderrLog.Close()
+	if req.Backend == coderBackendClaude {
+		spec.Args = append(spec.Args, "--debug-file", filepath.Join(diagnosticDir, "debug.log"))
+	}
+	line := fmt.Sprintf("[%s] diagnostics: %s\n", req.Backend, diagnosticDir)
+	progress(line, line)
+	collector := newCoderStreamCollector(req.Backend, publish)
+	collector.progress = progress
+	var stderrTail coderTailBuffer
+	stderrTail.Limit = coderStderrTailBytes
+	defer func() {
+		line := fmt.Sprintf("[%s] process ended after %s; diagnostics: %s\n", req.Backend, time.Since(started).Round(time.Millisecond), diagnosticDir)
+		progress(line, line)
+		if runErr == nil {
+			return
+		}
+		detail := fmt.Sprintf("%s failed after %s", req.Backend, time.Since(started).Round(time.Millisecond))
+		if collector.lastActivity != "" {
+			detail += "; last activity: " + collector.lastActivity
+		}
+		if tail := strings.TrimSpace(stderrTail.String()); tail != "" {
+			detail += "; stderr: " + tail
+		}
+		detail += "; diagnostics: " + diagnosticDir
+		runErr = fmt.Errorf("%s: %w", detail, runErr)
+	}()
 	cmd := exec.CommandContext(ctx, commandPath, spec.Args...)
 	if env != nil {
 		cmd.Env = env
@@ -325,25 +403,34 @@ func runCoderCLI(ctx context.Context, req coderCLIRequest, emit func(string)) (s
 		return "", err
 	}
 
-	collector := newCoderStreamCollector(req.Backend, emit)
-	var stderrTail coderTailBuffer
-	stderrTail.Limit = coderStderrTailBytes
+	remaining := ""
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining = fmt.Sprintf("; remaining task time: %s", time.Until(deadline).Round(time.Second))
+	}
+	line = fmt.Sprintf("[%s] started pid=%d%s\n", req.Backend, cmd.Process.Pid, remaining)
+	progress(line, line)
 	var wg sync.WaitGroup
 	var stdoutErr error
 	var stderrErr error
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		stdoutErr = readCoderStdout(stdout, collector)
+		stdoutErr = readCoderStdout(io.TeeReader(stdout, stdoutLog), collector)
 	}()
 	go func() {
 		defer wg.Done()
-		_, stderrErr = io.Copy(&stderrTail, stderr)
+		reader := io.TeeReader(stderr, io.MultiWriter(stderrLog, &stderrTail))
+		scanner := bufio.NewScanner(reader)
+		scanner.Buffer(make([]byte, 0, 64*1024), coderScannerMaxBytes)
+		for scanner.Scan() {
+			progress(fmt.Sprintf("[%s] stderr received\n", req.Backend), fmt.Sprintf("[%s stderr] %s\n", req.Backend, scanner.Text()))
+		}
+		stderrErr = scanner.Err()
 	}()
 
 	wg.Wait()
 	waitErr := cmd.Wait()
-	output := collector.Output()
+	output = collector.Output()
 	if stdoutErr != nil {
 		return output, stdoutErr
 	}
@@ -354,7 +441,7 @@ func runCoderCLI(ctx context.Context, req coderCLIRequest, emit func(string)) (s
 		if ctx != nil && ctx.Err() != nil {
 			return output, ctx.Err()
 		}
-		return output, coderExitError(req.Backend, waitErr, stderrTail.String())
+		return output, coderExitError(req.Backend, waitErr)
 	}
 	if errText := collector.Error(); errText != "" {
 		return output, fmt.Errorf("%s failed: %s", req.Backend, errText)
@@ -486,26 +573,24 @@ func readCoderStdout(r io.Reader, collector *coderStreamCollector) error {
 	return scanner.Err()
 }
 
-func coderExitError(backend string, err error, stderrTail string) error {
+func coderExitError(backend string, err error) error {
 	code := -1
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		code = exitErr.ExitCode()
 	}
-	stderrTail = strings.TrimSpace(stderrTail)
-	if stderrTail == "" {
-		return fmt.Errorf("%s exited with code %d", backend, code)
-	}
-	return fmt.Errorf("%s exited with code %d: %s", backend, code, stderrTail)
+	return fmt.Errorf("%s exited with code %d", backend, code)
 }
 
 type coderStreamCollector struct {
-	backend string
-	emit    func(string)
+	backend  string
+	emit     func(string)
+	progress func(summary, text string)
 
 	emitted       strings.Builder
 	final         string
 	errText       string
+	lastActivity  string
 	itemOutputLen map[string]int
 }
 
@@ -584,12 +669,49 @@ func (c *coderStreamCollector) setAssistantText(text string) {
 
 func (c *coderStreamCollector) consumeClaude(payload map[string]any) {
 	switch strings.TrimSpace(stringField(payload, "type")) {
+	case "system":
+		if stringField(payload, "subtype") == "thinking_tokens" {
+			return
+		}
+		c.emitActivity("[claude] " + stringField(payload, "subtype") + " " + stringField(payload, "status"))
+	case "tool_progress":
+		c.emitActivity(fmt.Sprintf("[claude] %s (%s), elapsed %vs", stringField(payload, "tool_name"), stringField(payload, "tool_use_id"), payload["elapsed_time_seconds"]))
 	case "stream_event":
+		if event, ok := mapField(payload, "event"); ok {
+			if block, ok := mapField(event, "content_block"); ok {
+				switch stringField(block, "type") {
+				case "tool_use":
+					c.emitActivity("[claude] starting " + stringField(block, "name") + " (" + stringField(block, "id") + ")")
+				case "thinking":
+					c.emitActivity("[claude] thinking")
+				}
+			}
+		}
 		if text := claudeStreamDelta(payload["event"]); text != "" {
 			c.addDelta(text)
 		}
-	case "assistant":
-		if text := textFromValue(payload["message"]); text != "" {
+	case "assistant", "user":
+		if message, ok := mapField(payload, "message"); ok {
+			blocks, _ := message["content"].([]any)
+			for _, value := range blocks {
+				block, ok := value.(map[string]any)
+				if !ok {
+					continue
+				}
+				switch stringField(block, "type") {
+				case "tool_use":
+					input, _ := json.Marshal(block["input"])
+					c.emitActivity(fmt.Sprintf("[claude] %s (%s)", stringField(block, "name"), stringField(block, "id")), string(input))
+				case "tool_result":
+					status := "completed"
+					if boolField(block, "is_error") {
+						status = "failed"
+					}
+					c.emitActivity(fmt.Sprintf("[claude] %s %s", stringField(block, "tool_use_id"), status), textFromValue(block["content"]))
+				}
+			}
+		}
+		if text := textFromValue(payload["message"]); stringField(payload, "type") == "assistant" && text != "" {
 			c.setAssistantText(text)
 		}
 	case "result":
@@ -598,7 +720,29 @@ func (c *coderStreamCollector) consumeClaude(payload map[string]any) {
 		}
 		if boolField(payload, "is_error") {
 			c.errText = firstNonEmptyString(stringField(payload, "result"), stringField(payload, "error"))
+			if c.errText == "" {
+				errorsJSON, _ := json.Marshal(payload["errors"])
+				c.errText = stringField(payload, "subtype") + ": " + string(errorsJSON)
+			}
 		}
+	}
+}
+
+func (c *coderStreamCollector) emitActivity(summary string, details ...string) {
+	// Keep progress separate from the assistant's answer and bound UI previews.
+	text := summary
+	if len(details) > 0 {
+		text += " " + strings.Join(details, " ")
+	}
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) > 1000 {
+		runes = append(runes[:1000], []rune("…")...)
+	}
+	c.lastActivity = strings.TrimSpace(summary)
+	if c.progress != nil {
+		c.progress("\n"+c.lastActivity+"\n", "\n"+string(runes)+"\n")
+	} else if c.emit != nil {
+		c.emit("\n" + string(runes) + "\n")
 	}
 }
 
@@ -613,6 +757,26 @@ func (c *coderStreamCollector) consumeCodex(payload map[string]any) {
 		}
 	}
 	typ := stringField(payload, "type")
+	switch typ {
+	case "thread.started", "turn.started", "turn.completed":
+		if typ == "turn.completed" {
+			c.errText = ""
+		}
+		c.emitActivity("[codex] " + typ)
+	case "error":
+		c.emitActivity("[codex] error", firstNonEmptyString(stringField(payload, "message"), stringField(payload, "error")))
+	case "turn.failed":
+		if failure, ok := mapField(payload, "error"); ok {
+			c.errText = stringField(failure, "message")
+		} else {
+			c.errText = stringField(payload, "error")
+		}
+		if c.errText == "" {
+			c.errText = "turn failed"
+		}
+		c.emitActivity("[codex] turn.failed", c.errText)
+		return
+	}
 	if strings.Contains(strings.ToLower(typ), "delta") {
 		if text := firstNonEmptyString(stringField(payload, "delta"), stringField(payload, "text")); text != "" {
 			c.addDelta(text)
@@ -628,6 +792,11 @@ func (c *coderStreamCollector) consumeCodex(payload map[string]any) {
 	if item, ok := mapField(payload, "item"); ok && strings.TrimSpace(stringField(item, "type")) == "command_execution" {
 		c.consumeCodexCommandItem(item)
 		return
+	}
+	if item, ok := mapField(payload, "item"); ok && strings.HasPrefix(typ, "item.") {
+		if kind := stringField(item, "type"); kind != "" {
+			c.emitActivity(fmt.Sprintf("[codex] %s %s (%s)", kind, strings.TrimPrefix(typ, "item."), stringField(item, "id")))
+		}
 	}
 	if text := firstNonEmptyString(stringField(payload, "output"), stringField(payload, "result"), stringField(payload, "final")); text != "" {
 		c.final = text
@@ -660,23 +829,22 @@ func (c *coderStreamCollector) consumeCodexCommandItem(item map[string]any) {
 	id := strings.TrimSpace(stringField(item, "id"))
 	command := strings.TrimSpace(stringField(item, "command"))
 	status := strings.TrimSpace(stringField(item, "status"))
-	if status == "in_progress" && command != "" {
-		c.addDelta("$ " + command + "\n")
-	}
-
 	output := stringField(item, "aggregated_output")
-	if output == "" {
-		return
-	}
 	emittedLen := c.itemOutputLen[id]
 	runes := []rune(output)
 	if emittedLen > len(runes) {
 		emittedLen = 0
 	}
-	if emittedLen < len(runes) {
-		c.addDelta(string(runes[emittedLen:]))
-		c.itemOutputLen[id] = len(runes)
+	details := string(runes[emittedLen:])
+	c.itemOutputLen[id] = len(runes)
+	if command != "" {
+		details = "$ " + command + "\n" + details
 	}
+	summary := fmt.Sprintf("[codex] command_execution %s (%s)", status, id)
+	if code, ok := item["exit_code"]; ok && code != nil {
+		summary += fmt.Sprintf(" exit=%v", code)
+	}
+	c.emitActivity(summary, details)
 }
 
 func textFromValue(value any) string {
