@@ -168,11 +168,13 @@ func TestConcurrentToolExecution_AllToolsRun(t *testing.T) {
 	if len(agentCtx.Steps) != 2 {
 		t.Fatalf("steps = %d, want 2", len(agentCtx.Steps))
 	}
-	if agentCtx.Steps[0].Action != "tool_a" {
-		t.Fatalf("step[0].Action = %q, want tool_a", agentCtx.Steps[0].Action)
+	// Step records follow completion order, which is nondeterministic here.
+	results := map[string]string{}
+	for _, step := range agentCtx.Steps {
+		results[step.Action] = step.Observation
 	}
-	if agentCtx.Steps[1].Action != "tool_b" {
-		t.Fatalf("step[1].Action = %q, want tool_b", agentCtx.Steps[1].Action)
+	if results["tool_a"] != "result_a" || results["tool_b"] != "result_b" {
+		t.Fatalf("recorded results = %v", results)
 	}
 }
 

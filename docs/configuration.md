@@ -36,6 +36,24 @@ Interactive setup and Console settings save new local credentials in macOS Keych
 
 YAML expansion is done on parsed config values before they are passed to Viper. This may normalize the in-memory YAML formatting, but it does not write back to the config file.
 
+## Request Retries and Fallback
+
+LLM request failures retry the same profile up to five times after the initial attempt. This includes request timeouts, all HTTP 5xx responses, HTTP 400, EOF, connection failures, and otherwise unclassified request errors. HTTP 401, 403, 404, 415, 422, and 429, plus recognized rate-limit errors, switch directly to fallback without same-profile retries.
+
+Retry delays use exponential backoff with jitter: 0.5–1, 1–2, 2–4, 4–8, and 8–16 seconds. Each attempt uses that profile's `request_timeout`. Once retries are exhausted, the client tries the next fallback candidate, which follows the same retry rules. Without another candidate, the last error is returned. Retry logs use `llm_request_retry` with the profile, model, retry number, delay, and error reason.
+
+Explicit cancellation, an expired task context, and stream-consumer callback failures stop retries and fallback. Task deadline conclusions are handled separately below.
+
+## Task Deadlines
+
+`timeout` limits task execution. Channel `task_timeout` values override it for that channel; `0s` uses the top-level value.
+
+When the root agent's task deadline expires, it records completed tool results and marks outstanding calls as canceled. Concurrent calls are recorded as they return, without waiting for the slowest call. A canceled call has an unknown outcome; cancellation does not undo its side effects.
+
+The root agent then produces a partial final answer, with tools disabled. Each summary request uses the selected LLM profile's `request_timeout`, including retries and fallback attempts; there is no separate summary deadline. A value of `0` retains the provider's default behavior. Retries and fallback can make the total summary phase longer than one request timeout. If the model request ultimately fails, it returns a bounded text summary of recorded results instead. Both paths pass through the output Guard. Unfinished plan steps remain unfinished. Guard failures still surface as errors.
+
+This deadline conclusion does not apply to explicit cancellation, child agents, or an individual LLM request timeout while the task is still active. It does not guarantee termination of external processes that ignore cancellation.
+
 ## Web Settings
 
 Console Settings can read and edit every supported public field in the example config. Settings are grouped by Agent, Tools, MCP, ACP, Skills, Channels, Automation, Security, and System rather than by raw YAML nesting.
@@ -346,10 +364,11 @@ Logging and runtime limits:
 - `logging.format`
 - `logging.include_thoughts`
 - `logging.include_tool_params`
-- `max_steps`
-- `parse_retries`
-- `max_token_budget`
-- `timeout`
+- `max_steps`: defaults to `1024`.
+- `parse_retries`: defaults to `16`.
+- `max_token_budget`: defaults to `0` (unlimited).
+- `tool_repeat_limit`: defaults to `256`.
+- `timeout`: defaults to `60m`.
 
 Local paths:
 
@@ -369,6 +388,7 @@ Tools:
 
 - all tool toggles live under `tools.*`
 - examples: `tools.bash.enabled`, `tools.url_fetch.enabled`, `tools.coder.enabled`
+- `tools.web_search.timeout`, `tools.bash.timeout`, and `tools.powershell.timeout` default to `60s` each.
 
 Console:
 

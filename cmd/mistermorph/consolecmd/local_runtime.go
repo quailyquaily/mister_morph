@@ -29,6 +29,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -365,11 +366,11 @@ func consoleDefaultTimeoutFromReader(r interface {
 	GetDuration(string) time.Duration
 }) time.Duration {
 	if r == nil {
-		return 10 * time.Minute
+		return configdefaults.DefaultTaskTimeout
 	}
 	timeout := r.GetDuration("timeout")
 	if timeout <= 0 {
-		return 10 * time.Minute
+		return configdefaults.DefaultTaskTimeout
 	}
 	return timeout
 }

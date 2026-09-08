@@ -9,9 +9,11 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
-const llmTimeoutRetries = 5
+const llmRequestRetries = 5
 
-func (c *fallbackClient) chatWithTimeoutRetry(ctx context.Context, client llm.Client, req llm.Request, profile string) (llm.Result, error) {
+var errStreamConsumer = errors.New("llm stream consumer failed")
+
+func (c *fallbackClient) chatWithRetry(ctx context.Context, client llm.Client, req llm.Request, profile string) (llm.Result, error) {
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return llm.Result{}, err
@@ -19,13 +21,21 @@ func (c *fallbackClient) chatWithTimeoutRetry(ctx context.Context, client llm.Cl
 		// Each provider call creates a fresh request timeout under the task context.
 		attemptReq := req
 		streamOpen := false
+		var streamErr error
 		if req.OnStream != nil {
 			attemptReq.OnStream = func(event llm.StreamEvent) error {
 				streamOpen = !event.Done
-				return req.OnStream(event)
+				if err := req.OnStream(event); err != nil {
+					streamErr = err
+					return err
+				}
+				return nil
 			}
 		}
 		result, err := client.Chat(ctx, attemptReq)
+		if streamErr != nil {
+			return llm.Result{}, errors.Join(errStreamConsumer, streamErr)
+		}
 		if err == nil {
 			return result, nil
 		}
@@ -39,11 +49,17 @@ func (c *fallbackClient) chatWithTimeoutRetry(ctx context.Context, client llm.Cl
 		// the per-request boundary used by streaming parsers, not task completion.
 		if streamOpen {
 			if streamErr := req.OnStream(llm.StreamEvent{Done: true}); streamErr != nil {
-				return llm.Result{}, streamErr
+				return llm.Result{}, errors.Join(errStreamConsumer, streamErr)
 			}
 		}
-		reason, _ := fallbackEligibleReason(err)
-		if attempt >= llmTimeoutRetries || (reason != "timeout" && reason != "status_408" && reason != "status_504") {
+		reason, eligible := fallbackEligibleReason(err)
+		if attempt >= llmRequestRetries || !eligible {
+			return llm.Result{}, err
+		}
+		// Preserve direct fallback for authentication, model/media compatibility,
+		// and rate-limit errors. Retry all other request failures on this profile.
+		switch reason {
+		case "status_401", "status_403", "status_404", "status_415", "status_422", "status_429":
 			return llm.Result{}, err
 		}
 
@@ -51,9 +67,9 @@ func (c *fallbackClient) chatWithTimeoutRetry(ctx context.Context, client llm.Cl
 		limit := time.Second << attempt
 		delay := limit/2 + time.Duration(rand.Int64N(int64(limit/2)))
 		if c.logger != nil {
-			c.logger.Warn("llm_request_timeout_retry",
+			c.logger.Warn("llm_request_retry",
 				"profile", profile, "model", req.Model, "scene", req.Scene,
-				"retry", attempt+1, "max_retries", llmTimeoutRetries,
+				"retry", attempt+1, "max_retries", llmRequestRetries, "reason", reason,
 				"delay", delay, "error", err.Error())
 		}
 		timer := time.NewTimer(delay)

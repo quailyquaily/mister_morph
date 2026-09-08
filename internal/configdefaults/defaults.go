@@ -15,7 +15,7 @@ const (
 	DefaultParseRetries           = agent.DefaultParseRetries
 	DefaultMaxTokenBudget         = 0
 	DefaultToolRepeatLimit        = agent.DefaultToolRepeatLimit
-	DefaultTaskTimeout            = 10 * time.Minute
+	DefaultTaskTimeout            = time.Hour
 	DefaultFileCacheDir           = "~/.cache/morph"
 	DefaultFileCacheMaxAge        = 7 * 24 * time.Hour
 	DefaultFileCacheMaxFiles      = 1000
@@ -210,7 +210,7 @@ func Apply(v *viper.Viper) {
 		v.SetDefault("tools.bash.enabled", true)
 		v.SetDefault("tools.powershell.enabled", false)
 	}
-	v.SetDefault("tools.bash.timeout", 30*time.Second)
+	v.SetDefault("tools.bash.timeout", time.Minute)
 	v.SetDefault("tools.bash.max_output_bytes", 256*1024)
 	v.SetDefault("tools.bash.deny_paths", []string{"config.yaml"})
 	v.SetDefault("tools.bash.path_extra", []string{})
@@ -218,7 +218,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.bash.rewrite.enabled", false)
 	v.SetDefault("tools.bash.rewrite.binary", "")
 
-	v.SetDefault("tools.powershell.timeout", 30*time.Second)
+	v.SetDefault("tools.powershell.timeout", time.Minute)
 	v.SetDefault("tools.powershell.max_output_bytes", 256*1024)
 	v.SetDefault("tools.powershell.deny_paths", []string{"config.yaml"})
 	v.SetDefault("tools.powershell.injected_env_vars", []string{})
@@ -229,7 +229,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.url_fetch.max_bytes_download", int64(100*1024*1024))
 
 	v.SetDefault("tools.web_search.enabled", true)
-	v.SetDefault("tools.web_search.timeout", 20*time.Second)
+	v.SetDefault("tools.web_search.timeout", time.Minute)
 	v.SetDefault("tools.web_search.max_results", 5)
 	v.SetDefault("tools.web_search.base_url", "https://duckduckgo.com/html/")
 

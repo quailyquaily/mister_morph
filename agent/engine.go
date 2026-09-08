@@ -188,7 +188,7 @@ type Engine struct {
 
 func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpec, opts ...Option) *Engine {
 	if cfg.MaxSteps <= 0 {
-		cfg.MaxSteps = 15
+		cfg.MaxSteps = DefaultMaxSteps
 	}
 	if cfg.ParseRetries < 0 {
 		cfg.ParseRetries = 0

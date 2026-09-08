@@ -38,7 +38,7 @@ type BashRewriteConfig struct {
 
 func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, roots pathroots.PathRoots) *BashTool {
 	if defaultTimeout <= 0 {
-		defaultTimeout = 30 * time.Second
+		defaultTimeout = time.Minute
 	}
 	if maxOutputBytes <= 0 {
 		maxOutputBytes = 256 * 1024

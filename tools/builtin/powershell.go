@@ -25,7 +25,7 @@ type PowerShellTool struct {
 
 func NewPowerShellTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, roots pathroots.PathRoots) *PowerShellTool {
 	if defaultTimeout <= 0 {
-		defaultTimeout = 30 * time.Second
+		defaultTimeout = time.Minute
 	}
 	if maxOutputBytes <= 0 {
 		maxOutputBytes = 256 * 1024

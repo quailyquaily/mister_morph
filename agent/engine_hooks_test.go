@@ -416,8 +416,18 @@ func TestWithFallbackFinal_NilIgnored(t *testing.T) {
 func TestEngineConfig_DefaultToolRepeatLimit(t *testing.T) {
 	client := newMockClient(finalResponse("ok"))
 	e := New(client, baseRegistry(), Config{}, DefaultPromptSpec())
-	if e.config.ToolRepeatLimit != 64 {
-		t.Fatalf("tool repeat limit = %d, want 64", e.config.ToolRepeatLimit)
+	if e.config.ToolRepeatLimit != 256 {
+		t.Fatalf("tool repeat limit = %d, want 256", e.config.ToolRepeatLimit)
+	}
+}
+
+func TestEngineConfig_DefaultMaxStepsPreservesZeroParseRetries(t *testing.T) {
+	e := New(newMockClient(finalResponse("ok")), baseRegistry(), Config{}, DefaultPromptSpec())
+	if e.config.MaxSteps != 1024 {
+		t.Errorf("max steps = %d, want 1024", e.config.MaxSteps)
+	}
+	if e.config.ParseRetries != 0 {
+		t.Errorf("explicit zero parse retries = %d, want 0", e.config.ParseRetries)
 	}
 }
 

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -79,7 +81,7 @@ func TestFallbackClientRetriesEachModelBeforeSwitching(t *testing.T) {
 	})
 }
 
-func TestFallbackClientTimeoutRetryClassification(t *testing.T) {
+func TestFallbackClientRequestRetryClassification(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
 		err   error
@@ -92,9 +94,25 @@ func TestFallbackClientTimeoutRetryClassification(t *testing.T) {
 		{"504", errors.New("status 504: gateway timeout"), 6},
 		{"subscription HTTP 408", errors.New("codex subscription inference failed with HTTP 408"), 6},
 		{"subscription HTTP 504", errors.New("codex subscription inference failed with HTTP 504"), 6},
-		{"503", errors.New("status 503: unavailable"), 1},
-		{"400", errors.New("status 400: bad request"), 1},
+		{"500", errors.New("status 500: server error"), 6},
+		{"503", errors.New("status 503: unavailable"), 6},
+		{"529", errors.New("HTTP 529: overloaded"), 6},
+		{"400", errors.New("status 400: bad request"), 6},
+		{"EOF", io.EOF, 6},
+		{"unexpected EOF", io.ErrUnexpectedEOF, 6},
+		{"connection refused", &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}, 6},
+		{"connection reset", &net.OpError{Op: "read", Err: syscall.ECONNRESET}, 6},
+		{"DNS failure", &net.DNSError{Err: "no such host"}, 6},
+		{"unmatched", errors.New("unknown provider failure"), 6},
+		{"401", errors.New("HTTP 401: unauthorized"), 1},
+		{"403", errors.New("HTTP 403: forbidden"), 1},
+		{"404", errors.New("HTTP 404: model not found"), 1},
+		{"415", errors.New("HTTP 415: unsupported media"), 1},
+		{"422", errors.New("HTTP 422: unprocessable entity"), 1},
+		{"429", errors.New("HTTP 429: too many requests"), 1},
+		{"rate limit", errors.New("rate limit reached"), 1},
 		{"canceled", context.Canceled, 1},
+		{"wrapped canceled", fmt.Errorf("request: %w", context.Canceled), 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -152,7 +170,7 @@ func TestFallbackClientStopsWhenTaskEnds(t *testing.T) {
 	}
 }
 
-func TestFallbackClientTimeoutRetrySeparatesStreams(t *testing.T) {
+func TestFallbackClientRequestRetrySeparatesStreams(t *testing.T) {
 	for _, alreadyDone := range []bool{false, true} {
 		t.Run(fmt.Sprintf("alreadyDone=%v", alreadyDone), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -198,19 +216,56 @@ func TestFallbackClientTimeoutRetrySeparatesStreams(t *testing.T) {
 }
 
 func TestFallbackClientTaskDeadlineInterruptsBackoff(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer cancel()
-		calls := 0
-		primary := &testLLMClient{chatFn: func(context.Context, llm.Request) (llm.Result, error) {
-			calls++
-			return llm.Result{}, context.DeadlineExceeded
-		}}
-		client := NewFallbackClient(FallbackClientOptions{Primary: primary, Fallbacks: []FallbackCandidate{{Client: primary}}})
-		start := time.Now()
-		_, err := client.Chat(ctx, llm.Request{})
-		if !errors.Is(err, context.DeadlineExceeded) || calls != 1 || time.Since(start) != 100*time.Millisecond {
-			t.Fatalf("err=%v calls=%d elapsed=%s", err, calls, time.Since(start))
-		}
-	})
+	for _, requestErr := range []error{context.DeadlineExceeded, io.EOF, errors.New("HTTP 400: bad request")} {
+		t.Run(requestErr.Error(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				defer cancel()
+				calls := 0
+				primary := &testLLMClient{chatFn: func(context.Context, llm.Request) (llm.Result, error) {
+					calls++
+					return llm.Result{}, requestErr
+				}}
+				client := NewFallbackClient(FallbackClientOptions{Primary: primary, Fallbacks: []FallbackCandidate{{Client: primary}}})
+				start := time.Now()
+				_, err := client.Chat(ctx, llm.Request{})
+				if !errors.Is(err, context.DeadlineExceeded) || calls != 1 || time.Since(start) != 100*time.Millisecond {
+					t.Fatalf("err=%v calls=%d elapsed=%s", err, calls, time.Since(start))
+				}
+			})
+		})
+	}
+}
+
+func TestFallbackClientDoesNotRetryStreamConsumerFailure(t *testing.T) {
+	for _, failOnDone := range []bool{false, true} {
+		t.Run(fmt.Sprint(failOnDone), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				consumerErr := errors.New("consumer stopped reading")
+				calls, fallbackCalls := 0, 0
+				client := NewFallbackClient(FallbackClientOptions{
+					Primary: &testLLMClient{chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+						calls++
+						if err := req.OnStream(llm.StreamEvent{Delta: "partial"}); err != nil {
+							return llm.Result{}, fmt.Errorf("stream: %w", err)
+						}
+						return llm.Result{}, io.EOF
+					}},
+					Fallbacks: []FallbackCandidate{{Client: &testLLMClient{chatFn: func(context.Context, llm.Request) (llm.Result, error) {
+						fallbackCalls++
+						return llm.Result{Text: "unexpected"}, nil
+					}}}},
+				})
+				_, err := client.Chat(context.Background(), llm.Request{OnStream: func(event llm.StreamEvent) error {
+					if event.Done == failOnDone {
+						return consumerErr
+					}
+					return nil
+				}})
+				if !errors.Is(err, consumerErr) || calls != 1 || fallbackCalls != 0 {
+					t.Fatalf("err=%v calls=%d fallback=%d", err, calls, fallbackCalls)
+				}
+			})
+		})
+	}
 }

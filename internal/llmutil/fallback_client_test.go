@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"testing"
 	"testing/synctest"
 
@@ -74,51 +75,53 @@ func TestFallbackClientFallsBackOnTimeoutAndUsesFallbackModel(t *testing.T) {
 }
 
 func TestFallbackClientFallsBackOnHTTP5xx(t *testing.T) {
-	var primaryCalls int
-	var fallbackCalls int
+	synctest.Test(t, func(t *testing.T) {
+		var primaryCalls int
+		var fallbackCalls int
 
-	client := NewFallbackClient(FallbackClientOptions{
-		Primary: &testLLMClient{
-			chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
-				primaryCalls++
-				if req.Model != "gpt-5.2" {
-					t.Fatalf("primary model = %q, want gpt-5.2", req.Model)
-				}
-				return llm.Result{}, errors.New("openai API request failed with status 503: service unavailable")
+		client := NewFallbackClient(FallbackClientOptions{
+			Primary: &testLLMClient{
+				chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+					primaryCalls++
+					if req.Model != "gpt-5.2" {
+						t.Fatalf("primary model = %q, want gpt-5.2", req.Model)
+					}
+					return llm.Result{}, errors.New("openai API request failed with status 503: service unavailable")
+				},
 			},
-		},
-		PrimaryProfile: "default",
-		PrimaryModel:   "gpt-5.2",
-		Fallbacks: []FallbackCandidate{
-			{
-				Profile: "cheap",
-				Model:   "gpt-4.1-mini",
-				Client: &testLLMClient{
-					chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
-						fallbackCalls++
-						if req.Model != "gpt-4.1-mini" {
-							t.Fatalf("fallback model = %q, want gpt-4.1-mini", req.Model)
-						}
-						return llm.Result{Text: "ok"}, nil
+			PrimaryProfile: "default",
+			PrimaryModel:   "gpt-5.2",
+			Fallbacks: []FallbackCandidate{
+				{
+					Profile: "cheap",
+					Model:   "gpt-4.1-mini",
+					Client: &testLLMClient{
+						chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+							fallbackCalls++
+							if req.Model != "gpt-4.1-mini" {
+								t.Fatalf("fallback model = %q, want gpt-4.1-mini", req.Model)
+							}
+							return llm.Result{Text: "ok"}, nil
+						},
 					},
 				},
 			},
-		},
-	})
+		})
 
-	result, err := client.Chat(context.Background(), llm.Request{Model: "gpt-5.2"})
-	if err != nil {
-		t.Fatalf("Chat() error = %v", err)
-	}
-	if result.Text != "ok" {
-		t.Fatalf("result text = %q, want ok", result.Text)
-	}
-	if primaryCalls != 1 {
-		t.Fatalf("primary calls = %d, want 1", primaryCalls)
-	}
-	if fallbackCalls != 1 {
-		t.Fatalf("fallback calls = %d, want 1", fallbackCalls)
-	}
+		result, err := client.Chat(context.Background(), llm.Request{Model: "gpt-5.2"})
+		if err != nil {
+			t.Fatalf("Chat() error = %v", err)
+		}
+		if result.Text != "ok" {
+			t.Fatalf("result text = %q, want ok", result.Text)
+		}
+		if primaryCalls != 6 {
+			t.Fatalf("primary calls = %d, want 6", primaryCalls)
+		}
+		if fallbackCalls != 1 {
+			t.Fatalf("fallback calls = %d, want 1", fallbackCalls)
+		}
+	})
 }
 
 func TestFallbackClientFallsBackOnConfigured4xx(t *testing.T) {
@@ -169,36 +172,34 @@ func TestFallbackClientFallsBackOnConfigured4xx(t *testing.T) {
 	}
 }
 
-func TestFallbackClientDoesNotFallbackOnNonTransientError(t *testing.T) {
-	var fallbackCalls int
-	client := NewFallbackClient(FallbackClientOptions{
-		Primary: &testLLMClient{
-			chatFn: func(_ context.Context, _ llm.Request) (llm.Result, error) {
-				return llm.Result{}, errors.New("openai API request failed with status 400: bad request")
-			},
-		},
-		PrimaryProfile: "default",
-		PrimaryModel:   "gpt-5.2",
-		Fallbacks: []FallbackCandidate{
-			{
-				Profile: "cheap",
-				Model:   "gpt-4.1-mini",
-				Client: &testLLMClient{
-					chatFn: func(_ context.Context, _ llm.Request) (llm.Result, error) {
-						fallbackCalls++
-						return llm.Result{Text: "unexpected"}, nil
+func TestFallbackClientRetriesUnmatchedErrorsBeforeEachFallback(t *testing.T) {
+	for _, requestErr := range []error{errors.New("HTTP 400: bad request"), io.EOF, errors.New("unknown provider failure")} {
+		t.Run(requestErr.Error(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				counts := map[string]int{}
+				failing := &testLLMClient{chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+					counts[req.Model]++
+					if req.Model == "backup" && counts["main"] != 6 {
+						t.Fatal("switched profile before exhausting retries")
+					}
+					return llm.Result{}, requestErr
+				}}
+				client := NewFallbackClient(FallbackClientOptions{
+					Primary: failing,
+					Fallbacks: []FallbackCandidate{
+						{Model: "backup", Client: failing},
+						{Model: "last", Client: &testLLMClient{chatFn: func(context.Context, llm.Request) (llm.Result, error) {
+							counts["last"]++
+							return llm.Result{Text: "ok"}, nil
+						}}},
 					},
-				},
-			},
-		},
-	})
-
-	_, err := client.Chat(context.Background(), llm.Request{Model: "gpt-5.2"})
-	if err == nil {
-		t.Fatalf("expected primary error")
-	}
-	if fallbackCalls != 0 {
-		t.Fatalf("fallback calls = %d, want 0", fallbackCalls)
+				})
+				result, err := client.Chat(context.Background(), llm.Request{Model: "main"})
+				if err != nil || result.Text != "ok" || counts["main"] != 6 || counts["backup"] != 6 || counts["last"] != 1 {
+					t.Fatalf("result=%+v err=%v counts=%v", result, err, counts)
+				}
+			})
+		})
 	}
 }
 
@@ -220,7 +221,11 @@ func TestFallbackEligibleReason(t *testing.T) {
 		{name: "529", err: errors.New("openai API request failed with status 529: overloaded"), want: "status_529", wantOK: true},
 		{name: "503", err: errors.New("openai API request failed with status 503: service unavailable"), want: "status_503", wantOK: true},
 		{name: "500 status code", err: errors.New("upstream API request failed with status code 500"), want: "status_500", wantOK: true},
-		{name: "non transient", err: errors.New("openai API request failed with status 400: bad request"), want: "", wantOK: false},
+		{name: "400", err: errors.New("openai API request failed with status 400: bad request"), want: "status_400", wantOK: true},
+		{name: "EOF", err: io.EOF, want: "request_error", wantOK: true},
+		{name: "unmatched", err: errors.New("unknown provider failure"), want: "request_error", wantOK: true},
+		{name: "nil", want: "", wantOK: false},
+		{name: "canceled", err: context.Canceled, want: "", wantOK: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

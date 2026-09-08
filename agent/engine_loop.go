@@ -15,7 +15,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
-	"golang.org/x/sync/errgroup"
 )
 
 type engineLoopState struct {
@@ -40,7 +39,8 @@ type engineLoopState struct {
 	pendingTool            *pendingToolSnapshot
 	approvedActionIdentity string
 
-	nextStep int
+	nextStep           int
+	deadlineConclusion bool
 
 	// Run-local tool tracking caches. They are rebuilt from successful historical
 	// steps when a run starts/resumes, and never persisted in resume state.
@@ -94,10 +94,18 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 		Status:     "running",
 	})
 	defer func() {
+		if err != nil && final == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) &&
+			SubtaskDepthFromContext(ctx) == 0 && !st.contextCompactionOnly && !st.deadlineConclusion {
+			e.applyFinalQueuedSteer(context.WithoutCancel(ctx), st, "")
+			final, agentCtx, err = e.forceConclusion(ctx, st, forceConclusionTaskDeadline, log)
+		}
 		event := Event{
 			Kind:       EventKindTurnDone,
 			ActivityID: "turn",
 			Status:     "done",
+		}
+		if st.deadlineConclusion {
+			event.Reason = "task_deadline_exceeded"
 		}
 		if err != nil {
 			event.Status = "failed"
@@ -115,7 +123,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				}
 			}
 		}
-		if event.Kind == EventKindTurnCanceled {
+		if event.Kind == EventKindTurnCanceled || st.deadlineConclusion {
 			EmitEventDetached(ctx, nil, event)
 			return
 		}
@@ -134,6 +142,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 		return final, st.agentCtx, err
 	}
 
+	conclusionReason := forceConclusionMaxSteps
 	for step := st.nextStep; step < st.agentCtx.MaxSteps; step++ {
 		if err := ctx.Err(); err != nil {
 			log.Warn("run_cancelled", "step", step, "error", err.Error())
@@ -189,6 +198,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 
 			if e.config.MaxTokenBudget > 0 && st.agentCtx.Metrics.TotalTokens > e.config.MaxTokenBudget {
 				log.Warn("token_budget_exceeded", "step", step, "total_tokens", st.agentCtx.Metrics.TotalTokens, "budget", e.config.MaxTokenBudget)
+				conclusionReason = forceConclusionTokenBudget
 				break
 			}
 
@@ -208,6 +218,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					st.agentCtx.Metrics.ParseRetries = st.parseFailures
 					log.Warn("parse_error", "step", step, "retries", st.parseFailures, "error", parseErr.Error())
 					if st.parseFailures > e.config.ParseRetries {
+						conclusionReason = forceConclusionParseRetries
 						break
 					}
 					if strings.TrimSpace(result.Text) != "" {
@@ -381,6 +392,8 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 
 			// --- Phase 1: serial pre-check (repeat limit, guard) ---
 			type toolExecItem struct {
+				index       int
+				processed   bool
 				tc          ToolCall
 				toolNameKey string
 				terminates  bool
@@ -400,6 +413,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				tc := toolCalls[i]
 				toolNameKey := normalizedToolName(tc.Name)
 				items[i] = toolExecItem{
+					index:       i,
 					tc:          tc,
 					toolNameKey: toolNameKey,
 					terminates:  isBashTerminationCall(tc),
@@ -470,119 +484,28 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				items = items[:approvalIndex]
 			}
 
-			// --- Phase 2: ordered execution by default; explicitly safe batches may run concurrently ---
-			execCtx := ctx
-			var execCancel context.CancelFunc
-			if e.config.ToolCallTimeout > 0 {
-				execCtx, execCancel = context.WithTimeout(ctx, e.config.ToolCallTimeout)
-			} else {
-				execCtx, execCancel = context.WithCancel(ctx)
-			}
-
-			startItem := func(item *toolExecItem) {
-				if e.onToolStart != nil {
-					e.onToolStart(st.agentCtx, item.tc.Name)
-				}
-				if e.onToolCallStart != nil {
-					e.onToolCallStart(st.agentCtx, item.tc)
-				}
-			}
-
-			parallelBatch := approvalIndex == -1 && st.pendingTool == nil
-			runnableCount := 0
-			if parallelBatch {
-				for i := range items {
-					if items[i].skip {
-						continue
-					}
-					if items[i].terminates {
-						parallelBatch = false
-						break
-					}
-					runnableCount++
-					tool, ok := e.registry.Get(items[i].tc.Name)
-					capability, safe := tool.(tools.ParallelSafe)
-					if !ok || !safe || !capability.ParallelSafe() {
-						parallelBatch = false
-						break
-					}
-					if stopper, ok := tool.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
-						parallelBatch = false
-						break
-					}
-				}
-			}
-			parallelBatch = parallelBatch && runnableCount > 1
-
-			if parallelBatch {
-				g, gCtx := errgroup.WithContext(execCtx)
-				for i := range items {
-					if items[i].skip {
-						items[i].duration = time.Since(items[i].stepStart)
-						continue
-					}
-					item := &items[i]
-					item.stepStart = time.Now()
-					startItem(item)
-					g.Go(func() error {
-						item.observation, item.err = e.executeTool(gCtx, st, step, &item.tc)
-						item.executed = true
-						item.duration = time.Since(item.stepStart)
-						return nil
-					})
-				}
-				_ = g.Wait()
-			} else {
-				for i := range items {
-					item := &items[i]
-					if item.skip {
-						item.duration = time.Since(item.stepStart)
-						continue
-					}
-					if err := execCtx.Err(); err != nil {
-						item.observation = fmt.Sprintf("Error: tool execution canceled before start: %s", err)
-						item.err = err
-						item.skip = true
-						item.duration = time.Since(item.stepStart)
-						continue
-					}
-					item.stepStart = time.Now()
-					startItem(item)
-					item.observation, item.err = e.executeTool(execCtx, st, step, &item.tc)
-					item.executed = true
-					item.duration = time.Since(item.stepStart)
-					if item.err == nil {
-						if item.terminates {
-							items = items[:i+1]
-							break
-						}
-						if tool, ok := e.registry.Get(item.tc.Name); ok {
-							if stopper, ok := tool.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
-								items = items[:i+1]
-								break
-							}
-						}
-					}
-				}
-			}
-			execCancel()
-
-			// --- Phase 3: serial post-processing (in original order) ---
+			// Record completions immediately, while model-facing results remain in call order.
 			var earlyStop bool
-			for i := range items {
-				item := &items[i]
+			completeItem := func(item *toolExecItem) error {
+				item.processed = true
 				tc := item.tc
+				completionCtx := ctx
+				if ctx.Err() != nil {
+					var cancel context.CancelFunc
+					completionCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+					defer cancel()
+				}
 
 				if item.executed {
 					var guardErr error
-					item.observation, item.err, guardErr = e.guardPostRedact(ctx, st, step, &tc, item.observation, item.err)
+					item.observation, item.err, guardErr = e.guardPostRedact(completionCtx, st, step, &tc, item.observation, item.err)
 					if guardErr != nil {
-						return nil, st.agentCtx, guardErr
+						return guardErr
 					}
 				}
 
-				if item.executed && item.err != nil {
-					// Roll back pre-reserved counts from Phase 1 for failed executions.
+				if !item.skip && item.err != nil {
+					// Failed or canceled calls do not consume the successful-call limit.
 					if item.toolNameKey != "" && st.toolRunCounts[item.toolNameKey] > 0 {
 						st.toolRunCounts[item.toolNameKey] = st.toolRunCounts[item.toolNameKey] - 1
 					}
@@ -669,7 +592,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 						"observation_len", len(item.observation),
 					)
 				}
-				EmitEvent(ctx, nil, Event{
+				EmitEvent(completionCtx, nil, Event{
 					Kind:       EventKindToolDone,
 					Step:       step,
 					ActivityID: toolActivityID(step, &tc),
@@ -689,6 +612,177 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 						}
 					}
 				}
+
+				return nil
+			}
+
+			// --- Phase 2: ordered execution by default; explicitly safe batches may run concurrently ---
+			var execCtx context.Context
+			var execCancel context.CancelFunc
+			if e.config.ToolCallTimeout > 0 {
+				execCtx, execCancel = context.WithTimeout(ctx, e.config.ToolCallTimeout)
+			} else {
+				execCtx, execCancel = context.WithCancel(ctx)
+			}
+			defer execCancel()
+			// Late worker events must not overwrite the canceled batch's recorded state.
+			workerCtx := execCtx
+			if sink, ok := EventSinkFromContext(ctx); ok {
+				workerCtx = WithEventSinkContext(execCtx, EventSinkFunc(func(eventCtx context.Context, event Event) {
+					if execCtx.Err() == nil {
+						sink.HandleEvent(eventCtx, event)
+					}
+				}))
+			}
+
+			parallelBatch := approvalIndex == -1 && st.pendingTool == nil
+			runnableCount := 0
+			if parallelBatch {
+				for i := range items {
+					if items[i].skip {
+						continue
+					}
+					if items[i].terminates {
+						parallelBatch = false
+						break
+					}
+					runnableCount++
+					tool, ok := e.registry.Get(items[i].tc.Name)
+					capability, safe := tool.(tools.ParallelSafe)
+					if !ok || !safe || !capability.ParallelSafe() {
+						parallelBatch = false
+						break
+					}
+					if stopper, ok := tool.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
+						parallelBatch = false
+						break
+					}
+				}
+			}
+			parallelBatch = parallelBatch && runnableCount > 1
+
+			// Workers own copies and never mutate loop state. Buffered delivery lets
+			// a worker return safely even after the parent has stopped waiting.
+			completed := make(chan toolExecItem, len(items))
+			startItem := func(i int) {
+				items[i].stepStart = time.Now()
+				if e.onToolStart != nil {
+					e.onToolStart(st.agentCtx, items[i].tc.Name)
+				}
+				if e.onToolCallStart != nil {
+					e.onToolCallStart(st.agentCtx, items[i].tc)
+				}
+				go func(item toolExecItem) {
+					item.observation, item.err = e.executeTool(workerCtx, st, step, &item.tc)
+					item.executed = true
+					item.duration = time.Since(item.stepStart)
+					completed <- item
+				}(items[i])
+			}
+			acceptItem := func(item toolExecItem) error {
+				items[item.index] = item
+				return completeItem(&items[item.index])
+			}
+			cancelItem := func(item *toolExecItem) error {
+				item.err = execCtx.Err()
+				item.observation = fmt.Sprintf("Error: tool did not return before cancellation (%s); its outcome is unknown.", item.err)
+				item.duration = time.Since(item.stepStart)
+				return completeItem(item)
+			}
+
+			if parallelBatch {
+				pending := 0
+				for i := range items {
+					if items[i].skip {
+						items[i].duration = time.Since(items[i].stepStart)
+						if err := completeItem(&items[i]); err != nil {
+							return nil, st.agentCtx, err
+						}
+					} else if execCtx.Err() != nil {
+						if err := cancelItem(&items[i]); err != nil {
+							return nil, st.agentCtx, err
+						}
+					} else {
+						startItem(i)
+						pending++
+					}
+				}
+				for pending > 0 {
+					select {
+					case item := <-completed:
+						if err := acceptItem(item); err != nil {
+							return nil, st.agentCtx, err
+						}
+						pending--
+					case <-execCtx.Done():
+						// Keep all results already returned at the deadline.
+					drain:
+						for pending > 0 {
+							select {
+							case item := <-completed:
+								if err := acceptItem(item); err != nil {
+									return nil, st.agentCtx, err
+								}
+								pending--
+							default:
+								break drain
+							}
+						}
+						for i := range items {
+							if !items[i].processed {
+								if err := cancelItem(&items[i]); err != nil {
+									return nil, st.agentCtx, err
+								}
+							}
+						}
+						pending = 0
+					}
+				}
+			} else {
+				for i := range items {
+					if items[i].skip {
+						items[i].duration = time.Since(items[i].stepStart)
+						if err := completeItem(&items[i]); err != nil {
+							return nil, st.agentCtx, err
+						}
+						continue
+					}
+					if execCtx.Err() != nil {
+						if err := cancelItem(&items[i]); err != nil {
+							return nil, st.agentCtx, err
+						}
+						continue
+					}
+					startItem(i)
+					select {
+					case item := <-completed:
+						if err := acceptItem(item); err != nil {
+							return nil, st.agentCtx, err
+						}
+					case <-execCtx.Done():
+						select {
+						case item := <-completed:
+							if err := acceptItem(item); err != nil {
+								return nil, st.agentCtx, err
+							}
+						default:
+							if err := cancelItem(&items[i]); err != nil {
+								return nil, st.agentCtx, err
+							}
+						}
+					}
+					if earlyStop {
+						items = items[:i+1]
+						break
+					}
+				}
+			}
+			execCancel()
+
+			// --- Phase 3: append tool messages in the provider's original order ---
+			for i := range items {
+				item := &items[i]
+				tc := item.tc
 
 				observationForModel := item.observation
 				if item.err == nil && isUntrustedTool(tc.Name) {
@@ -740,7 +834,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 	}
 
 	e.applyFinalQueuedSteer(ctx, st, "")
-	return e.forceConclusion(ctx, st, log)
+	return e.forceConclusion(ctx, st, conclusionReason, log)
 }
 
 func (e *Engine) applyQueuedSteer(ctx context.Context, st *engineLoopState, assistantText string) bool {
@@ -990,6 +1084,9 @@ func isBashTerminationCall(call ToolCall) bool {
 }
 
 func toolEventStatus(err error) string {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "canceled"
+	}
 	if err != nil {
 		return "failed"
 	}

@@ -57,7 +57,9 @@ llm:
   # Change this value to force a new cache group during testing.
   cache_key_prefix: ""
   # Per-LLM HTTP request timeout (0 uses provider default).
-  # Request timeouts retry the same profile up to 5 times before fallback.
+  # Request failures (including timeouts, 5xx, 400, and network errors) retry
+  # the same profile up to 5 times before fallback. 401/403/404/415/422/429
+  # and rate-limit errors still switch directly to fallback.
   # Retries use exponential backoff with jitter and share the task deadline.
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
@@ -314,7 +316,7 @@ tools:
     # DuckDuckGo HTML endpoint.
     base_url: "https://duckduckgo.com/html/"
     # Per-request timeout.
-    timeout: "20s"
+    timeout: "60s"
     # Default max results (tool also enforces a hard cap).
     max_results: 5
   # Dangerous: enables local shell execution.
@@ -327,7 +329,7 @@ tools:
     # Default: auto (true on Linux/macOS, false on Windows).
     # enabled: true
     # Default timeout for each bash command.
-    timeout: "30s"
+    timeout: "60s"
     # Max combined output bytes kept per stream (stdout/stderr) before truncation.
     max_output_bytes: 262144
     # Denylist for sensitive local files. If a command references one of these paths, the tool errors.
@@ -358,7 +360,7 @@ tools:
     # Default: auto (true on Windows, false on Linux/macOS).
     # enabled: true
     # Default timeout for each powershell command.
-    timeout: "30s"
+    timeout: "60s"
     # Max combined output bytes kept per stream (stdout/stderr) before truncation.
     max_output_bytes: 262144
     # Denylist for sensitive local files. If a command references one of these paths, the tool errors.
@@ -684,13 +686,13 @@ cron:
 
 # Agent loop limits.
 # - max_steps: maximum tool-call steps in the ReAct loop.
-max_steps: 64
+max_steps: 1024
 # - parse_retries: how many times to ask the model to retry if it emits invalid JSON.
-parse_retries: 2
+parse_retries: 16
 # - max_token_budget: stop the loop once cumulative tokens exceed this (0 disables).
 max_token_budget: 0
 # - tool_repeat_limit: maximum executions per tool name within one run.
-tool_repeat_limit: 64
+tool_repeat_limit: 256
 
 # Context checkpoint compaction for conversation-bound runtimes.
 context_compaction:
@@ -698,8 +700,11 @@ context_compaction:
   enabled: true
   # Trigger after the latest main-loop input reaches this share of the usable input window.
   trigger_ratio: 0.80
-# Overall run timeout.
-timeout: "10m"
+# Overall task execution timeout. On expiry, the root agent stops tool work
+# and summarizes partial results (no tools), using the selected LLM profile's
+# request_timeout for each request, including retries and fallback attempts.
+# Explicit cancellation does not start this summary phase.
+timeout: "60m"
 
 # Default project directory for scopes without a workspace attachment.
 # The directory must already exist and be readable. Empty disables the default.

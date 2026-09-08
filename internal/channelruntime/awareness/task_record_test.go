@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -46,6 +47,53 @@ func (s *awarenessTaskRecordStore) RecordTaskUpdate(id string, _ daemonruntime.T
 type awarenessTaskErrorClient struct {
 	err   error
 	calls int
+}
+
+type awarenessDeadlineClient struct{ calls int }
+
+func (c *awarenessDeadlineClient) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
+	c.calls++
+	if c.calls == 1 {
+		<-ctx.Done()
+		return llm.Result{}, ctx.Err()
+	}
+	if ctx.Err() != nil || len(req.Tools) != 0 {
+		return llm.Result{}, errors.New("invalid deadline conclusion request")
+	}
+	return llm.Result{Text: `{"type":"final","output":"Task deadline reached; partial results only."}`}, nil
+}
+
+func TestCronDeadlineRecordsPartialConclusion(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &awarenessTaskRecordStore{MemoryStore: daemonruntime.NewMemoryStore(10)}
+		client := &awarenessDeadlineClient{}
+		summary, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+			PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+				return agent.PromptSpec{Identity: "identity"}, nil, nil
+			},
+		}, awarenessTaskOptions{
+			Behavior:     awarenessutil.BehaviorCron,
+			Client:       client,
+			Model:        "test-model",
+			Task:         "cron review",
+			TaskRunID:    "awareness:cron:deadline",
+			TaskTimeout:  time.Second,
+			BaseRegistry: tools.NewRegistry(),
+			Config:       agent.Config{MaxSteps: 3},
+			TaskStore:    store,
+		})
+		if err != nil || client.calls != 2 || !strings.Contains(summary, "partial results") {
+			t.Fatalf("summary=%q err=%v calls=%d", summary, err, client.calls)
+		}
+		items := store.List(daemonruntime.TaskListOptions{Limit: 10})
+		if len(items) != 1 || items[0].Status != daemonruntime.TaskDone {
+			t.Fatalf("tasks=%+v", items)
+		}
+		final, _ := items[0].Result.(map[string]any)["final"].(map[string]any)
+		if final["output"] != summary {
+			t.Fatalf("stored output=%v, want %q", final["output"], summary)
+		}
+	})
 }
 
 func (c *awarenessTaskErrorClient) Chat(context.Context, llm.Request) (llm.Result, error) {

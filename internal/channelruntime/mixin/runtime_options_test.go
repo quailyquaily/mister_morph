@@ -12,8 +12,8 @@ func TestNormalizeRunOptionsDefaults(t *testing.T) {
 	t.Parallel()
 
 	opts := normalizeRunOptions(RunOptions{})
-	if opts.TaskTimeout != 10*time.Minute {
-		t.Fatalf("task timeout = %s, want 10m", opts.TaskTimeout)
+	if opts.TaskTimeout != time.Hour {
+		t.Fatalf("task timeout = %s, want 1h", opts.TaskTimeout)
 	}
 	if opts.MaxConcurrency != 3 {
 		t.Fatalf("max concurrency = %d, want 3", opts.MaxConcurrency)

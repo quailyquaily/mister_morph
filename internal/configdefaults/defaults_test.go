@@ -1,10 +1,64 @@
 package configdefaults
 
 import (
+	"bytes"
 	"testing"
+	"time"
 
+	"github.com/quailyquaily/mistermorph/assets"
 	"github.com/spf13/viper"
 )
+
+func TestRuntimeDefaultsMatchConfigTemplate(t *testing.T) {
+	raw, err := assets.ConfigFS.ReadFile("config/config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := viper.New()
+	template.SetConfigType("yaml")
+	if err := template.ReadConfig(bytes.NewReader(raw)); err != nil {
+		t.Fatal(err)
+	}
+	defaults := viper.New()
+	Apply(defaults)
+	for key, want := range map[string]int{
+		"max_steps": 1024, "parse_retries": 16, "tool_repeat_limit": 256, "max_token_budget": 0,
+	} {
+		t.Run(key, func(t *testing.T) {
+			if got := defaults.GetInt(key); got != want {
+				t.Errorf("default = %d, want %d", got, want)
+			}
+			if got := template.GetInt(key); got != want {
+				t.Errorf("template = %d, want %d", got, want)
+			}
+			defaults.Set(key, 3)
+			Apply(defaults)
+			if got := defaults.GetInt(key); got != 3 {
+				t.Errorf("explicit value = %d, want 3", got)
+			}
+		})
+	}
+	for key, want := range map[string]time.Duration{
+		"timeout":                  time.Hour,
+		"tools.web_search.timeout": time.Minute,
+		"tools.bash.timeout":       time.Minute,
+		"tools.powershell.timeout": time.Minute,
+	} {
+		t.Run(key, func(t *testing.T) {
+			if got := defaults.GetDuration(key); got != want {
+				t.Errorf("default = %s, want %s", got, want)
+			}
+			if got := template.GetDuration(key); got != want {
+				t.Errorf("template = %s, want %s", got, want)
+			}
+			defaults.Set(key, "7s")
+			Apply(defaults)
+			if got := defaults.GetDuration(key); got != 7*time.Second {
+				t.Errorf("explicit value = %s, want 7s", got)
+			}
+		})
+	}
+}
 
 func TestApplySetsContextCompactionDefaults(t *testing.T) {
 	v := viper.New()

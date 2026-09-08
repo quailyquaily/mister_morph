@@ -31,7 +31,7 @@ func NewWebSearchTool(enabled bool, baseURL string, timeout time.Duration, maxRe
 		baseURL = "https://duckduckgo.com/html/"
 	}
 	if timeout <= 0 {
-		timeout = 20 * time.Second
+		timeout = time.Minute
 	}
 	if maxResults <= 0 {
 		maxResults = 5

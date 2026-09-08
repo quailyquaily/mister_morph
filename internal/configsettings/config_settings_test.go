@@ -27,8 +27,8 @@ func TestViewReportsDefaultsExplicitValuesAndSecretState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := view.Values["max_steps"]; got != 15 {
-		t.Fatalf("default max_steps = %#v, want 15", got)
+	if got := view.Values["max_steps"]; got != 1024 {
+		t.Fatalf("default max_steps = %#v, want 1024", got)
 	}
 	if got := view.Values["timeout"]; got != "45s" {
 		t.Fatalf("timeout = %#v, want 45s", got)

@@ -63,7 +63,7 @@ func (c *fallbackClient) Chat(ctx context.Context, req llm.Request) (llm.Result,
 	if c == nil || c.primary == nil {
 		return llm.Result{}, errors.New("fallback client is not initialized")
 	}
-	result, err := c.chatWithTimeoutRetry(ctx, c.primary, req, c.primaryProfile)
+	result, err := c.chatWithRetry(ctx, c.primary, req, c.primaryProfile)
 	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) || len(c.fallbacks) == 0 {
 		return result, err
 	}
@@ -78,7 +78,7 @@ func (c *fallbackClient) Chat(ctx context.Context, req llm.Request) (llm.Result,
 		fallbackReq := req
 		fallbackReq.Model = fallback.Model
 
-		result, err = c.chatWithTimeoutRetry(ctx, fallback.Client, fallbackReq, fallback.Profile)
+		result, err = c.chatWithRetry(ctx, fallback.Client, fallbackReq, fallback.Profile)
 		if err == nil {
 			c.logFallback("llm_profile_fallback_succeeded", idx+1, fallback.Profile, fallback.Model, reason, lastErr)
 			return result, nil
@@ -87,12 +87,11 @@ func (c *fallbackClient) Chat(ctx context.Context, req llm.Request) (llm.Result,
 			return llm.Result{}, err
 		}
 		lastErr = err
-		nextReason, transient := fallbackEligibleReason(err)
-		if transient {
-			c.logFallback("llm_profile_fallback_candidate_failed", idx+1, fallback.Profile, fallback.Model, nextReason, err)
-		} else {
-			c.logFallback("llm_profile_fallback_candidate_failed", idx+1, fallback.Profile, fallback.Model, "non_transient", err)
+		nextReason, eligible := fallbackEligibleReason(err)
+		if !eligible {
+			return llm.Result{}, err
 		}
+		c.logFallback("llm_profile_fallback_candidate_failed", idx+1, fallback.Profile, fallback.Model, nextReason, err)
 	}
 	c.logFallback("llm_profile_fallback_exhausted", len(c.fallbacks), "", "", reason, lastErr)
 	return llm.Result{}, lastErr
@@ -133,7 +132,7 @@ func (c *fallbackClient) logFallback(event string, attempt int, profile string, 
 }
 
 func fallbackEligibleReason(err error) (string, bool) {
-	if err == nil {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, errStreamConsumer) {
 		return "", false
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -146,9 +145,7 @@ func fallbackEligibleReason(err error) (string, bool) {
 
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
 	if status, ok := fallbackHTTPStatus(msg); ok {
-		if reason, eligible := fallbackStatusReason(status); eligible {
-			return reason, true
-		}
+		return fmt.Sprintf("status_%d", status), true
 	}
 
 	switch {
@@ -164,7 +161,7 @@ func fallbackEligibleReason(err error) (string, bool) {
 		strings.Contains(msg, "timed out"):
 		return "timeout", true
 	default:
-		return "", false
+		return "request_error", true
 	}
 }
 
@@ -181,15 +178,4 @@ func fallbackHTTPStatus(msg string) (int, bool) {
 		return 0, false
 	}
 	return status, true
-}
-
-func fallbackStatusReason(status int) (string, bool) {
-	switch {
-	case status == 401, status == 403, status == 404, status == 408, status == 415, status == 422, status == 429:
-		return fmt.Sprintf("status_%d", status), true
-	case status >= 500 && status <= 599:
-		return fmt.Sprintf("status_%d", status), true
-	default:
-		return "", false
-	}
 }

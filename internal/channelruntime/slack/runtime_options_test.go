@@ -22,8 +22,8 @@ func TestNormalizeSlackRunStringSlice(t *testing.T) {
 
 func TestNormalizeRunOptionsDefaults(t *testing.T) {
 	got := normalizeRunOptions(RunOptions{})
-	if got.TaskTimeout != 10*time.Minute {
-		t.Fatalf("task timeout = %v, want 10m", got.TaskTimeout)
+	if got.TaskTimeout != time.Hour {
+		t.Fatalf("task timeout = %v, want 1h", got.TaskTimeout)
 	}
 	if got.BusMaxInFlight != 1024 {
 		t.Fatalf("bus max inflight = %d, want 1024", got.BusMaxInFlight)
@@ -34,14 +34,14 @@ func TestNormalizeRunOptionsDefaults(t *testing.T) {
 	if got.Server.Listen != "127.0.0.1:8788" {
 		t.Fatalf("server listen = %q, want 127.0.0.1:8788", got.Server.Listen)
 	}
-	if got.AgentLimits.MaxSteps != 15 {
-		t.Fatalf("agent max steps = %d, want 15", got.AgentLimits.MaxSteps)
+	if got.AgentLimits.MaxSteps != 1024 {
+		t.Fatalf("agent max steps = %d, want 1024", got.AgentLimits.MaxSteps)
 	}
-	if got.AgentLimits.ParseRetries != 2 {
-		t.Fatalf("agent parse retries = %d, want 2", got.AgentLimits.ParseRetries)
+	if got.AgentLimits.ParseRetries != 16 {
+		t.Fatalf("agent parse retries = %d, want 16", got.AgentLimits.ParseRetries)
 	}
-	if got.AgentLimits.ToolRepeatLimit != 64 {
-		t.Fatalf("agent tool repeat limit = %d, want 64", got.AgentLimits.ToolRepeatLimit)
+	if got.AgentLimits.ToolRepeatLimit != 256 {
+		t.Fatalf("agent tool repeat limit = %d, want 256", got.AgentLimits.ToolRepeatLimit)
 	}
 	if got.MaxConcurrency != 3 {
 		t.Fatalf("max concurrency = %d, want 3", got.MaxConcurrency)
