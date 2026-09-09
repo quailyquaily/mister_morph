@@ -10,7 +10,11 @@ func New(version ...string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "console",
 		Short: "Run console HTTP APIs and SPA",
+		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(newServeCmd(buildVersion))
+	serve := newServeCmd(buildVersion)
+	cmd.AddCommand(serve)
+	cmd.RunE = serve.RunE
+	cmd.Flags().AddFlagSet(serve.Flags())
 	return cmd
 }

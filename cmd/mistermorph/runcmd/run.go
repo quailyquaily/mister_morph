@@ -175,8 +175,25 @@ func newCLIRunPreparer(prep cliRunPreparation, deps Dependencies) (*taskruntime.
 
 func New(deps Dependencies) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run",
+		Use:   "run [task...]",
 		Short: "Run an agent task",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return nil
+			}
+			if cmd.Flags().Changed("task") {
+				return fmt.Errorf("provide task text either as arguments or with --task, not both")
+			}
+			if heartbeat, _ := cmd.Flags().GetBool("heartbeat"); heartbeat {
+				return fmt.Errorf("task arguments cannot be used with --heartbeat")
+			}
+			task := strings.TrimSpace(strings.Join(args, " "))
+			if task == "" {
+				return fmt.Errorf("task text must not be empty")
+			}
+			// Normalize positional input to the existing task flag path.
+			return cmd.Flags().Set("task", task)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			isHeartbeat := configutil.FlagOrViperBool(cmd, "heartbeat", "")
 			task := ""
@@ -209,7 +226,7 @@ func New(deps Dependencies) *cobra.Command {
 					}
 				}
 				if task == "" {
-					return fmt.Errorf("missing --task (or stdin)")
+					return fmt.Errorf("missing task: provide task arguments, --task, or stdin")
 				}
 			}
 
@@ -444,7 +461,7 @@ func New(deps Dependencies) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().String("task", "", "Task to run (if empty, reads from stdin).")
+	cmd.Flags().String("task", "", "Task to run (alternative to positional task text; if empty, reads from stdin).")
 	cmd.Flags().Bool("heartbeat", false, "Run a single heartbeat check (ignores --task and stdin).")
 	cmd.Flags().String("workspace", "", "Attach a workspace directory for this run.")
 	cmd.Flags().Bool("no-workspace", false, "Run without a workspace attachment.")

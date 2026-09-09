@@ -11,7 +11,7 @@ For the other runtime modes, use the docs below.
 
 ## Console
 
-- Command: `morph console serve`
+- Command: `morph console` (`morph console serve` remains supported)
 - Purpose: local web UI backend plus in-process local runtime
 - Docs: [console.md](./console.md)
 

@@ -49,10 +49,14 @@ Set up a workspace, set an API key, and run one task:
 ```bash
 morph install
 export MISTER_MORPH_LLM_API_KEY="YOUR_API_KEY"
-morph run --task "Hello!"
+morph run "Hello!"
 ```
 
 If `config.yaml` is missing, `morph install` starts the setup wizard and writes the first workspace files.
+
+Run `morph` to start an interactive terminal chat, equivalent to `morph chat`. Chat flags also work without the subcommand, for example `morph --model MODEL`. Use `morph --help` to list commands and options.
+
+Use `morph console` to start the Web Console. The older `morph console serve` and `morph run --task "Hello!"` forms remain supported. For `run`, use either positional task text or `--task`, not both. Quote task text to preserve whitespace; use `--` before task text that starts with a dash.
 
 CLI modes and configuration details: [docs/modes.md](docs/modes.md), [docs/configuration.md](docs/configuration.md)
 

@@ -3,8 +3,10 @@
 This document describes the Console SPA under `web/console`, used by:
 
 ```bash
-morph console serve
+morph console
 ```
+
+`morph console serve` remains supported with the same flags and behavior.
 
 Stack:
 - Vue 3 + Vue Router
@@ -16,7 +18,7 @@ Stack:
 
 - Console APIs are served under `<console.base_path>/api` (default: `/api`).
 - Runtime views (`Chat`, `Runtime`, `Tasks`, `Stats`, `Audit`, `Files`, `Contacts`) read from the endpoint selected in the top bar.
-- `console serve` always exposes one built-in local runtime endpoint (`Console Local`).
+- `console` always exposes one built-in local runtime endpoint (`Console Local`).
   - It runs tasks in its own runtime loop via shared runtime core.
   - Its runtime API uses the shared `daemonruntime` handler. With an explicit `server.auth_token`, the same handler is available at `<console.base_path>/runtime`; no extra TCP listener is started.
   - If `server.auth_token` is unset, the local runtime generates an internal in-process token and does not expose `<console.base_path>/runtime`.
@@ -239,7 +241,7 @@ cd ../..
 MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
 MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN=dev-token \
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
-go run ./cmd/mistermorph console serve
+go run ./cmd/mistermorph console
 ```
 
 Example `config.yaml` snippet (`console.endpoints` is optional now):
@@ -276,7 +278,7 @@ cd ../..
 ```bash
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
 MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
-go run ./cmd/mistermorph console serve
+go run ./cmd/mistermorph console
 ```
 
 3. Start Vite dev server:
@@ -294,6 +296,6 @@ pnpm dev
 Notes:
 - Vite proxies `/api` to `http://127.0.0.1:9080`.
 - During frontend dev, Vite page is enough; backend static `dist` is mainly for production serving.
-- If you omit `--console-static-dir`, `console serve` falls back to its embedded SPA assets.
+- If you omit `--console-static-dir`, `console` falls back to its embedded SPA assets.
 - `./scripts/stage-console-assets.sh` is required before `go run ./cmd/mistermorph ...`, because the CLI validates embedded Console assets at startup.
 - Optional external endpoints should point to an existing channel runtime such as `morph telegram`, `morph slack`, `morph line`, or `morph lark`.

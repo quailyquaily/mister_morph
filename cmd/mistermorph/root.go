@@ -66,6 +66,7 @@ func newRootRuntime() *rootRuntime {
 	cmd := &cobra.Command{
 		Use:               "morph",
 		Short:             "Unified Agent CLI",
+		Long:              "Unified Agent CLI. With no subcommand, start an interactive chat session (same as morph chat).",
 		PersistentPreRunE: runRootPreflight,
 	}
 
@@ -117,12 +118,16 @@ func newRootRuntime() *rootRuntime {
 		RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
 		GuardFromViper:               guardResolver.Guard,
 	}))
-	cmd.AddCommand(chatcmd.New(chatcmd.Dependencies{
+	chat := chatcmd.New(chatcmd.Dependencies{
 		Version:                      version,
 		RegistryFromViper:            registryResolver.Registry,
 		RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
 		GuardFromViper:               guardResolver.Guard,
-	}))
+	})
+	cmd.AddCommand(chat)
+	// The root command is also the default chat entry point.
+	cmd.RunE = chat.RunE
+	cmd.Flags().AddFlagSet(chat.Flags())
 
 	telegramRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
@@ -550,7 +555,7 @@ func shouldPrepareRootRegistry(cmd *cobra.Command) bool {
 		return false
 	}
 	switch cmd.CommandPath() {
-	case "morph run", "morph chat", "morph telegram", "morph slack", "morph line", "morph lark", "morph mixin", "morph tools":
+	case "morph", "morph run", "morph chat", "morph telegram", "morph slack", "morph line", "morph lark", "morph mixin", "morph tools":
 		return true
 	default:
 		return false
