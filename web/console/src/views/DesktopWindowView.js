@@ -2,7 +2,7 @@ import { useToast } from "quail-ui";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import { formatBytes, runtimeApiFetch, translate } from "../core/context";
+import { runtimeApiFetch, translate } from "../core/context";
 import {
   hideDesktopWindow,
   logDesktopRuntimeEvent,
@@ -63,18 +63,6 @@ const DesktopWindowView = {
     const pokeSubmitDisabled = computed(
       () => poking.value || !String(pokeBody.value || "").trim() || pokeBodyTooLarge.value
     );
-    const pokeSizeLabel = computed(() =>
-      t("runtime_poke_size", { used: formatBytes(pokeBodyBytes.value), limit: formatBytes(POKE_BODY_LIMIT) })
-    );
-    const pokeHelperText = computed(() => {
-      if (pokeError.value) {
-        return pokeError.value;
-      }
-      if (pokeBodyTooLarge.value) {
-        return t("runtime_poke_too_large");
-      }
-      return t("runtime_poke_limit", { limit: formatBytes(POKE_BODY_LIMIT) });
-    });
     const activeWindowReady = computed(() => {
       const dialog = activeDialog.value;
       return !!(dialog && typeof dialog.ready === "function" && dialog.ready(dialogContext));
@@ -207,14 +195,6 @@ const DesktopWindowView = {
       }
     }
 
-    function closePokeWindow() {
-      if (poking.value) {
-        return;
-      }
-      pokeError.value = "";
-      hideWindow();
-    }
-
     function closeDialogWindow(payload) {
       sendDesktopWindowMessage({
         target: "parent",
@@ -326,15 +306,12 @@ const DesktopWindowView = {
 
     Object.assign(dialogContext, {
       closeDialogWindow,
-      closePokeWindow,
       codexAuthPayload,
       connectionTestPayload,
       logoutCodexAuth,
       pokeBody,
       pokeBodyTooLarge,
       pokeError,
-      pokeHelperText,
-      pokeSizeLabel,
       pokeSubmitDisabled,
       poking,
       rawJsonPayload,

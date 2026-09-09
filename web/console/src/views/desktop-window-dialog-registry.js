@@ -54,15 +54,12 @@ export const DESKTOP_WINDOW_DIALOGS = {
         bodyTooLarge: ctx.pokeBodyTooLarge.value,
         disabled: ctx.poking.value,
         error: ctx.pokeError.value,
-        helperText: ctx.pokeHelperText.value,
-        sizeLabel: ctx.pokeSizeLabel.value,
         submitDisabled: ctx.pokeSubmitDisabled.value,
         submitting: ctx.poking.value,
       };
     },
     events(ctx) {
       return {
-        cancel: ctx.closePokeWindow,
         submit: ctx.submitPoke,
         "update:body": ctx.updatePokeBody,
       };

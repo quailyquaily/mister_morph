@@ -216,6 +216,19 @@
   padding-top: 0;
 }
 
+.settings-binding {
+  display: grid;
+  gap: 12px;
+  padding-block: 12px;
+}
+
+.settings-bindings-advanced summary {
+  margin-bottom: 8px;
+  color: var(--text-2);
+  font-size: var(--font-size-meta);
+  cursor: pointer;
+}
+
 .settings-panel-head {
   display: flex;
   align-items: flex-start;
@@ -231,10 +244,16 @@
 
 .settings-panel-actions {
   display: flex;
+  flex: 0 0 auto;
+  margin-left: auto;
   align-items: flex-start;
   justify-content: flex-end;
-  flex-wrap: wrap;
   gap: 8px;
+}
+
+.settings-panel-head > .q-button {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .settings-panel-body {
@@ -1090,18 +1109,25 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 }
 
 @media (max-width: 760px) {
-  .settings-panel-head,
   .settings-agent-section-head,
   .settings-console-row {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .settings-panel-head.settings-llm-panel-head,
-  .settings-panel-head.settings-channel-panel-head {
-    flex-direction: row;
-    align-items: flex-start;
+  .settings-panel-head {
     gap: 12px;
+  }
+
+  .settings-password-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-password-head .settings-panel-actions {
+    margin-left: 0;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .settings-form-grid {
@@ -1113,13 +1139,34 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
     grid-template-columns: 1fr;
   }
 
+  .settings-field:has(> .q-switch) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .settings-field:has(> .q-switch) > .config-settings-label-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .settings-field > .q-switch {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .settings-field:has(> .q-switch) > .settings-field-note,
+  .settings-field:has(> .q-switch) > .config-settings-field-meta {
+    grid-column: 1 / -1;
+  }
+
   .settings-field-row,
   .settings-field-row.is-three {
     grid-template-columns: 1fr;
     gap: 8px;
   }
 
-  .settings-panel-actions,
   .settings-console-control,
   .settings-profile-add,
   .settings-profile-placeholder,
@@ -1127,16 +1174,22 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
     width: 100%;
   }
 
-  .settings-panel-actions .q-button,
   .settings-agent-section-head .q-button,
   .settings-console-row .q-button,
   .settings-console-row .settings-console-control {
     width: 100%;
   }
 
-  .settings-console-row .q-button.settings-desktop-update-check-button {
-    align-self: flex-end;
-    width: 34px;
+  .settings-console-row:has(> .q-button.icon),
+  .settings-console-row:has(> .q-switch) {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .settings-console-row > .q-button.icon,
+  .settings-console-row > .q-switch {
+    flex: 0 0 auto;
+    width: auto;
   }
 
   .settings-desktop-update-result-head,

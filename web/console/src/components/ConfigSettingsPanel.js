@@ -1,9 +1,12 @@
 import { computed, reactive, ref, watch } from "vue";
 
 import { buildConfigUpdate, createConfigDraft } from "../core/config-fields";
+import SettingSelect from "./SettingSelect";
+import SettingChoices from "./SettingChoices";
 
 export default {
   name: "ConfigSettingsPanel",
+  components: { SettingSelect, SettingChoices },
   props: {
     groups: { type: Array, default: () => [] },
     values: { type: Object, default: () => ({}) },
@@ -94,17 +97,6 @@ export default {
       return "text";
     }
 
-    function selectItems(field) {
-      return (field.options || []).map((value) => ({
-        title: value || field.placeholder || "Default",
-        value,
-      }));
-    }
-
-    function selectedItem(field) {
-      return selectItems(field).find((item) => item.value === draft[field.path]) || null;
-    }
-
     function save() {
       try {
         const update = buildConfigUpdate(
@@ -133,8 +125,6 @@ export default {
       showClear,
       sourceLabel,
       inputType,
-      selectItems,
-      selectedItem,
       save,
     };
   },
@@ -156,8 +146,10 @@ export default {
             class="settings-panel-head"
           >
             <div v-if="!hideSingleGroupHeading || groups.length > 1" class="settings-panel-copy">
-              <h3 class="settings-panel-title workspace-document-title">{{ group.title }}</h3>
-              <p v-if="group.note" class="settings-panel-meta">{{ group.note }}</p>
+              <slot name="heading" :group="group">
+                <h3 class="settings-panel-title workspace-document-title">{{ group.title }}</h3>
+                <p v-if="group.note" class="settings-panel-meta">{{ group.note }}</p>
+              </slot>
             </div>
             <QButton
               v-if="savePlacement === 'header' && group === groups[0]"
@@ -194,14 +186,23 @@ export default {
                 :disabled="fieldDisabled(field)"
                 @update:modelValue="updateField(field, $event)"
               />
-              <QDropdownMenu
+              <SettingSelect
                 v-else-if="field.type === 'select'"
-                :key="field.path + ':' + String(draft[field.path])"
-                :items="selectItems(field)"
-                :initialItem="selectedItem(field)"
-                :placeholder="field.placeholder || ''"
+                :modelValue="draft[field.path]"
+                :options="field.options"
+                :allowCustom="field.allowCustom"
+                :label="field.label"
+                :placeholder="field.placeholder || 'Default'"
                 :disabled="fieldDisabled(field)"
-                @change="updateField(field, $event?.value ?? '')"
+                @update:modelValue="updateField(field, $event)"
+              />
+              <SettingChoices
+                v-else-if="field.type === 'string_list' && field.options"
+                :modelValue="draft[field.path].split(/\\r?\\n/).map(item => item.trim()).filter(Boolean)"
+                :options="field.options"
+                :label="field.label"
+                :disabled="fieldDisabled(field)"
+                @update:modelValue="updateField(field, $event.join('\\n'))"
               />
               <QTextarea
                 v-else-if="field.type === 'string_list' || field.type === 'json'"

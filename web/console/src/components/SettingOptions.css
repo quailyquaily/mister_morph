@@ -1,0 +1,34 @@
+.settings-enum-select {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.settings-enum-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.settings-enum-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--text-0);
+  cursor: pointer;
+}
+
+.settings-enum-choice input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent-1);
+}
+
+.settings-enum-choice:has(input:disabled) {
+  color: var(--text-2);
+  cursor: not-allowed;
+}

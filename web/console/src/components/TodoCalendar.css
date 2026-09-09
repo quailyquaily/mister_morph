@@ -75,7 +75,7 @@
   min-width: 0;
 }
 
-.todo-view-tabs .q-button.app-tabs-option {
+.todo-view-tabs .app-tabs-option {
   flex: 1 1 0;
 }
 
@@ -115,6 +115,7 @@
   position: relative;
   grid-template-rows: repeat(6, minmax(112px, 1fr));
   min-height: min(720px, calc(100vh - 118px));
+  border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: var(--line);
@@ -313,11 +314,15 @@
 .todo-calendar-empty {
   position: absolute;
   inset: 0;
+  z-index: 1;
   display: grid;
   place-content: center;
   gap: 5px;
   padding: 24px;
   pointer-events: none;
+  background: color-mix(in srgb, var(--q-bg-paper) 70%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   color: var(--text-2);
   text-align: center;
 }
@@ -354,6 +359,10 @@
     justify-content: flex-start;
     min-height: 44px;
     padding: 0 var(--content-gutter-x) 8px;
+  }
+
+  .todo-calendar-month-nav .todo-calendar-today {
+    margin-left: auto;
   }
 
   .todo-calendar-weekdays > span {
@@ -433,7 +442,6 @@
     font-size: var(--font-size-ui);
   }
 
-  .todo-calendar-agenda-head span,
   .todo-calendar-agenda > p {
     margin: 0;
     color: var(--text-2);
@@ -455,9 +463,5 @@
 @media (max-width: 520px) {
   .todo-calendar-month-title {
     min-width: 12ch;
-  }
-
-  .todo-calendar-today {
-    display: none;
   }
 }

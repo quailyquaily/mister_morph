@@ -210,11 +210,6 @@ const ArtifactPreviewCard = {
       }
     }
 
-    async function refreshPreview() {
-      autoStarted.value = true;
-      await loadPreview();
-    }
-
     async function togglePreview() {
       autoStarted.value = true;
       if (!expanded.value) {
@@ -325,7 +320,6 @@ const ArtifactPreviewCard = {
       artifactLabel,
       isImagePreview,
       canPreview,
-      refreshPreview,
       togglePreview,
       downloadArtifact,
       toggleFullscreenPreview,
@@ -349,16 +343,6 @@ const ArtifactPreviewCard = {
             >
               <PhCaretUp v-if="expanded" class="icon" />
               <PhCaretDown v-else class="icon" />
-            </QButton>
-            <QButton
-              class="plain xs icon"
-              :title="t('artifact_preview_action_refresh')"
-              :aria-label="t('artifact_preview_action_refresh')"
-              :disabled="!canPreview"
-              :loading="loading"
-              @click="refreshPreview"
-            >
-              <PhArrowClockwise class="icon" />
             </QButton>
             <QButton
               class="plain xs icon"

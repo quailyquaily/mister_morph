@@ -1,3 +1,5 @@
+import { CACHE_TTL_OPTIONS, IMAGE_PARTS_OPTIONS, TASK_TARGET_OPTIONS } from "./config-options";
+
 export const DEFAULT_MODEL_ADVANCED_CONFIG_GROUPS = [
   {
     id: "model-behavior",
@@ -5,9 +7,9 @@ export const DEFAULT_MODEL_ADVANCED_CONFIG_GROUPS = [
     note: "Low-frequency request and provider settings for the default profile.",
     fields: [
       { path: "llm.context_window_tokens", label: "Context window", type: "int" },
-      { path: "llm.supports_image_parts", label: "Supports image parts", type: "string", placeholder: "auto, true, or false" },
+      { path: "llm.supports_image_parts", label: "Supports image parts", type: "select", options: IMAGE_PARTS_OPTIONS },
       { path: "llm.headers", label: "HTTP headers", type: "json", wide: true, placeholder: "{}" },
-      { path: "llm.cache_ttl", label: "Cache TTL", type: "string", placeholder: "off, short, long, or 5m" },
+      { path: "llm.cache_ttl", label: "Cache TTL", type: "select", options: CACHE_TTL_OPTIONS, allowCustom: true },
       { path: "llm.cache_key_prefix", label: "Cache key prefix", type: "string" },
       { path: "llm.request_timeout", label: "Request timeout", type: "string", placeholder: "90s" },
       { path: "llm.temperature", label: "Temperature", type: "float" },
@@ -38,7 +40,7 @@ export const LLM_SYSTEM_CONFIG_GROUPS = [
     title: "Image model",
     note: "Used by image_generate and image_edit. Empty fields use the supported default-model inheritance rules.",
     fields: [
-      { path: "llm.image.provider", label: "Provider", type: "string" },
+      { path: "llm.image.provider", label: "Provider", type: "select", options: ["", "openai", "gemini", "cloudflare"], placeholder: "Inherit default model" },
       { path: "llm.image.endpoint", label: "API base", type: "string" },
       { path: "llm.image.api_key", label: "API key", type: "string", secret: true },
       { path: "llm.image.model", label: "Model", type: "string" },
@@ -236,8 +238,8 @@ export const SYSTEM_CONFIG_GROUPS = [
     id: "logging",
     title: "Logging",
     fields: [
-      { path: "logging.level", label: "Level", type: "string", placeholder: "debug, info, warn, or error" },
-      { path: "logging.format", label: "Format", type: "string", placeholder: "text or json" },
+      { path: "logging.level", label: "Level", type: "select", options: ["", "debug", "info", "warn", "error"] },
+      { path: "logging.format", label: "Format", type: "select", options: ["text", "json"] },
     ],
   },
 ];
@@ -283,7 +285,7 @@ export const SYSTEM_ADVANCED_CONFIG_GROUPS = [
       { path: "contacts.dir_name", label: "Contacts directory name", type: "string" },
       { path: "contacts.proactive.failure_cooldown", label: "Contact failure cooldown", type: "string" },
       { path: "tasks.dir_name", label: "Tasks directory name", type: "string" },
-      { path: "tasks.persistence_targets", label: "Task persistence targets", type: "string_list", wide: true },
+      { path: "tasks.persistence_targets", label: "Task persistence targets", type: "string_list", options: TASK_TARGET_OPTIONS, wide: true },
       { path: "tasks.rotate_max_bytes", label: "Task journal rotation bytes", type: "int" },
     ],
   },

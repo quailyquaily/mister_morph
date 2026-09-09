@@ -378,7 +378,6 @@ const TodoCalendar = {
       <section class="todo-calendar-agenda" :aria-label="t('todo_calendar_agenda')">
         <header class="todo-calendar-agenda-head">
           <strong>{{ selectedDateTitle }}</strong>
-          <span>{{ t("todo_calendar_item_count", { count: selectedDateEntries.length }) }}</span>
         </header>
         <div v-if="selectedDateEntries.length > 0" class="todo-calendar-agenda-items">
           <button

@@ -24,10 +24,13 @@ import {
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 import InferenceProviderPicker from "./InferenceProviderPicker";
+import SettingSelect from "./SettingSelect";
+import { CACHE_TTL_OPTIONS, IMAGE_PARTS_OPTIONS } from "../core/config-options";
 
 const LLMConfigForm = {
   components: {
     InferenceProviderPicker,
+    SettingSelect,
   },
   props: {
     config: {
@@ -356,6 +359,8 @@ const LLMConfigForm = {
 
     return {
       t,
+      CACHE_TTL_OPTIONS,
+      IMAGE_PARTS_OPTIONS,
       providerItem,
       providerManagedField,
       effectiveProviderChoice,
@@ -740,18 +745,21 @@ const LLMConfigForm = {
         </div>
         <div class="settings-field">
           <span class="settings-field-label">Supports image parts</span>
-          <QInput
+          <SettingSelect
             :modelValue="config.supports_image_parts"
-            placeholder="auto, true, or false"
+            :options="IMAGE_PARTS_OPTIONS"
+            label="Supports image parts"
             :disabled="busy || readOnly"
             @update:modelValue="updateField('supports_image_parts', $event)"
           />
         </div>
         <div class="settings-field">
           <span class="settings-field-label">Cache TTL</span>
-          <QInput
+          <SettingSelect
             :modelValue="config.cache_ttl"
-            placeholder="off, short, long, or 5m"
+            :options="CACHE_TTL_OPTIONS"
+            allowCustom
+            label="Cache TTL"
             :disabled="busy || readOnly"
             @update:modelValue="updateField('cache_ttl', $event)"
           />

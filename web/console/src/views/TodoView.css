@@ -675,7 +675,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   min-width: 0;
 }
 
-.todo-repeat-kind-tabs .q-button.app-tabs-option {
+.todo-repeat-kind-tabs .app-tabs-option {
   flex: 1 1 0;
   min-width: 0;
 }

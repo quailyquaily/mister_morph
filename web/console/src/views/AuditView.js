@@ -281,6 +281,8 @@ const AuditView = {
     let initEndpointRef = "";
     let initPromise = null;
     let initToken = null;
+    let refreshTimer = null;
+    let chunkSequence = 0;
     const meta = reactive({
       path: "",
       exists: false,
@@ -735,12 +737,16 @@ const AuditView = {
     }
 
     async function loadChunk(cursor = "", endpointRef = currentEndpointRef(), token = null) {
+      const sequence = ++chunkSequence;
+      const file = selectedFile.value;
+      const isCurrent = () => sequence === chunkSequence && acceptsAuditLoad(token) &&
+        endpointRef === currentEndpointRef() && file === selectedFile.value;
       loading.value = true;
       err.value = "";
       try {
         const q = new URLSearchParams();
-        if (selectedFile.value) {
-          q.set("file", selectedFile.value);
+        if (file) {
+          q.set("file", file);
         }
         q.set("limit", String(AUDIT_ITEMS_PER_PAGE));
         const normalizedCursor = String(cursor || "").trim();
@@ -751,7 +757,7 @@ const AuditView = {
         const data = await loadResource(resourceKey("audit", "logs", endpointRef, path), () =>
           runtimeApiFetchForEndpoint(endpointRef, path)
         );
-        if (!acceptsAuditLoad(token)) {
+        if (!isCurrent()) {
           return;
         }
         meta.path = data.path || "";
@@ -764,12 +770,12 @@ const AuditView = {
         lines.value = fetchedLines.slice(-AUDIT_ITEMS_PER_PAGE);
         return true;
       } catch (e) {
-        if (acceptsAuditLoad(token)) {
+        if (isCurrent()) {
           err.value = e.message || t("msg_load_failed");
         }
         return false;
       } finally {
-        if (acceptsAuditLoad(token)) {
+        if (sequence === chunkSequence && acceptsAuditLoad(token)) {
           loading.value = false;
         }
       }
@@ -858,8 +864,18 @@ const AuditView = {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
       void init();
+      refreshTimer = window.setInterval(() => {
+        if (document.hidden || initPromise || loading.value || taskLoading.value) return;
+        if (isTasksStreamSelected.value) {
+          if (taskPageIndex.value === 0) void loadTaskStream();
+        } else if (pageValue.value === 1) {
+          if (!fileItems.value.length) void init();
+          else void loadChunk("", currentEndpointRef(), initToken);
+        }
+      }, 15000);
     });
     onUnmounted(() => {
+      window.clearInterval(refreshTimer);
       initToken = {};
       window.removeEventListener("resize", refreshMobileMode);
     });
@@ -893,14 +909,12 @@ const AuditView = {
         taskStreamClass,
         selectTaskStream,
         showIndexView,
-        refreshLatest,
         goPrev,
         goNext,
         onFileChange,
         taskItems,
         taskErr,
         taskLoading,
-        loadTaskStream,
         prevTaskPage,
         nextTaskPage,
         openTask,
@@ -987,15 +1001,6 @@ const AuditView = {
               <h3 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h3>
             </div>
             <div class="audit-ledger-actions">
-              <QButton
-                class="plain sm icon"
-                :loading="loading"
-                :title="t('action_refresh')"
-                :aria-label="t('action_refresh')"
-                @click="refreshLatest"
-              >
-                <PhArrowClockwise class="icon" />
-              </QButton>
               <div v-if="meta.exists && (auditGroups.length > 0 || pageValue > 1)" class="audit-pagination">
                 <QButton
                   class="plain sm icon"
@@ -1020,7 +1025,7 @@ const AuditView = {
             </div>
           </header>
 
-        <QProgress v-if="loading" :infinite="true" />
+        <QProgress v-if="loading && auditGroups.length === 0" :infinite="true" />
         <QFence v-if="err" type="danger" icon="PhXCircle" :text="err" />
 
         <div v-if="meta.exists" class="audit-feed">
@@ -1105,15 +1110,6 @@ const AuditView = {
               <h3 class="audit-ledger-title workspace-document-title">{{ t("tasks_title") }}</h3>
             </div>
             <div class="audit-ledger-actions">
-              <QButton
-                class="plain sm icon"
-                :loading="taskLoading"
-                :title="t('action_refresh')"
-                :aria-label="t('action_refresh')"
-                @click="loadTaskStream"
-              >
-                <PhArrowClockwise class="icon" />
-              </QButton>
               <div class="audit-pagination">
                 <QButton
                   class="plain sm icon"
@@ -1138,7 +1134,7 @@ const AuditView = {
             </div>
           </header>
 
-          <QProgress v-if="taskLoading" :infinite="true" />
+          <QProgress v-if="taskLoading && taskItems.length === 0" :infinite="true" />
           <QFence v-if="taskErr" type="danger" icon="PhXCircle" :text="taskErr" />
 
           <div class="stack audit-task-stream">

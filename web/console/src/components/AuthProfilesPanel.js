@@ -1,4 +1,7 @@
 import { computed, reactive, ref, watch } from "vue";
+import SettingChoices from "./SettingChoices";
+import SettingSelect from "./SettingSelect";
+import { HTTP_METHOD_OPTIONS } from "../core/config-options";
 
 let profileKey = 0;
 
@@ -33,6 +36,7 @@ function profileDraft(item = {}) {
 
 export default {
   name: "AuthProfilesPanel",
+  components: { SettingChoices, SettingSelect },
   props: {
     profiles: { type: Array, default: () => [] },
     loading: Boolean,
@@ -61,6 +65,24 @@ export default {
       draft.splice(index, 1);
     }
 
+    function bindingsFor(profile) {
+      try {
+        const bindings = JSON.parse(profile.bindings_text || "{}");
+        return bindings && typeof bindings === "object" && !Array.isArray(bindings) ? bindings : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function updateInjection(profile, tool, field, value) {
+      const bindings = bindingsFor(profile);
+      bindings[tool] = {
+        ...bindings[tool],
+        inject: { ...bindings[tool]?.inject, [field]: value },
+      };
+      profile.bindings_text = JSON.stringify(bindings, null, 2);
+    }
+
     function save() {
       try {
         const profiles = draft.map((item) => ({
@@ -82,7 +104,7 @@ export default {
       }
     }
 
-    return { draft, error, complete, add, remove, save };
+    return { draft, error, complete, add, remove, save, parseList, bindingsFor, updateInjection, HTTP_METHOD_OPTIONS };
   },
   template: `
     <QCard variant="default" class="config-settings-group">
@@ -121,11 +143,54 @@ export default {
               </div>
               <div class="settings-field">
                 <span class="settings-field-label">Allowed methods</span>
-                <QTextarea v-model="profile.methods_text" :rows="4" placeholder="GET\nPOST" :disabled="loading || saving" />
+                <SettingChoices
+                  :modelValue="parseList(profile.methods_text).map(method => method.toUpperCase())"
+                  :options="HTTP_METHOD_OPTIONS"
+                  label="Allowed methods"
+                  :disabled="loading || saving"
+                  @update:modelValue="profile.methods_text = $event.join('\\n')"
+                />
               </div>
               <div class="settings-field is-wide">
                 <span class="settings-field-label">Bindings</span>
-                <QTextarea v-model="profile.bindings_text" :rows="8" class="config-settings-json" :disabled="loading || saving" />
+                <div v-for="(binding, tool) in bindingsFor(profile)" :key="tool" class="settings-binding">
+                  <strong class="settings-field-label">{{ tool }}</strong>
+                  <div class="settings-form-grid">
+                    <div class="settings-field">
+                      <span class="settings-field-label">Injection location</span>
+                      <SettingSelect
+                        :modelValue="binding?.inject?.location || ''"
+                        :options="['header']"
+                        label="Injection location"
+                        :disabled="loading || saving"
+                        @update:modelValue="updateInjection(profile, tool, 'location', $event)"
+                      />
+                    </div>
+                    <div class="settings-field">
+                      <span class="settings-field-label">Injection format</span>
+                      <SettingSelect
+                        :modelValue="binding?.inject?.format || ''"
+                        :options="['', 'raw', 'bearer', 'basic']"
+                        placeholder="Default (raw)"
+                        label="Injection format"
+                        :disabled="loading || saving"
+                        @update:modelValue="updateInjection(profile, tool, 'format', $event)"
+                      />
+                    </div>
+                    <div class="settings-field is-wide">
+                      <span class="settings-field-label">Header name</span>
+                      <QInput
+                        :modelValue="binding?.inject?.name || ''"
+                        :disabled="loading || saving"
+                        @update:modelValue="updateInjection(profile, tool, 'name', $event)"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <details class="settings-bindings-advanced">
+                  <summary>Advanced bindings (JSON)</summary>
+                  <QTextarea v-model="profile.bindings_text" :rows="8" class="config-settings-json" :disabled="loading || saving" />
+                </details>
               </div>
               <div class="settings-field-row is-wide is-three">
                 <QSwitch v-model="profile.deny_private_ips" label="Deny private IPs" :disabled="loading || saving" />

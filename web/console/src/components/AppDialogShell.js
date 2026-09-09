@@ -1,6 +1,15 @@
 import { translate } from "../core/context";
+import { useId } from "vue";
 
 const AppDialogShell = {
+  directives: {
+    dialogTitle: {
+      mounted(el) {
+        // QDialog's custom header slot does not name the dialog automatically.
+        el.closest('[role="dialog"]')?.setAttribute("aria-labelledby", el.id);
+      },
+    },
+  },
   props: {
     modelValue: Boolean,
     title: {
@@ -27,6 +36,7 @@ const AppDialogShell = {
   emits: ["update:modelValue", "close"],
   setup(props, { emit }) {
     const t = translate;
+    const titleId = useId();
 
     function requestClose() {
       if (props.closeDisabled) {
@@ -54,6 +64,7 @@ const AppDialogShell = {
 
     return {
       t,
+      titleId,
       dialogClosed,
       requestClose,
       updateOpen,
@@ -72,7 +83,7 @@ const AppDialogShell = {
       <template #header>
         <header class="app-dialog-header">
           <div class="app-dialog-copy">
-            <h3 class="app-dialog-title">{{ title }}</h3>
+            <h3 :id="titleId" v-dialog-title class="app-dialog-title">{{ title }}</h3>
           </div>
           <QButton
             type="button"

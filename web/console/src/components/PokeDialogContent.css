@@ -1,53 +1,41 @@
+.q-dialog .q-dialog-body:has(> .runtime-poke-dialog) {
+  padding-top: 1rem;
+}
+
 .runtime-poke-dialog {
   display: grid;
   gap: 12px;
   min-width: 0;
 }
 
-.runtime-poke-hint {
-  margin: 0;
-  color: var(--text-2);
-  font-size: var(--font-size-ui);
-  line-height: 1.5;
-}
-
 .runtime-poke-label {
-  color: var(--text-1);
-  font-size: var(--font-size-meta);
-  line-height: 1.35;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .runtime-poke-textarea {
   min-height: 180px;
 }
 
-.runtime-poke-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-meta);
-  line-height: 1.4;
-}
-
-.runtime-poke-meta .is-danger {
+.runtime-poke-error {
+  margin: 0;
   color: var(--danger);
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .runtime-poke-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
   padding-top: 4px;
 }
 
-@media (max-width: 720px) {
-  .runtime-poke-meta,
-  .runtime-poke-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
+.runtime-poke-actions .q-button {
+  min-height: 44px;
 }

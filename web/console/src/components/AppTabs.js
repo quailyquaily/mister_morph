@@ -46,11 +46,12 @@ const AppTabs = {
   },
   template: `
     <div class="app-tabs" role="tablist" :aria-label="ariaLabel || undefined">
-      <QButton
+      <button
         v-for="(tab, index) in tabs"
         :key="tab.id ?? index"
         type="button"
-        :class="['plain', 'sm', 'app-tabs-option', { 'is-active': isActive(tab, index), 'toggle-on': isActive(tab, index) }]"
+        class="app-tabs-option"
+        :class="{ 'is-active': isActive(tab, index) }"
         role="tab"
         :aria-selected="isActive(tab, index)"
         :tabindex="isActive(tab, index) ? 0 : -1"
@@ -59,9 +60,9 @@ const AppTabs = {
         @click="selectTab(tab, index)"
         @keydown="onKeydown($event)"
       >
-        <component v-if="tab.icon" :is="tab.icon" class="icon app-tabs-option-icon" />
+        <component v-if="tab.icon" :is="tab.icon" class="app-tabs-option-icon" aria-hidden="true" />
         <span class="app-tabs-option-label">{{ tab.title }}</span>
-      </QButton>
+      </button>
     </div>
   `,
 };

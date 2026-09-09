@@ -1841,6 +1841,7 @@ const SettingsView = {
       state.llm.model = typeof llm.model === "string" ? llm.model : "";
       state.llm.context_window_tokens = typeof llm.context_window_tokens === "string" ? llm.context_window_tokens : "";
       state.llm.supports_image_parts = typeof llm.supports_image_parts === "string" ? llm.supports_image_parts : "";
+      agentConfigValues.value["llm.supports_image_parts"] = state.llm.supports_image_parts;
       state.llm.headers_text = JSON.stringify(llm.headers && typeof llm.headers === "object" ? llm.headers : {}, null, 2);
       state.llm.cache_ttl = typeof llm.cache_ttl === "string" ? llm.cache_ttl : "";
       state.llm.cache_key_prefix = typeof llm.cache_key_prefix === "string" ? llm.cache_key_prefix : "";
@@ -3374,6 +3375,18 @@ const SettingsView = {
     }
 
     async function saveAdvancedConfigSettings(update) {
+      // This tri-state field belongs to the LLM API, not the generic config schema.
+      const imagePartsPath = "llm.supports_image_parts";
+      if (advancedSettingsScope.value === "agent" &&
+          (Object.hasOwn(update.config_changes, imagePartsPath) || update.reset.includes(imagePartsPath))) {
+        const { [imagePartsPath]: imageParts, ...changes } = update.config_changes;
+        update = {
+          ...update,
+          config_changes: changes,
+          reset: update.reset.filter(path => path !== imagePartsPath),
+          llm: { supports_image_parts: update.reset.includes(imagePartsPath) ? "" : imageParts },
+        };
+      }
       if (await saveConfigSettings(advancedSettingsScope.value, update)) {
         advancedSettingsOpen.value = false;
         closeAdvancedSettings();
@@ -3973,6 +3986,7 @@ const SettingsView = {
         const values = payload?.config_values && typeof payload.config_values === "object" ? payload.config_values : {};
         const fieldStates = payload?.field_states && typeof payload.field_states === "object" ? payload.field_states : {};
         if (scope === "agent") {
+          values["llm.supports_image_parts"] = payload?.llm?.supports_image_parts ?? "";
           agentConfigValues.value = values;
           agentFieldStates.value = fieldStates;
           syncDefaultLLMAdvancedState(values);
@@ -6010,26 +6024,22 @@ const SettingsView = {
 
             <QCard variant="default">
               <div class="settings-panel-shell">
-                <header class="settings-panel-head">
-                  <div class="settings-panel-copy">
+                <ConfigSettingsPanel
+                  :groups="SYSTEM_UPDATE_CONFIG_GROUPS"
+                  :values="systemConfigValues"
+                  :fieldStates="systemFieldStates"
+                  :loading="systemLoading"
+                  :saving="systemSaving"
+                  :embedded="true"
+                  @save="saveConfigSettings('system', $event)"
+                >
+                  <template #heading>
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_auto_update_card_title") }}</h3>
                     <p class="settings-panel-meta">{{ t("settings_auto_update_card_hint") }}</p>
-                  </div>
-                </header>
+                  </template>
+                </ConfigSettingsPanel>
 
                 <div class="settings-panel-body">
-                  <ConfigSettingsPanel
-                    :groups="SYSTEM_UPDATE_CONFIG_GROUPS"
-                    :values="systemConfigValues"
-                    :fieldStates="systemFieldStates"
-                    :loading="systemLoading"
-                    :saving="systemSaving"
-                    :embedded="true"
-                    :hideSingleGroupHeading="true"
-                    savePlacement="footer"
-                    @save="saveConfigSettings('system', $event)"
-                  />
-
                   <div class="settings-console-list">
                     <div class="settings-console-row settings-console-row--desktop-update">
                       <div class="settings-card-copy">

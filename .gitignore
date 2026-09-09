@@ -2,6 +2,7 @@ mistermorph
 !cmd/mistermorph
 
 config.yaml
+/config.mock.yaml
 
 .ai
 .cursor/

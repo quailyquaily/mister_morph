@@ -217,7 +217,7 @@
   min-width: 0;
 }
 
-.inference-provider-tabs .q-button.app-tabs-option {
+.inference-provider-tabs .app-tabs-option {
   flex: 1 1 0;
   min-width: 0;
 }
