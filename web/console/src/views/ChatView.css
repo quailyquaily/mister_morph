@@ -155,7 +155,13 @@
 }
 
 .chat-topic-item {
+  grid-template-columns: 20px minmax(0, 1fr) 16px;
   box-shadow: none !important;
+}
+
+.chat-topic-item-icon {
+  align-self: start;
+  color: var(--text-1);
 }
 
 .chat-topic-item-main {
@@ -606,12 +612,14 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   padding-top: 12px;
 }
 
-.chat-topic-danger-action {
+.chat-topic-danger-action,
+.chat-topic-regenerate-action {
   width: 100%;
   justify-content: center;
 }
 
-.chat-topic-danger-action .icon {
+.chat-topic-danger-action .icon,
+.chat-topic-regenerate-action .icon {
   width: 14px;
   min-width: 14px;
   height: 14px;

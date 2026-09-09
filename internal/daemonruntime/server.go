@@ -112,12 +112,13 @@ type TopicMetadataContext struct {
 }
 
 type TaskTopicRoutes struct {
-	TaskReader    TaskReader
-	TopicReader   TopicReader
-	TopicDeleter  TopicDeleter
-	Submit        SubmitFunc
-	Stop          StopFunc
-	TopicMetadata TopicMetadataFunc
+	TaskReader           TaskReader
+	TopicReader          TopicReader
+	TopicDeleter         TopicDeleter
+	Submit               SubmitFunc
+	Stop                 StopFunc
+	TopicMetadata        TopicMetadataFunc
+	RegenerateTopicTitle func(context.Context, string) (TopicInfo, error)
 }
 
 type ApprovalRoutes struct {

@@ -16,6 +16,7 @@ import {
   resolveAvailableChatLLMProfile,
 } from "../core/chat-llm-profiles";
 import { lastTopicID, rememberLastTopicID } from "../core/chat-topic-memory";
+import { topicIcon, useTopicMetadata } from "../core/topic-metadata";
 import {
   buildPollingHint,
   chatApprovalReasonText,
@@ -215,6 +216,7 @@ const AgentChatPane = {
         id: normalizeTopicID(topic?.id),
         value: normalizeTopicID(topic?.id),
         title: topicTitle(topic),
+        icon: topicIcon(topic),
       }))
     );
     const filteredTopicOptions = computed(() => {
@@ -1555,6 +1557,8 @@ const AgentChatPane = {
       }
     );
 
+    useTopicMetadata(topics, submitEndpointRef);
+
     onMounted(() => {
       const initialTopicID = normalizeTopicID(props.initialTopicId);
       selectedTopicID.value = initialTopicID;
@@ -1993,7 +1997,12 @@ const AgentChatPane = {
                 :aria-selected="item.value === selectedTopicID ? 'true' : 'false'"
                 @click="selectTopic(item)"
               >
-                <span>{{ item.title }}</span>
+                <span
+                  class="topic-icon agent-chat-topic-icon"
+                  :style="{ '--topic-icon': 'url(' + JSON.stringify(item.icon) + ')' }"
+                  aria-hidden="true"
+                ></span>
+                <span class="agent-chat-topic-option-title">{{ item.title }}</span>
                 <PhCheckCircle
                   v-if="item.value === selectedTopicID"
                   class="icon agent-chat-topic-dialog-check"

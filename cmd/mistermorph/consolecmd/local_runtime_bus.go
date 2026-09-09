@@ -93,8 +93,9 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		validatedWorkspaceDir = dir
 	}
 	autoRenameTopic := topicID == "" && explicitTopicTitle == ""
-	topicTitle = seedConsoleTopicTitle(task, topicTitle)
+	topicTitle = explicitTopicTitle
 	if topicID == "" {
+		topicTitle = seedConsoleTopicTitle(task, explicitTopicTitle)
 		id, err := uuid.NewV7()
 		if err != nil {
 			id = uuid.New()
@@ -323,6 +324,8 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 			job.WorkspaceDir = resolution.WorkspaceDir
 		}
 	}
+	// Naming runs independently as soon as the admitted task reaches the queue.
+	r.maybeRefreshTopicTitle(job)
 	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
 		job.Version = version
 		return job

@@ -1,0 +1,9 @@
+.topic-icon {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask: var(--topic-icon) center / contain no-repeat;
+  mask: var(--topic-icon) center / contain no-repeat;
+}

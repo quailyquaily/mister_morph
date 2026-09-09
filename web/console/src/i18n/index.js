@@ -470,6 +470,8 @@ const I18N = {
     chat_workspace_kind_dir: "dir",
     chat_workspace_kind_file: "file",
     chat_topic_delete_action: "Delete Topic",
+    chat_topic_regenerate_action: "Regenerate name",
+    chat_topic_regenerate_failed: "Could not regenerate the topic name.",
     chat_topic_delete_confirm: "Delete topic \"{title}\"? This hides its tasks from the default view.",
     chat_submit_unsupported:
       "Endpoint \"{name}\" is read-only from this Console. Open that instance's own Console, or switch to a local endpoint that can submit tasks.",
@@ -1587,6 +1589,8 @@ const I18N = {
     chat_workspace_kind_dir: "dir",
     chat_workspace_kind_file: "file",
     chat_topic_delete_action: "删除话题",
+    chat_topic_regenerate_action: "重新生成名称",
+    chat_topic_regenerate_failed: "无法重新生成话题名称。",
     chat_topic_delete_confirm: "要删除话题“{title}”吗？删除后该话题任务会从默认视图中隐藏。",
     chat_submit_unsupported:
       "当前 Console 无法向 endpoint \"{name}\" 发送任务。请打开该实例自己的 Console，或切换到可提交任务的本地 endpoint。",
@@ -2703,6 +2707,8 @@ const I18N = {
     chat_workspace_kind_dir: "dir",
     chat_workspace_kind_file: "file",
     chat_topic_delete_action: "トピックを削除",
+    chat_topic_regenerate_action: "名前を再生成",
+    chat_topic_regenerate_failed: "トピック名を再生成できませんでした。",
     chat_topic_delete_confirm: "Delete topic \"{title}\"? Its tasks will be hidden from the default view.",
     chat_submit_unsupported:
       "endpoint \"{name}\" にはこの Console からタスク送信できません。そのインスタンス自身の Console を開くか、送信可能なローカル endpoint に切り替えてください。",

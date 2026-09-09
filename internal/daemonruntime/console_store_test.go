@@ -708,7 +708,7 @@ func TestConsoleFileStoreSetTopicTitleFromLLMPersistsGeneratedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTopic() error = %v", err)
 	}
-	if err := store.SetTopicTitleFromLLM(topic.ID, "llm title"); err != nil {
+	if err := store.SetTopicTitleFromLLM(topic.ID, "initial", "llm title", "chat"); err != nil {
 		t.Fatalf("SetTopicTitleFromLLM() error = %v", err)
 	}
 

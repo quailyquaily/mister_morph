@@ -272,6 +272,16 @@
   border-bottom: 0;
 }
 
+.agent-chat-topic-icon {
+  flex: 0 0 20px;
+}
+
+.agent-chat-topic-option-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .agent-chat-topic-dialog-option:hover,
 .agent-chat-topic-dialog-option:focus-visible {
   outline: none;

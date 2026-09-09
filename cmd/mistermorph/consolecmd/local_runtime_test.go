@@ -108,7 +108,7 @@ type consoleTopicTitleLLMClient struct {
 
 func (c *consoleTopicTitleLLMClient) Chat(_ context.Context, request llm.Request) (llm.Result, error) {
 	c.request = request
-	return llm.Result{Text: "Selected title"}, nil
+	return llm.Result{Text: `{"title":"Selected title","icon":"book-open"}`}, nil
 }
 
 func (c *consoleTopicTitleLLMClient) Close() error {
@@ -1000,53 +1000,6 @@ func llmRequestHasTool(req llm.Request, name string) bool {
 	return false
 }
 
-func TestConsoleTopicTitleFromOutput(t *testing.T) {
-	t.Run("short output becomes title", func(t *testing.T) {
-		got := consoleTopicTitleFromOutput("  Short answer.  ")
-		if got != "Short answer" {
-			t.Fatalf("consoleTopicTitleFromOutput() = %q, want %q", got, "Short answer")
-		}
-	})
-
-	t.Run("long output requires llm", func(t *testing.T) {
-		got := consoleTopicTitleFromOutput(strings.Repeat("a", consoleTopicTitleDirectOutputMaxRunes+1))
-		if got != "" {
-			t.Fatalf("consoleTopicTitleFromOutput() = %q, want empty", got)
-		}
-	})
-}
-
-func TestConsoleLocalRuntimeMaybeRefreshTopicTitleUsesShortOutput(t *testing.T) {
-	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		Persist: false,
-	})
-	if err != nil {
-		t.Fatalf("NewConsoleFileStore() error = %v", err)
-	}
-	topic, err := store.CreateTopic("seed title")
-	if err != nil {
-		t.Fatalf("CreateTopic() error = %v", err)
-	}
-
-	rt := &consoleLocalRuntime{store: store}
-	rt.maybeRefreshTopicTitle(consoleLocalTaskJob{
-		TopicID:         topic.ID,
-		Task:            "first task",
-		AutoRenameTopic: true,
-	}, "Direct title")
-
-	updated, ok := store.GetTopic(topic.ID)
-	if !ok || updated == nil {
-		t.Fatalf("GetTopic(%q) missing", topic.ID)
-	}
-	if updated.Title != "Direct title" {
-		t.Fatalf("updated.Title = %q, want %q", updated.Title, "Direct title")
-	}
-	if updated.LLMTitleGeneratedAt != nil {
-		t.Fatal("updated.LLMTitleGeneratedAt != nil, want nil for direct title path")
-	}
-}
-
 func TestConsoleGenerateTopicTitleSelectsWeightedRouteBeforeClient(t *testing.T) {
 	weightedRoute := llmutil.ResolvedRoute{
 		Purpose:  llmutil.RoutePurposeMainLoop,
@@ -1067,12 +1020,12 @@ func TestConsoleGenerateTopicTitleSelectsWeightedRouteBeforeClient(t *testing.T)
 	}}
 	const runID = "console-title-run"
 
-	title, err := (&consoleLocalRuntime{}).generateTopicTitle(llmstats.WithRunID(context.Background(), runID), generation, "summarize", "long output")
+	title, err := (&consoleLocalRuntime{}).generateTopicTitle(llmstats.WithRunID(context.Background(), runID), generation, "summarize")
 	if err != nil {
 		t.Fatalf("generateTopicTitle() error = %v", err)
 	}
-	if title != "Selected title" {
-		t.Fatalf("title = %q, want Selected title", title)
+	if title.Title != "Selected title" || title.Icon != "book-open" {
+		t.Fatalf("title = %+v, want Selected title with book-open icon", title)
 	}
 	want := llmutil.SelectRouteCandidate(weightedRoute, runID)
 	if len(builtRoute.Candidates) != 0 || builtRoute.ClientConfig.Model != want.ClientConfig.Model {
@@ -1098,7 +1051,7 @@ func TestConsoleGenerateTopicTitleClosesClientReturnedWithCreateError(t *testing
 		},
 	}}
 
-	_, err := (&consoleLocalRuntime{}).generateTopicTitle(context.Background(), generation, "summarize", "output")
+	_, err := (&consoleLocalRuntime{}).generateTopicTitle(context.Background(), generation, "summarize")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("generateTopicTitle() error = %v, want %v", err, wantErr)
 	}

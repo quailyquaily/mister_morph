@@ -14,6 +14,11 @@ Stack:
 - Vite (`src` -> `dist`)
 - package manager: `pnpm`
 
+Quail UI JavaScript uses named imports from `src/components/quail.js`, not the
+full `QuailUI` plugin. Add new components there, including any dependencies that
+the component resolves through Vue's global registry. `main.js` keeps the shared
+popup-close handler and the full Quail UI stylesheet.
+
 ## Runtime Notes
 
 - Console APIs are served under `<console.base_path>/api` (default: `/api`).
@@ -95,7 +100,14 @@ Stack:
 - Chat:
   - send task directly to current agent
   - left secondary sidebar for topics, with one `New Topic` button, topic switching, current-topic delete, and a hidden system topic toggle exposed by clicking the topic sidebar title five times
-  - topic title is seeded from the first prompt; after the first successful task, short outputs can directly replace it, otherwise the runtime may asynchronously refine it once via LLM
+  - topic title is seeded from the first prompt; once the new topic's task reaches the queue, a separate background LLM request names it and selects a theme icon from a fixed Phosphor catalog, without waiting for the task's reply
+  - initial naming uses only the first user message, keeps its language, and does not invent a subject for greetings; request timeouts, retries, and fallback follow the configured LLM route
+  - generated titles and icons are persisted together; failed naming leaves the seed title, later messages do not rename the topic, and background results cannot overwrite a customized title or restore a deleted topic
+  - topic items use the selected icon, or a chat icon for old/unknown values; visible pages check metadata every five seconds without resetting topic selection, drafts, or pagination
+  - `internal/taskdomain/topic_icons.json` maps theme IDs to descriptions; matching regular-weight Phosphor SVGs live in `web/console/src/assets/topic-icons/`, with their MIT license. Topic icons use CSS masks and inherit the text color without Vue icon components. Greetings use a separate waving-hand icon, with specific themes for pets, babies, home and family, food, fitness, music, and travel
+  - `Regenerate name` sits below the properties in the Topic panel, separate from Delete Topic, on desktop and mobile. It generates the name and icon from the first user message and the latest six conversation turns, preferring recent substantive discussion when the subject changes
+  - regeneration excludes slash commands, reasoning, tool logs, and incomplete replies. Each user message is capped at 600 characters and each completed assistant reply at 400; the total naming input is capped at 8,000 characters
+  - regeneration keeps the current name and icon until success, rejects duplicate requests for the same topic, and leaves them unchanged on failure. A title revision prevents late results from overwriting subsequent edits or deletion; starting regeneration also invalidates pending initial naming. Empty and system topics cannot be regenerated
   - topic-scoped `ChatHistoryItems` style list
   - receive task progress over WebSocket for local and remote Console endpoints, with `/tasks/{id}` polling as fallback
 - Tasks:
@@ -160,9 +172,11 @@ Tasks:
 - `GET /proxy?endpoint=<ref>&uri=/tasks/{id}`
 - `GET /proxy?endpoint=<ref>&uri=/topics?limit=<n>[&cursor=<opaque>]`
 - `DELETE /proxy?endpoint=<ref>&uri=/topics/{topic_id}`
+- `POST /proxy?endpoint=<ref>&uri=/topics/{topic_id}/regenerate-title`
 
 Notes:
 - Topic APIs are guaranteed on `Console Local`; other runtimes may return `503` if they do not expose topic readers/deleters.
+- Regeneration returns the updated topic, including its title, icon, and `title_revision`. It returns `400` for an empty or system topic, `404` for a missing topic, `409` for an in-flight request or concurrent title change, and `503` for generation failure or an unsupported runtime. It uses the configured LLM request timeout, retries, and fallback, not the ordinary 20-second proxy timeout; disconnecting cancels the request.
 
 Runtime routes used through `/proxy`:
 - Selected Console settings:

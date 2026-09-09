@@ -96,7 +96,17 @@ func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath strin
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	resp, err := c.client.Do(req)
+	client := c.client
+	proxyPath, _, _ := strings.Cut(endpointPath, "?")
+	if req.Method == http.MethodPost && strings.HasPrefix(proxyPath, "/topics/") && strings.HasSuffix(proxyPath, "/regenerate-title") {
+		// Naming uses the runtime's configured LLM timeout and retries. The
+		// ordinary proxy timeout must not cut that work short; caller cancellation
+		// still propagates through the request context.
+		namingClient := *client
+		namingClient.Timeout = 0
+		client = &namingClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, nil, err
 	}

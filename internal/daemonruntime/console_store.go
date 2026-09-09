@@ -3,6 +3,7 @@ package daemonruntime
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,11 @@ const (
 	legacyConsoleTaskLogDirName   = "log"
 	legacyConsoleHeartbeatTopicID = "_heartbeat"
 	legacyConsoleHeartbeatTitle   = "Heartbeat"
+)
+
+var (
+	ErrTopicTitleChanged = errors.New("topic was renamed or deleted during generation")
+	ErrTopicTitleBusy    = errors.New("topic name generation is already in progress")
 )
 
 type ConsoleFileStoreOptions struct {
@@ -479,14 +485,14 @@ func (s *ConsoleFileStore) DeleteTopic(id string) (bool, error) {
 }
 
 func (s *ConsoleFileStore) SetTopicTitle(id string, title string) error {
-	return s.setTopicTitle(id, title, false)
+	return s.setTopicTitle(id, title, "", "", false)
 }
 
-func (s *ConsoleFileStore) SetTopicTitleFromLLM(id string, title string) error {
-	return s.setTopicTitle(id, title, true)
+func (s *ConsoleFileStore) SetTopicTitleFromLLM(id, expectedTitle, title, icon string) error {
+	return s.setTopicTitle(id, title, icon, expectedTitle, true)
 }
 
-func (s *ConsoleFileStore) setTopicTitle(id string, title string, fromLLM bool) error {
+func (s *ConsoleFileStore) setTopicTitle(id, title, icon, expectedTitle string, fromLLM bool) error {
 	if s == nil {
 		return fmt.Errorf("console task store is nil")
 	}
@@ -507,35 +513,104 @@ func (s *ConsoleFileStore) setTopicTitle(id string, title string, fromLLM bool) 
 	if !ok || topicDeleted(topic) {
 		return fmt.Errorf("topic %q not found", id)
 	}
-	if fromLLM && topic.LLMTitleGeneratedAt != nil {
+	if fromLLM && (topic.LLMTitleGeneratedAt != nil || topic.TitleCustomized || topic.TitleRevision != 0 || topic.Title != expectedTitle) {
 		return nil
 	}
-	changed := false
-	if topic.Title != title {
-		topic.Title = title
-		changed = true
-	}
-	if fromLLM && topic.LLMTitleGeneratedAt == nil {
-		generatedAt := now
-		topic.LLMTitleGeneratedAt = &generatedAt
-		changed = true
-	}
-	if !changed {
-		return nil
+	topic.Title = title
+	if fromLLM {
+		topic.LLMTitleGeneratedAt = &now
+		topic.Icon = taskdomain.NormalizeTopicIcon(icon)
+	} else {
+		topic.TitleCustomized = true
 	}
 	topic.UpdatedAt = now
+	topic.TitleRevision++
+	return s.saveTopicTitleLocked(topic, now)
+}
+
+// BeginTopicTitleRegeneration invalidates pending naming results without changing
+// the displayed title, icon or topic ordering. Its revision survives a restart.
+func (s *ConsoleFileStore) BeginTopicTitleRegeneration(id string) (TopicInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	topic, ok := s.topics[id]
+	if !ok || topicDeleted(topic) {
+		return TopicInfo{}, ErrTopicTitleChanged
+	}
+	topic.TitleRevision++
+	if err := s.saveTopicTitleLocked(topic, time.Now().UTC()); err != nil {
+		return TopicInfo{}, err
+	}
+	return topic, nil
+}
+
+func (s *ConsoleFileStore) CompleteTopicTitleRegeneration(id string, revision uint64, title, icon string) (TopicInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	topic, ok := s.topics[id]
+	if !ok || topicDeleted(topic) || revision == 0 || topic.TitleRevision != revision {
+		return TopicInfo{}, ErrTopicTitleChanged
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return TopicInfo{}, fmt.Errorf("missing topic title")
+	}
+	now := time.Now().UTC()
+	topic.Title = title
+	topic.Icon = taskdomain.NormalizeTopicIcon(icon)
+	topic.TitleCustomized = false
+	topic.TitleRevision++
+	topic.LLMTitleGeneratedAt = &now
+	topic.UpdatedAt = now
+	if err := s.saveTopicTitleLocked(topic, now); err != nil {
+		return TopicInfo{}, err
+	}
+	return topic, nil
+}
+
+func (s *ConsoleFileStore) saveTopicTitleLocked(topic TopicInfo, now time.Time) error {
 	topic = normalizeTopicInfo(topic)
 	cursor, err := s.appendTopicEventLocked(taskdomain.JournalTypeTopicTitleUpdated, topic, now, TaskTrigger{})
 	if err != nil {
 		return err
 	}
-	previous := s.topics[id]
-	s.topics[id] = topic
+	previous := s.topics[topic.ID]
+	s.topics[topic.ID] = topic
 	if topicOrderChanged(previous, topic) {
-		s.orderedTopicIDs = upsertOrderedTopicID(s.orderedTopicIDs, s.topics, id)
+		s.orderedTopicIDs = upsertOrderedTopicID(s.orderedTopicIDs, s.topics, topic.ID)
 	}
 	s.projectionCursor = cursor
 	return nil
+}
+
+// TopicTitleTasks returns the first user task and a bounded recent history in
+// chronological order. Slash commands are not conversation subjects.
+func (s *ConsoleFileStore) TopicTitleTasks(id string, recentLimit int) []TaskInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if topic, ok := s.topics[id]; !ok || topicDeleted(topic) || recentLimit <= 0 {
+		return nil
+	}
+	var first TaskInfo
+	recent := make([]TaskInfo, 0, recentLimit+1)
+	for _, taskID := range s.orderedIDsByTopic[id] {
+		task := s.items[taskID]
+		text := strings.TrimSpace(task.Task)
+		if text == "" || strings.HasPrefix(text, "/") {
+			continue
+		}
+		first = task
+		if len(recent) < recentLimit {
+			recent = append(recent, task)
+		}
+	}
+	if len(recent) > 0 && recent[len(recent)-1].ID != first.ID {
+		recent = append(recent, first)
+	}
+	for i, j := 0, len(recent)-1; i < j; i, j = i+1, j-1 {
+		recent[i], recent[j] = recent[j], recent[i]
+	}
+	return recent
 }
 
 func (s *ConsoleFileStore) load() error {
@@ -920,8 +995,10 @@ func nextConsoleTopic(topic TopicInfo, exists bool, topicID string, title string
 		return normalizeTopicInfo(topic)
 	}
 	changed := false
-	if title != "" && topic.Title != title {
+	if title != "" {
 		topic.Title = title
+		topic.TitleCustomized = true
+		topic.TitleRevision++
 		changed = true
 	}
 	if touch {

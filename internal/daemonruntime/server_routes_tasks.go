@@ -2,6 +2,7 @@ package daemonruntime
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -211,6 +212,40 @@ func (routes *routeRegistration) registerTaskRoutes() {
 		suffix := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/topics/"))
 		if suffix == "" {
 			http.Error(w, "missing topic_id", http.StatusBadRequest)
+			return
+		}
+		if strings.HasSuffix(suffix, "/regenerate-title") {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			id := strings.TrimSuffix(suffix, "/regenerate-title")
+			if id == "" || strings.Contains(id, "/") || id == ConsoleDefaultTopicID || id == ConsoleAwarenessTopicID {
+				http.Error(w, "topic cannot be renamed", http.StatusBadRequest)
+				return
+			}
+			if opts.RegenerateTopicTitle == nil || topicReader == nil {
+				http.Error(w, "topic name generation is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			topic, ok := topicReader.GetTopic(id)
+			if !ok || topic == nil || topicDeleted(*topic) {
+				http.NotFound(w, r)
+				return
+			}
+			updated, err := opts.RegenerateTopicTitle(r.Context(), id)
+			if err != nil {
+				status := http.StatusServiceUnavailable
+				if errors.Is(err, ErrTopicTitleChanged) || errors.Is(err, ErrTopicTitleBusy) {
+					status = http.StatusConflict
+				} else if _, ok := badRequestMessage(err); ok {
+					status = http.StatusBadRequest
+				}
+				http.Error(w, err.Error(), status)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(updated)
 			return
 		}
 		if strings.HasSuffix(suffix, "/stop") {

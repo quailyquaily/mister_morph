@@ -52,6 +52,7 @@ import { endpointRoutePath } from "../core/endpoint-routes";
 import { modelVendorMeta } from "../core/model-vendor";
 import { loadResource, resourceKey } from "../core/resources";
 import { workspaceTreeIcon } from "../core/workspace-icons";
+import { topicIcon, useTopicMetadata } from "../core/topic-metadata";
 import {
   apiFetch,
   buildConsoleStreamURL,
@@ -565,6 +566,8 @@ const ChatView = {
     const topicDeleteTarget = ref(null);
     const topicDeleting = ref(false);
     const topicDeleteError = ref("");
+    const topicNameRequests = ref(new Set());
+    const topicNameFailure = ref(null);
     const taskInput = ref("");
     const sending = ref(false);
     const err = ref("");
@@ -994,6 +997,18 @@ const ChatView = {
       () => Boolean(workspaceTopicID.value) && !selectedTopicIsReserved.value
     );
     const topicDeleteDisabled = computed(() => !topicDeleteAvailable.value || topicDeleting.value);
+    const topicNameRequestKey = computed(() => JSON.stringify([submitEndpointRef.value, selectedTopicID.value]));
+    const topicRegenerating = computed(() => topicNameRequests.value.has(topicNameRequestKey.value));
+    const topicRegenerateError = computed(() =>
+      topicNameFailure.value?.key === topicNameRequestKey.value ? topicNameFailure.value.message : ""
+    );
+    const topicRegenerateDisabled = computed(() =>
+      !topicDeleteAvailable.value || topicDeleting.value || topicRegenerating.value || historyLoading.value ||
+      (!historyNextCursor.value && !chatHistoryItems.value.some((item) =>
+        item.role === "user" && item.topicID === selectedTopicID.value &&
+        String(item.text || "").trim() && !String(item.text || "").trim().startsWith("/")
+      ))
+    );
     const topicPropertyRows = computed(() => {
       const topic = selectedTopic.value;
       if (!topic) {
@@ -3358,6 +3373,29 @@ const ChatView = {
       topicDeleteTarget.value = null;
     }
 
+    async function regenerateTopicName() {
+      if (topicRegenerateDisabled.value) return;
+      const endpointRef = submitEndpointRef.value;
+      const topicID = selectedTopicID.value;
+      const key = topicNameRequestKey.value;
+      topicNameRequests.value.add(key);
+      topicNameFailure.value = null;
+      try {
+        const updated = await runtimeApiFetchForEndpoint(endpointRef, `/topics/${encodeURIComponent(topicID)}/regenerate-title`, {
+          method: "POST",
+        });
+        if (submitEndpointRef.value !== endpointRef) return;
+        topics.value = topics.value.map((topic) => {
+          if (topic.id !== topicID || Number(topic.title_revision || 0) > Number(updated.title_revision || 0)) return topic;
+          return { ...topic, ...updated };
+        });
+      } catch (e) {
+        topicNameFailure.value = { key, message: e?.message || t("chat_topic_regenerate_failed") };
+      } finally {
+        topicNameRequests.value.delete(key);
+      }
+    }
+
     function confirmDeleteTopic() {
       if (!topicDeleteAvailable.value || !selectedTopic.value) {
         return;
@@ -3704,6 +3742,8 @@ const ChatView = {
       }
     }
 
+    useTopicMetadata(topics, submitEndpointRef);
+
     onMounted(() => {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
@@ -3891,6 +3931,9 @@ const ChatView = {
       topicDeleteDisabled,
       topicDeleting,
       topicDeleteError,
+      topicRegenerating,
+      topicRegenerateError,
+      topicRegenerateDisabled,
       topicDeleteDialogOpen,
       topicDeleteDialogText,
       topicDeleteDialogActions,
@@ -4006,8 +4049,10 @@ const ChatView = {
       selectTopic,
       startNewTopic,
       confirmDeleteTopic,
+      regenerateTopicName,
       showTopicsView,
       topicTitle,
+      topicIcon,
       topicTime,
       topicItemClass,
       topicIsActive,
@@ -4103,6 +4148,11 @@ const ChatView = {
                 :aria-current="topicIsActive(topic) ? 'page' : undefined"
                 @click="selectTopic(topic.id)"
               >
+                <span
+                  class="topic-icon chat-topic-item-icon"
+                  :style="{ '--topic-icon': 'url(' + JSON.stringify(topicIcon(topic)) + ')' }"
+                  aria-hidden="true"
+                ></span>
                 <span class="chat-topic-item-copy workspace-sidebar-item-copy">
                   <span class="chat-topic-item-main">
                     <span class="chat-topic-item-title workspace-sidebar-item-title">{{ topicTitle(topic) }}</span>
@@ -4475,11 +4525,11 @@ const ChatView = {
                 <template v-else-if="workspaceSidebarTabID === 'topic'">
                   <section class="chat-topic-panel">
                     <QFence
-                      v-if="topicDeleteError"
+                      v-if="topicDeleteError || topicRegenerateError"
                       class="chat-workspace-pane-fence"
                       type="danger"
                       icon="PhXCircle"
-                      :text="topicDeleteError"
+                      :text="topicDeleteError || topicRegenerateError"
                     />
 
                     <section
@@ -4508,6 +4558,17 @@ const ChatView = {
                         </dd>
                       </div>
                     </dl>
+
+                    <QButton
+                      v-if="topicDeleteAvailable"
+                      class="plain sm chat-topic-regenerate-action"
+                      :loading="topicRegenerating"
+                      :disabled="topicRegenerateDisabled"
+                      @click="regenerateTopicName"
+                    >
+                      <PhMagicWand class="icon" />
+                      <span>{{ t("chat_topic_regenerate_action") }}</span>
+                    </QButton>
 
                     <footer v-if="topicDeleteAvailable" class="chat-topic-danger-zone">
                       <QButton
@@ -4740,11 +4801,11 @@ const ChatView = {
               <template v-else-if="workspaceSidebarTabID === 'topic'">
                 <section class="chat-topic-panel">
                   <QFence
-                    v-if="topicDeleteError"
+                    v-if="topicDeleteError || topicRegenerateError"
                     class="chat-workspace-pane-fence"
                     type="danger"
                     icon="PhXCircle"
-                    :text="topicDeleteError"
+                    :text="topicDeleteError || topicRegenerateError"
                   />
 
                   <section
@@ -4773,6 +4834,17 @@ const ChatView = {
                       </dd>
                     </div>
                   </dl>
+
+                  <QButton
+                    v-if="topicDeleteAvailable"
+                    class="plain sm chat-topic-regenerate-action"
+                    :loading="topicRegenerating"
+                    :disabled="topicRegenerateDisabled"
+                    @click="regenerateTopicName"
+                  >
+                    <PhMagicWand class="icon" />
+                    <span>{{ t("chat_topic_regenerate_action") }}</span>
+                  </QButton>
 
                   <footer v-if="topicDeleteAvailable" class="chat-topic-danger-zone">
                     <QButton

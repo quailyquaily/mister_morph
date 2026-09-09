@@ -79,6 +79,9 @@ type TaskTrigger struct {
 type TopicInfo struct {
 	ID                  string     `json:"id"`
 	Title               string     `json:"title,omitempty"`
+	Icon                string     `json:"icon,omitempty"`
+	TitleCustomized     bool       `json:"title_customized,omitempty"`
+	TitleRevision       uint64     `json:"title_revision,omitempty"`
 	LLMTitleGeneratedAt *time.Time `json:"llm_title_generated_at,omitempty"`
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
